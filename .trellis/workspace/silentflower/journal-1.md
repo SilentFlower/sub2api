@@ -65,3 +65,66 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Brainstorm: Antigravity 客户端 Hook 代理可行性研究
+
+**Date**: 2026-03-07
+**Task**: Brainstorm: Antigravity 客户端 Hook 代理可行性研究
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 会话内容
+
+### 需求讨论
+用户提出需求：将 sub2api 的 Antigravity 平台请求通过 Linux 上安装的 Antigravity 官方客户端发送，以降低被 Google 识别和封锁的风险。
+
+### 调研发现
+
+| 发现项 | 详情 |
+|--------|------|
+| **Google Antigravity 本质** | Electron 桌面 IDE（类似 VS Code/Cursor），非 CLI 工具 |
+| **安装方式** | apt/dnf 安装，包名 `antigravity` |
+| **Antigravity-Manager** | 已有开源项目（Tauri+Rust），支持 Docker headless，端口 8045/19527 |
+| **opencode-antigravity-auth** | OpenCode 插件，有详细 Antigravity API 规范文档 |
+| **逆向工程** | 已有安全研究：内部端口 53410（扩展服务器）、9222（CDP）、gRPC API |
+
+### 方案选择
+讨论了 3 个方向，用户选择方案 3：**在 Linux 上安装 Antigravity 客户端，通过 hook 内部通信代理请求**
+
+### MVP 锁定
+- 仅做：安装 + 深度抓包分析 + 可行性验证
+- 不做：实际 hook 代码、多账户管理、fallback、生产部署
+
+### 产出
+- 创建任务目录 `.trellis/tasks/03-07-antigravity-cli-proxy/`
+- 编写 PRD（含 4 个 Phase 的技术方案）
+
+### 下一步
+- Phase 1：在 Linux 上安装 Antigravity + 抓包工具
+- Phase 2：启动抓包，分析全部网络流量
+- Phase 3：逆向分析二进制、本地端口、内部 API
+- Phase 4：输出可行性评估报告
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3bf58817` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
