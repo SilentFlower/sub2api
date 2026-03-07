@@ -128,3 +128,58 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Antigravity Headless LS 代理 PoC 收尾与提交
+
+**Date**: 2026-03-08
+**Task**: Antigravity Headless LS 代理 PoC 收尾与提交
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 工作内容
+
+延续上一会话的 PoC 验证成果，完成收尾整理与提交：
+
+| 项目 | 说明 |
+|------|------|
+| PoC 脚本整理 | 编写 `run_poc.sh`（一键启动）、`tcp_relay.py`（gRPC SOCKS5 转发）、`test_chat.sh`（完整对话测试） |
+| 对话验证 | 运行 `test_chat.sh` 再次确认完整链路：6 秒内收到 AI 响应（Gemini 3 Flash） |
+| 脚本修复 | 修正 `test_chat.sh` 中 Trajectory 字段解析（`CORTEX_STEP_TYPE_*` 前缀、`plannerResponse` 字段名） |
+| 验证报告 | 编写 `poc-report.md` — 含环境、验证结果、代理方案对比、Phase 2 集成要点 |
+| 清理 | 删除 9 个空占位文件，保留 4 个有实际内容的 PoC 脚本 |
+| 提交 | `3211e1f1` — 12 files, +1650/-81 lines |
+
+## 关键发现
+
+- `GetCascadeModelConfigData` 响应结构：`clientModelConfigs[].modelOrAlias.model`（非之前猜测的 `modelConfigData.modelConfigs`）
+- Trajectory 步骤字段使用完整枚举名：`CORTEX_STEP_TYPE_PLANNER_RESPONSE` / `CORTEX_STEP_STATUS_DONE`
+- 轨迹嵌套在 `trajectory.steps` 而非顶层 `steps`
+
+## 待做
+
+- **Phase 2**: 集成到 sub2api gateway（Go LS 进程管理器 + ConnectRPC 客户端 + OpenAI 格式转换）
+- **Phase 3**: 多账号 LS 实例池
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3211e1f1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
