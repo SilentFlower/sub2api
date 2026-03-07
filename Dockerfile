@@ -9,6 +9,7 @@
 ARG NODE_IMAGE=node:24-alpine
 ARG GOLANG_IMAGE=golang:1.25.7-alpine
 ARG ALPINE_IMAGE=alpine:3.21
+ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 
@@ -75,7 +76,9 @@ RUN VERSION_VALUE="${VERSION}" && \
 # -----------------------------------------------------------------------------
 # Stage 3: Final Runtime Image
 # -----------------------------------------------------------------------------
-FROM ${ALPINE_IMAGE}
+# 使用 Debian slim 而非 Alpine：Language Server 二进制依赖完整 glibc，
+# Alpine 的 musl/gcompat 兼容层会导致 rseq 相关 segfault。
+FROM ${RUNTIME_IMAGE}
 
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
@@ -83,17 +86,15 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 
 # Install runtime dependencies
-# gcompat: glibc 兼容层，Language Server 二进制依赖 glibc
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
-    gcompat \
-    libstdc++ \
-    && rm -rf /var/cache/apk/*
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 sub2api && \
-    adduser -u 1000 -G sub2api -s /bin/sh -D sub2api
+RUN groupadd -g 1000 sub2api && \
+    useradd -u 1000 -g sub2api -s /bin/sh -m sub2api
 
 # Set working directory
 WORKDIR /app
@@ -108,7 +109,6 @@ RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 # Antigravity Language Server 二进制（可选）
 # 构建时将 language_server_linux_x64 放到 backend/resources/antigravityls/ 目录下
 # 会被上面的 COPY resources 一起打包进镜像
-# 如果目录中有 LS 二进制，设置可执行权限
 RUN if [ -f /app/resources/antigravityls/language_server_linux_x64 ]; then \
         chmod +x /app/resources/antigravityls/language_server_linux_x64; \
     fi
