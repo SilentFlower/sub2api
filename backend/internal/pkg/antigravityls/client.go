@@ -85,6 +85,46 @@ func (c *Client) rpc(ctx context.Context, baseURL, method string, reqBody any, r
 	return nil
 }
 
+// rpcRaw 发送 ConnectRPC JSON 请求并返回原始响应字节（诊断用）
+func (c *Client) rpcRaw(ctx context.Context, baseURL, method string, reqBody any) ([]byte, error) {
+	url := baseURL + connectRPCServicePath + method
+
+	var body io.Reader
+	if reqBody != nil {
+		data, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("序列化请求失败: %w", err)
+		}
+		body = bytes.NewReader(data)
+	} else {
+		body = bytes.NewReader([]byte("{}"))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respData, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if httpResp.StatusCode != http.StatusOK {
+		return respData, fmt.Errorf("RPC %s 返回 %d: %s", method, httpResp.StatusCode, string(respData))
+	}
+
+	return respData, nil
+}
+
 // Heartbeat 心跳检查，验证 LS 是否就绪
 func (c *Client) Heartbeat(ctx context.Context, baseURL string) error {
 	return c.rpc(ctx, baseURL, "Heartbeat", nil, nil)
@@ -122,6 +162,11 @@ func (c *Client) GetCascadeTrajectory(ctx context.Context, baseURL string, casca
 	return &resp, nil
 }
 
+// GetCascadeTrajectoryRaw 获取对话轨迹的原始 JSON 响应（诊断用）
+func (c *Client) GetCascadeTrajectoryRaw(ctx context.Context, baseURL string, cascadeID string) ([]byte, error) {
+	return c.rpcRaw(ctx, baseURL, "GetCascadeTrajectory", &GetCascadeTrajectoryRequest{CascadeID: cascadeID})
+}
+
 // GetCascadeModelConfigData 获取可用模型列表
 func (c *Client) GetCascadeModelConfigData(ctx context.Context, baseURL string) (*GetCascadeModelConfigDataResponse, error) {
 	var resp GetCascadeModelConfigDataResponse
@@ -154,6 +199,27 @@ func (c *Client) PollTrajectoryUntilDone(
 			return nil, ctx.Err()
 		case <-ticker.C:
 			pollCount++
+
+			// 前 2 次轮询记录原始 JSON 响应，用于诊断数据结构
+			if pollCount <= 2 {
+				raw, rawErr := c.GetCascadeTrajectoryRaw(ctx, baseURL, cascadeID)
+				if rawErr != nil {
+					slog.Warn("获取原始 Trajectory 失败", "error", rawErr, "cascadeId", cascadeID)
+				} else {
+					// 截断过长的响应避免日志爆炸
+					rawStr := string(raw)
+					if len(rawStr) > 2000 {
+						rawStr = rawStr[:2000] + "...(truncated)"
+					}
+					slog.Info("Trajectory 原始响应",
+						"cascadeId", cascadeID,
+						"pollCount", pollCount,
+						"rawLen", len(raw),
+						"raw", rawStr,
+					)
+				}
+			}
+
 			resp, err := c.GetCascadeTrajectory(ctx, baseURL, cascadeID)
 			if err != nil {
 				slog.Warn("轮询 Trajectory 失败，继续重试", "error", err, "cascadeId", cascadeID)
@@ -174,14 +240,20 @@ func (c *Client) PollTrajectoryUntilDone(
 				}
 				lastFingerprint = fp
 
-				if pollCount <= 3 || pollCount%20 == 0 {
-					slog.Debug("Trajectory 变化",
-						"cascadeId", cascadeID,
-						"pollCount", pollCount,
-						"stepCount", len(steps),
-						"fingerprint", fp,
-					)
-				}
+				slog.Info("Trajectory 变化",
+					"cascadeId", cascadeID,
+					"pollCount", pollCount,
+					"stepCount", len(steps),
+					"fingerprint", fp,
+				)
+			} else if pollCount <= 5 || pollCount%50 == 0 {
+				// 即使没变化也定期输出心跳日志
+				slog.Info("Trajectory 轮询中（无变化）",
+					"cascadeId", cascadeID,
+					"pollCount", pollCount,
+					"stepCount", len(steps),
+					"fingerprint", fp,
+				)
 			}
 
 			// 检查是否有 PLANNER_RESPONSE 已完成
