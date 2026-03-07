@@ -83,9 +83,12 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 
 # Install runtime dependencies
+# gcompat: glibc 兼容层，Language Server 二进制依赖 glibc
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
+    gcompat \
+    libstdc++ \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user
