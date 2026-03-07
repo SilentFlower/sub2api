@@ -171,13 +171,18 @@ func (m *Manager) startLS(ctx context.Context, accountID int64, port int, dataDi
 	cmd.Dir = filepath.Dir(dataDir)
 
 	// 设置环境变量
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("HTTPS_PROXY=http://%s", m.proxyAddr),
-		fmt.Sprintf("HTTP_PROXY=http://%s", m.proxyAddr),
-		"NO_PROXY=127.0.0.1,localhost",
-		// gemini_dir 指向数据目录下的 .gemini 子目录
+	env := append(os.Environ(),
 		fmt.Sprintf("HOME=%s", dataDir),
 	)
+	// 仅在配置了代理时设置代理环境变量
+	if m.proxyAddr != "" {
+		env = append(env,
+			fmt.Sprintf("HTTPS_PROXY=http://%s", m.proxyAddr),
+			fmt.Sprintf("HTTP_PROXY=http://%s", m.proxyAddr),
+			"NO_PROXY=127.0.0.1,localhost",
+		)
+	}
+	cmd.Env = env
 
 	// 将 LS 的日志输出到 slog
 	cmd.Stdout = os.Stdout

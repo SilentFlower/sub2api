@@ -326,7 +326,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 func ProvideAntigravityLSManager(cfg *config.Config) *antigravityls.Manager {
 	lsBinary := antigravityls.DefaultLSBinary
 	baseDataDir := "/app/data/antigravityls"
-	proxyAddr := "127.0.0.1:7890"
+	proxyAddr := ""
 
 	if cfg != nil {
 		if v := cfg.AntigravityLS.LSBinary; v != "" {
