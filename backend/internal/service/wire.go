@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravityls"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -321,6 +322,27 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	return svc
 }
 
+// ProvideAntigravityLSManager 创建 LS 进程管理器
+func ProvideAntigravityLSManager(cfg *config.Config) *antigravityls.Manager {
+	lsBinary := antigravityls.DefaultLSBinary
+	baseDataDir := "/app/data/antigravityls"
+	proxyAddr := "127.0.0.1:7890"
+
+	if cfg != nil {
+		if v := cfg.AntigravityLS.LSBinary; v != "" {
+			lsBinary = v
+		}
+		if v := cfg.AntigravityLS.DataDir; v != "" {
+			baseDataDir = v
+		}
+		if v := cfg.AntigravityLS.ProxyAddr; v != "" {
+			proxyAddr = v
+		}
+	}
+
+	return antigravityls.NewManager(lsBinary, baseDataDir, proxyAddr)
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -360,6 +382,8 @@ var ProviderSet = wire.NewSet(
 	NewOpenAITokenProvider,
 	NewClaudeTokenProvider,
 	NewAntigravityGatewayService,
+	NewAntigravityLSGatewayService,
+	ProvideAntigravityLSManager,
 	ProvideRateLimitService,
 	NewAccountUsageService,
 	NewAccountTestService,

@@ -102,6 +102,17 @@ COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/
 # Create data directory
 RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
+# Antigravity Language Server 二进制（可选）
+# 构建时将 language_server_linux_x64 放到 backend/resources/antigravityls/ 目录下
+# 会被上面的 COPY resources 一起打包进镜像
+# 如果目录中有 LS 二进制，设置可执行权限
+RUN if [ -f /app/resources/antigravityls/language_server_linux_x64 ]; then \
+        chmod +x /app/resources/antigravityls/language_server_linux_x64; \
+    fi
+
+# 创建 LS 运行时数据目录
+RUN mkdir -p /app/data/antigravityls && chown sub2api:sub2api /app/data/antigravityls
+
 # Switch to non-root user
 USER sub2api
 

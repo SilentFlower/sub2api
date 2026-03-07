@@ -36,10 +36,11 @@ var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
-	gatewayService            *service.GatewayService
-	geminiCompatService       *service.GeminiMessagesCompatService
-	antigravityGatewayService *service.AntigravityGatewayService
-	userService               *service.UserService
+	gatewayService              *service.GatewayService
+	geminiCompatService         *service.GeminiMessagesCompatService
+	antigravityGatewayService   *service.AntigravityGatewayService
+	antigravityLSGatewayService *service.AntigravityLSGatewayService
+	userService                 *service.UserService
 	billingCacheService       *service.BillingCacheService
 	usageService              *service.UsageService
 	apiKeyService             *service.APIKeyService
@@ -58,6 +59,7 @@ func NewGatewayHandler(
 	gatewayService *service.GatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
 	antigravityGatewayService *service.AntigravityGatewayService,
+	antigravityLSGatewayService *service.AntigravityLSGatewayService,
 	userService *service.UserService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -89,10 +91,11 @@ func NewGatewayHandler(
 	}
 
 	return &GatewayHandler{
-		gatewayService:            gatewayService,
-		geminiCompatService:       geminiCompatService,
-		antigravityGatewayService: antigravityGatewayService,
-		userService:               userService,
+		gatewayService:              gatewayService,
+		geminiCompatService:         geminiCompatService,
+		antigravityGatewayService:   antigravityGatewayService,
+		antigravityLSGatewayService: antigravityLSGatewayService,
+		userService:                 userService,
 		billingCacheService:       billingCacheService,
 		usageService:              usageService,
 		apiKeyService:             apiKeyService,
@@ -635,7 +638,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
-			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+			if account.Platform == service.PlatformAntigravity && account.IsLSEnabled() {
+				result, err = h.antigravityLSGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
+			} else if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)

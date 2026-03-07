@@ -83,6 +83,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	AntigravityLS           AntigravityLSConfig           `mapstructure:"antigravity_ls"`
 }
 
 type LogConfig struct {
@@ -163,6 +164,16 @@ type IdempotencyConfig struct {
 	CleanupIntervalSeconds int `mapstructure:"cleanup_interval_seconds"`
 	// CleanupBatchSize 每次清理的最大记录数。
 	CleanupBatchSize int `mapstructure:"cleanup_batch_size"`
+}
+
+// AntigravityLSConfig Antigravity Language Server 代理配置
+type AntigravityLSConfig struct {
+	// LSBinary LS 二进制路径（默认: /usr/share/antigravity/.../language_server_linux_x64）
+	LSBinary string `mapstructure:"ls_binary"`
+	// DataDir LS 数据目录（每个账号会在此下创建子目录）
+	DataDir string `mapstructure:"data_dir"`
+	// ProxyAddr HTTP/SOCKS5 代理地址（用于 LS 的 REST 请求，如 "127.0.0.1:7890"）
+	ProxyAddr string `mapstructure:"proxy_addr"`
 }
 
 type LinuxDoConnectConfig struct {

@@ -3295,6 +3295,10 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // isModelSupportedByAccountWithContext 根据账户平台检查模型支持（带 context）
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	// LS 模式的 Antigravity 账户：所有 Claude/Gemini 模型都支持（LS 内部会映射）
+	if account.IsLSEnabled() {
+		return true
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -3319,6 +3323,10 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 
 // isModelSupportedByAccount 根据账户平台检查模型支持（无 context，用于非 Antigravity 平台）
 func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
+	// LS 模式的 Antigravity 账户：所有 Claude/Gemini 模型都支持（LS 内部会映射）
+	if account.IsLSEnabled() {
+		return true
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
