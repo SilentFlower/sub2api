@@ -12,11 +12,14 @@ import (
 
 // TrajectoryTransformer 将 LS 的 Cascade Trajectory 步骤转换为 Claude SSE 事件
 type TrajectoryTransformer struct {
-	originalModel  string
-	messageID      string // "msg_" 前缀的唯一 ID
-	blockIndex     int    // 当前内容块索引
-	processedSteps int    // 已处理的步骤数（增量检测）
-	started        bool   // 是否已发送 message_start
+	originalModel    string
+	messageID        string // "msg_" 前缀的唯一 ID
+	blockIndex       int    // 当前内容块索引
+	started          bool   // 是否已发送 message_start
+	lastTextLen      int    // 上次已发送的文本长度（增量 diff）
+	lastThinkingLen  int    // 上次已发送的 thinking 长度（增量 diff）
+	textBlockOpen    bool   // 当前文本块是否已打开（content_block_start 已发送）
+	thinkingBlockOpen bool  // 当前 thinking 块是否已打开
 }
 
 // NewTrajectoryTransformer 创建转换器
@@ -27,14 +30,25 @@ func NewTrajectoryTransformer(originalModel string) *TrajectoryTransformer {
 	}
 }
 
-// ProcessNewSteps 处理新增的轨迹步骤，返回 Claude SSE 事件字节
-// 内部跟踪已处理的步骤数，只处理增量部分
+// ProcessNewSteps 处理轨迹步骤的增量变化，返回 Claude SSE 事件字节
+// 核心逻辑：跟踪 PLANNER_RESPONSE 的 text/thinking 内容长度，只发送增量部分
+// 同时处理 IN_PROGRESS 和 DONE 状态的步骤
 func (t *TrajectoryTransformer) ProcessNewSteps(steps []TrajectoryStep) []byte {
-	if len(steps) <= t.processedSteps {
-		return nil
+	var buf bytes.Buffer
+
+	// 查找最后一个 PLANNER_RESPONSE 步骤（可能是 IN_PROGRESS 或 DONE）
+	var pr *PlannerResponse
+	for i := len(steps) - 1; i >= 0; i-- {
+		step := steps[i]
+		if step.Type == "PLANNER_RESPONSE" {
+			pr = step.GetPlannerResponse()
+			break
+		}
 	}
 
-	var buf bytes.Buffer
+	if pr == nil {
+		return nil
+	}
 
 	// 首次调用时发送 message_start
 	if !t.started {
@@ -42,48 +56,53 @@ func (t *TrajectoryTransformer) ProcessNewSteps(steps []TrajectoryStep) []byte {
 		t.started = true
 	}
 
-	// 只处理新增的步骤
-	newSteps := steps[t.processedSteps:]
-	for _, step := range newSteps {
-		if step.Type != "PLANNER_RESPONSE" || step.Status != "DONE" {
-			continue
-		}
-
-		pr := step.GetPlannerResponse()
-		if pr == nil {
-			continue
-		}
-
-		// 处理 thinking 内容
-		if pr.Thinking != "" {
+	// 处理 thinking 增量
+	if len(pr.Thinking) > t.lastThinkingLen {
+		if !t.thinkingBlockOpen {
 			buf.Write(t.emitContentBlockStart("thinking"))
-			buf.Write(t.emitThinkingDelta(pr.Thinking))
-			buf.Write(t.emitContentBlockStop())
+			t.thinkingBlockOpen = true
 		}
-
-		// 处理文本内容
-		if pr.Text != "" {
-			buf.Write(t.emitContentBlockStart("text"))
-			buf.Write(t.emitTextDelta(pr.Text))
-			buf.Write(t.emitContentBlockStop())
-		}
-
-		// 处理工具调用
-		for _, tc := range pr.ToolCalls {
-			buf.Write(t.emitToolUseBlock(tc))
-		}
+		newThinking := pr.Thinking[t.lastThinkingLen:]
+		buf.Write(t.emitThinkingDelta(newThinking))
+		t.lastThinkingLen = len(pr.Thinking)
 	}
 
-	t.processedSteps = len(steps)
+	// 处理 text 增量
+	if len(pr.Text) > t.lastTextLen {
+		// 如果 thinking 块还开着，先关闭
+		if t.thinkingBlockOpen {
+			buf.Write(t.emitContentBlockStop())
+			t.thinkingBlockOpen = false
+		}
+		if !t.textBlockOpen {
+			buf.Write(t.emitContentBlockStart("text"))
+			t.textBlockOpen = true
+		}
+		newText := pr.Text[t.lastTextLen:]
+		buf.Write(t.emitTextDelta(newText))
+		t.lastTextLen = len(pr.Text)
+	}
+
 	return buf.Bytes()
 }
 
-// Finish 生成结束事件（message_delta + message_stop）
+// Finish 生成结束事件：关闭打开的内容块 + message_delta + message_stop
 func (t *TrajectoryTransformer) Finish(stopReason string) []byte {
 	if stopReason == "" {
 		stopReason = "end_turn"
 	}
 	var buf bytes.Buffer
+
+	// 关闭仍然打开的内容块
+	if t.thinkingBlockOpen {
+		buf.Write(t.emitContentBlockStop())
+		t.thinkingBlockOpen = false
+	}
+	if t.textBlockOpen {
+		buf.Write(t.emitContentBlockStop())
+		t.textBlockOpen = false
+	}
+
 	buf.Write(t.emitMessageDelta(stopReason))
 	buf.Write(t.emitMessageStop())
 	return buf.Bytes()

@@ -133,10 +133,23 @@ func (s *AntigravityLSGatewayService) Forward(ctx context.Context, c *gin.Contex
 		MessageOrigin: "IDE",
 	}
 
+	slog.Info("发送用户消息到 LS",
+		"prefix", prefix,
+		"cascadeId", cascadeID,
+		"textLen", len(userText),
+		"lsModel", lsModel,
+	)
+
 	if err := s.lsClient.SendUserCascadeMessage(ctx, inst.BaseURL, sendReq); err != nil {
 		slog.Error("SendUserCascadeMessage 失败", "prefix", prefix, "cascadeId", cascadeID, "error", err)
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "api_error", "Failed to send message to Language Server")
 	}
+
+	slog.Info("用户消息发送成功，开始轮询 Trajectory",
+		"prefix", prefix,
+		"cascadeId", cascadeID,
+		"stream", claudeReq.Stream,
+	)
 
 	// 根据客户端请求模式选择流式或非流式处理
 	requestID := "req_" + uuid.New().String()
@@ -197,6 +210,11 @@ func (s *AntigravityLSGatewayService) handleStreamingResponse(
 	var firstTokenMs *int
 	clientDisconnect := false
 
+	slog.Info("开始流式轮询 Trajectory",
+		"cascadeId", cascadeID,
+		"model", originalModel,
+	)
+
 	// 轮询 Trajectory 直到完成
 	_, err := s.lsClient.PollTrajectoryUntilDone(ctx, baseURL, cascadeID, lsPollInterval,
 		func(steps []antigravityls.TrajectoryStep) error {
@@ -204,6 +222,11 @@ func (s *AntigravityLSGatewayService) handleStreamingResponse(
 			if len(events) == 0 {
 				return nil
 			}
+
+			slog.Debug("推送 SSE 事件",
+				"cascadeId", cascadeID,
+				"eventBytes", len(events),
+			)
 
 			// 记录首字时间
 			if firstTokenMs == nil {

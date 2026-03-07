@@ -133,24 +133,27 @@ func (c *Client) GetCascadeModelConfigData(ctx context.Context, baseURL string) 
 
 // PollTrajectoryUntilDone 轮询 Trajectory 直到 PLANNER_RESPONSE 完成或超时
 // pollInterval: 轮询间隔（建议 300-500ms）
-// onNewSteps: 每次发现新步骤时回调（用于流式推送）
+// onUpdate: 每次检测到步骤变化（数量或内容）时回调（用于流式推送）
 func (c *Client) PollTrajectoryUntilDone(
 	ctx context.Context,
 	baseURL string,
 	cascadeID string,
 	pollInterval time.Duration,
-	onNewSteps func(steps []TrajectoryStep) error,
+	onUpdate func(steps []TrajectoryStep) error,
 ) ([]TrajectoryStep, error) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var lastStepCount int
+	// 用于检测内容变化的指纹（步骤数 + 各步骤 status + 文本长度）
+	var lastFingerprint string
+	pollCount := 0
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
+			pollCount++
 			resp, err := c.GetCascadeTrajectory(ctx, baseURL, cascadeID)
 			if err != nil {
 				slog.Warn("轮询 Trajectory 失败，继续重试", "error", err, "cascadeId", cascadeID)
@@ -158,22 +161,60 @@ func (c *Client) PollTrajectoryUntilDone(
 			}
 
 			steps := resp.GetSteps()
-			if len(steps) > lastStepCount {
-				// 发现新步骤，通知回调
-				if onNewSteps != nil {
-					if err := onNewSteps(steps); err != nil {
-						return steps, fmt.Errorf("处理新步骤失败: %w", err)
+
+			// 生成当前快照指纹：步骤数 + 各步骤 status + PLANNER_RESPONSE 文本长度
+			fp := buildStepsFingerprint(steps)
+
+			if fp != lastFingerprint {
+				// 检测到变化，调用回调
+				if onUpdate != nil {
+					if err := onUpdate(steps); err != nil {
+						return steps, fmt.Errorf("处理步骤更新失败: %w", err)
 					}
 				}
-				lastStepCount = len(steps)
+				lastFingerprint = fp
+
+				if pollCount <= 3 || pollCount%20 == 0 {
+					slog.Debug("Trajectory 变化",
+						"cascadeId", cascadeID,
+						"pollCount", pollCount,
+						"stepCount", len(steps),
+						"fingerprint", fp,
+					)
+				}
 			}
 
 			// 检查是否有 PLANNER_RESPONSE 已完成
 			for _, step := range steps {
 				if step.Type == "PLANNER_RESPONSE" && step.Status == "DONE" {
+					// 完成前最后一次回调确保所有内容都被处理
+					if onUpdate != nil {
+						_ = onUpdate(steps)
+					}
+					slog.Info("Trajectory 轮询完成",
+						"cascadeId", cascadeID,
+						"pollCount", pollCount,
+						"totalSteps", len(steps),
+					)
 					return steps, nil
 				}
 			}
 		}
 	}
+}
+
+// buildStepsFingerprint 构建步骤快照指纹，用于检测内容变化
+func buildStepsFingerprint(steps []TrajectoryStep) string {
+	var b []byte
+	for _, s := range steps {
+		b = append(b, s.Type...)
+		b = append(b, ':')
+		b = append(b, s.Status...)
+		pr := s.GetPlannerResponse()
+		if pr != nil {
+			b = append(b, fmt.Sprintf(":t%d:k%d:tc%d", len(pr.Text), len(pr.Thinking), len(pr.ToolCalls))...)
+		}
+		b = append(b, '|')
+	}
+	return string(b)
 }
