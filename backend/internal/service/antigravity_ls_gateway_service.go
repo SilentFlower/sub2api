@@ -358,15 +358,15 @@ func (s *AntigravityLSGatewayService) handleNonStreamingResponse(
 func extractLSTestResponseText(steps []antigravityls.TrajectoryStep) string {
 	for i := len(steps) - 1; i >= 0; i-- {
 		step := steps[i]
-		if step.Type != "PLANNER_RESPONSE" {
+		if !step.IsType("PLANNER_RESPONSE") {
 			continue
 		}
 		pr := step.GetPlannerResponse()
 		if pr == nil {
 			continue
 		}
-		if strings.TrimSpace(pr.Text) != "" {
-			return pr.Text
+		if text := strings.TrimSpace(pr.GetText()); text != "" {
+			return text
 		}
 		if strings.TrimSpace(pr.Thinking) != "" {
 			return pr.Thinking

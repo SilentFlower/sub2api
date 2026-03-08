@@ -256,20 +256,17 @@ func (c *Client) PollTrajectoryUntilDone(
 				)
 			}
 
-			// 检查是否有 PLANNER_RESPONSE 已完成
-			for _, step := range steps {
-				if step.Type == "PLANNER_RESPONSE" && step.Status == "DONE" {
-					// 完成前最后一次回调确保所有内容都被处理
-					if onUpdate != nil {
-						_ = onUpdate(steps)
-					}
-					slog.Info("Trajectory 轮询完成",
-						"cascadeId", cascadeID,
-						"pollCount", pollCount,
-						"totalSteps", len(steps),
-					)
-					return steps, nil
+			if isTrajectoryDone(steps) {
+				// 完成前最后一次回调确保所有内容都被处理
+				if onUpdate != nil {
+					_ = onUpdate(steps)
 				}
+				slog.Info("Trajectory 轮询完成",
+					"cascadeId", cascadeID,
+					"pollCount", pollCount,
+					"totalSteps", len(steps),
+				)
+				return steps, nil
 			}
 		}
 	}
@@ -284,9 +281,28 @@ func buildStepsFingerprint(steps []TrajectoryStep) string {
 		b = append(b, s.Status...)
 		pr := s.GetPlannerResponse()
 		if pr != nil {
-			b = append(b, fmt.Sprintf(":t%d:k%d:tc%d", len(pr.Text), len(pr.Thinking), len(pr.ToolCalls))...)
+			b = append(b, fmt.Sprintf(":t%d:k%d:tc%d", len(pr.GetText()), len(pr.Thinking), len(pr.ToolCalls))...)
 		}
 		b = append(b, '|')
 	}
 	return string(b)
+}
+
+// isTrajectoryDone 判断轨迹是否真正结束。
+// 参考 zerogravity 的策略：最后一步为 CHECKPOINT，或最后一步为 DONE 的响应步骤时才算完成。
+func isTrajectoryDone(steps []TrajectoryStep) bool {
+	if len(steps) == 0 {
+		return false
+	}
+
+	last := steps[len(steps)-1]
+	if last.IsType("CHECKPOINT") {
+		return true
+	}
+
+	if (last.IsType("PLANNER_RESPONSE") || last.IsType("AI_RESPONSE") || last.IsType("MODEL_RESPONSE")) && last.IsStatus("DONE") {
+		return true
+	}
+
+	return false
 }
