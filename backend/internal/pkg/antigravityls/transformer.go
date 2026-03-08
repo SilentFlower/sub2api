@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -18,8 +19,10 @@ type TrajectoryTransformer struct {
 	started           bool   // 是否已发送 message_start
 	lastTextLen       int    // 上次已发送的文本长度（增量 diff）
 	lastThinkingLen   int    // 上次已发送的 thinking 长度（增量 diff）
+	lastToolCallsLen  int    // 上次已发送的工具调用数量（增量 diff）
 	textBlockOpen     bool   // 当前文本块是否已打开（content_block_start 已发送）
 	thinkingBlockOpen bool   // 当前 thinking 块是否已打开
+	usedTool          bool   // 是否已向客户端发出工具调用
 }
 
 // NewTrajectoryTransformer 创建转换器
@@ -84,13 +87,36 @@ func (t *TrajectoryTransformer) ProcessNewSteps(steps []TrajectoryStep) []byte {
 		t.lastTextLen = len(text)
 	}
 
+	if len(pr.ToolCalls) > t.lastToolCallsLen {
+		if t.thinkingBlockOpen {
+			buf.Write(t.emitContentBlockStop())
+			t.thinkingBlockOpen = false
+		}
+		if t.textBlockOpen {
+			buf.Write(t.emitContentBlockStop())
+			t.textBlockOpen = false
+		}
+
+		for _, tc := range pr.ToolCalls[t.lastToolCallsLen:] {
+			for idx, translated := range translateAGToolCall(tc) {
+				buf.Write(t.emitToolUseBlock(
+					translated.Name,
+					translated.Input,
+					buildToolUseID(translated.ID, translated.Name, translated.Input, t.lastToolCallsLen+idx),
+				))
+				t.usedTool = true
+			}
+		}
+		t.lastToolCallsLen = len(pr.ToolCalls)
+	}
+
 	return buf.Bytes()
 }
 
-// Finish 生成结束事件：关闭打开的内容块 + message_delta + message_stop
-func (t *TrajectoryTransformer) Finish(stopReason string) []byte {
+// Finish 生成结束事件：关闭打开的内容块 + message_delta + message_stop。
+func (t *TrajectoryTransformer) Finish(stopReason string, usage antigravity.ClaudeUsage) []byte {
 	if stopReason == "" {
-		stopReason = "end_turn"
+		stopReason = t.StopReason()
 	}
 	var buf bytes.Buffer
 
@@ -104,9 +130,17 @@ func (t *TrajectoryTransformer) Finish(stopReason string) []byte {
 		t.textBlockOpen = false
 	}
 
-	buf.Write(t.emitMessageDelta(stopReason))
+	buf.Write(t.emitMessageDelta(stopReason, usage))
 	buf.Write(t.emitMessageStop())
 	return buf.Bytes()
+}
+
+// StopReason 返回当前对话的停止原因。
+func (t *TrajectoryTransformer) StopReason() string {
+	if t.usedTool {
+		return "tool_use"
+	}
+	return "end_turn"
 }
 
 // --- SSE 事件生成方法 ---
@@ -181,27 +215,31 @@ func (t *TrajectoryTransformer) emitContentBlockStop() []byte {
 	return formatSSE("content_block_stop", event)
 }
 
-func (t *TrajectoryTransformer) emitToolUseBlock(tc ToolCall) []byte {
+func (t *TrajectoryTransformer) emitToolUseBlock(name string, input any, toolID string) []byte {
 	var buf bytes.Buffer
 
 	// tool_use block start
-	toolID := "toolu_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:24]
+	if toolID == "" {
+		toolID = "toolu_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:24]
+	}
 	startEvent := map[string]any{
 		"type":  "content_block_start",
 		"index": t.blockIndex,
 		"content_block": map[string]any{
 			"type":  "tool_use",
 			"id":    toolID,
-			"name":  tc.Name,
+			"name":  name,
 			"input": map[string]any{},
 		},
 	}
 	buf.Write(formatSSE("content_block_start", startEvent))
 
 	// tool_use input delta
-	inputJSON := tc.ArgumentsJSON
-	if inputJSON == "" {
-		inputJSON = "{}"
+	inputJSON := "{}"
+	if input != nil {
+		if data, err := json.Marshal(input); err == nil && len(data) > 0 {
+			inputJSON = string(data)
+		}
 	}
 	deltaEvent := map[string]any{
 		"type":  "content_block_delta",
@@ -224,15 +262,14 @@ func (t *TrajectoryTransformer) emitToolUseBlock(tc ToolCall) []byte {
 	return buf.Bytes()
 }
 
-func (t *TrajectoryTransformer) emitMessageDelta(stopReason string) []byte {
+func (t *TrajectoryTransformer) emitMessageDelta(stopReason string, usage antigravity.ClaudeUsage) []byte {
 	event := map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
-			"stop_reason": stopReason,
+			"stop_reason":   stopReason,
+			"stop_sequence": nil,
 		},
-		"usage": map[string]any{
-			"output_tokens": 0,
-		},
+		"usage": usage,
 	}
 	return formatSSE("message_delta", event)
 }
@@ -274,8 +311,9 @@ func TransformTrajectoryToClaude(steps []TrajectoryStep, originalModel string) (
 		// 添加 thinking 块
 		if pr.Thinking != "" {
 			content = append(content, antigravity.ClaudeContentItem{
-				Type:     "thinking",
-				Thinking: pr.Thinking,
+				Type:      "thinking",
+				Thinking:  pr.Thinking,
+				Signature: pr.ThinkingSignature,
 			})
 		}
 
@@ -289,23 +327,20 @@ func TransformTrajectoryToClaude(steps []TrajectoryStep, originalModel string) (
 
 		// 添加工具调用块
 		for _, tc := range pr.ToolCalls {
-			toolID := "toolu_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:24]
-			var input any
-			if tc.ArgumentsJSON != "" {
-				_ = json.Unmarshal([]byte(tc.ArgumentsJSON), &input)
+			for idx, translated := range translateAGToolCall(tc) {
+				toolID := buildToolUseID(translated.ID, translated.Name, translated.Input, idx)
+				content = append(content, antigravity.ClaudeContentItem{
+					Type:  "tool_use",
+					ID:    toolID,
+					Name:  translated.Name,
+					Input: translated.Input,
+				})
+				stopReason = "tool_use"
 			}
-			if input == nil {
-				input = map[string]any{}
-			}
-			content = append(content, antigravity.ClaudeContentItem{
-				Type:  "tool_use",
-				ID:    toolID,
-				Name:  tc.Name,
-				Input: input,
-			})
-			stopReason = "tool_use"
 		}
 	}
+
+	usage := ExtractClaudeUsage(steps)
 
 	return &antigravity.ClaudeResponse{
 		ID:         msgID,
@@ -314,6 +349,22 @@ func TransformTrajectoryToClaude(steps []TrajectoryStep, originalModel string) (
 		Model:      originalModel,
 		Content:    content,
 		StopReason: stopReason,
-		Usage:      antigravity.ClaudeUsage{},
+		Usage:      usage,
 	}, nil
+}
+
+func buildToolUseID(preferredID, name string, input any, ordinal int) string {
+	if strings.TrimSpace(preferredID) != "" {
+		return preferredID
+	}
+	var payload []byte
+	if input != nil {
+		payload, _ = json.Marshal(input)
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(name))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(payload)
+	_, _ = h.Write([]byte(fmt.Sprintf("#%d", ordinal)))
+	return fmt.Sprintf("toolu_%x", h.Sum64())
 }

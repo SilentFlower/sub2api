@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
 // --- ConnectRPC 请求/响应类型 ---
@@ -99,10 +102,92 @@ type Trajectory struct {
 
 // TrajectoryStep 轨迹步骤
 type TrajectoryStep struct {
-	Type            string           `json:"type"`                      // USER_INPUT, CONVERSATION_HISTORY, EPHEMERAL_MESSAGE, PLANNER_RESPONSE, CHECKPOINT, TOOL_RESULT, KNOWLEDGE_ARTIFACTS
-	Status          string           `json:"status"`                    // IDLE, IN_PROGRESS, DONE
+	Type            string           `json:"type"`   // USER_INPUT, CONVERSATION_HISTORY, EPHEMERAL_MESSAGE, PLANNER_RESPONSE, CHECKPOINT, TOOL_RESULT, KNOWLEDGE_ARTIFACTS
+	Status          string           `json:"status"` // IDLE, IN_PROGRESS, DONE
+	Metadata        *StepMetadata    `json:"metadata,omitempty"`
 	PlannerResponse *PlannerResponse `json:"plannerResponse,omitempty"` // PLANNER_RESPONSE 类型的响应内容
 	Content         *PlannerResponse `json:"content,omitempty"`         // 兼容：有时用 content 而非 plannerResponse
+}
+
+// StepMetadata 轨迹步骤元数据。
+type StepMetadata struct {
+	ModelUsage *ModelUsage `json:"modelUsage,omitempty"`
+}
+
+// FlexibleInt 兼容 LS 返回的字符串或数字 token 字段。
+type FlexibleInt int
+
+// UnmarshalJSON 解析可变格式整数。
+func (f *FlexibleInt) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*f = 0
+		return nil
+	}
+
+	var num int
+	if err := json.Unmarshal(data, &num); err == nil {
+		*f = FlexibleInt(num)
+		return nil
+	}
+
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		if strings.TrimSpace(str) == "" {
+			*f = 0
+			return nil
+		}
+		parsed, err := strconv.Atoi(str)
+		if err != nil {
+			return err
+		}
+		*f = FlexibleInt(parsed)
+		return nil
+	}
+
+	return strconv.ErrSyntax
+}
+
+// Int 转为普通 int。
+func (f FlexibleInt) Int() int {
+	return int(f)
+}
+
+// ModelUsage LS 轨迹中的真实模型用量。
+type ModelUsage struct {
+	InputTokens             FlexibleInt `json:"inputTokens,omitempty"`
+	OutputTokens            FlexibleInt `json:"outputTokens,omitempty"`
+	PromptTokenCount        FlexibleInt `json:"promptTokenCount,omitempty"`
+	CandidatesTokenCount    FlexibleInt `json:"candidatesTokenCount,omitempty"`
+	ThoughtsTokenCount      FlexibleInt `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount FlexibleInt `json:"cachedContentTokenCount,omitempty"`
+	APIProvider             string      `json:"apiProvider,omitempty"`
+	Model                   string      `json:"model,omitempty"`
+}
+
+// ToClaudeUsage 转换为 Claude 兼容的 usage 结构。
+func (m *ModelUsage) ToClaudeUsage() antigravity.ClaudeUsage {
+	if m == nil {
+		return antigravity.ClaudeUsage{}
+	}
+
+	cacheRead := m.CachedContentTokenCount.Int()
+	inputTokens := m.InputTokens.Int()
+	outputTokens := m.OutputTokens.Int()
+
+	if inputTokens == 0 && outputTokens == 0 {
+		inputTokens = m.PromptTokenCount.Int() - cacheRead
+		if inputTokens < 0 {
+			inputTokens = 0
+		}
+		outputTokens = m.CandidatesTokenCount.Int() + m.ThoughtsTokenCount.Int()
+	}
+
+	return antigravity.ClaudeUsage{
+		InputTokens:          inputTokens,
+		OutputTokens:         outputTokens,
+		CacheReadInputTokens: cacheRead,
+	}
 }
 
 // NormalizedType 返回去掉 CORTEX_STEP_TYPE_ 前缀后的步骤类型。
@@ -169,7 +254,23 @@ func (p *PlannerResponse) GetText() string {
 // ToolCall 工具调用
 type ToolCall struct {
 	Name          string `json:"name"`
+	ID            string `json:"id,omitempty"`
 	ArgumentsJSON string `json:"argumentsJson,omitempty"`
+}
+
+// ExtractClaudeUsage 从轨迹步骤中提取最新的真实 token 用量。
+func ExtractClaudeUsage(steps []TrajectoryStep) antigravity.ClaudeUsage {
+	for i := len(steps) - 1; i >= 0; i-- {
+		step := steps[i]
+		if step.Metadata == nil || step.Metadata.ModelUsage == nil {
+			continue
+		}
+		usage := step.Metadata.ModelUsage.ToClaudeUsage()
+		if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheReadInputTokens > 0 {
+			return usage
+		}
+	}
+	return antigravity.ClaudeUsage{}
 }
 
 // --- 模型配置 ---

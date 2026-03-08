@@ -49,3 +49,38 @@ func TestBuildStepsFingerprint_UsesPlannerResponseTextFallback(t *testing.T) {
 		t.Fatalf("expected fingerprint to include response text length, got %q", fp)
 	}
 }
+
+func TestExtractClaudeUsage_FromModelUsageMetadata(t *testing.T) {
+	steps := []TrajectoryStep{{
+		Type:   "CORTEX_STEP_TYPE_CHECKPOINT",
+		Status: "CORTEX_STEP_STATUS_DONE",
+		Metadata: &StepMetadata{ModelUsage: &ModelUsage{
+			InputTokens:             120,
+			OutputTokens:            34,
+			CachedContentTokenCount: 20,
+		}},
+	}}
+
+	usage := ExtractClaudeUsage(steps)
+	if usage.InputTokens != 120 || usage.OutputTokens != 34 || usage.CacheReadInputTokens != 20 {
+		t.Fatalf("unexpected usage: %+v", usage)
+	}
+}
+
+func TestExtractClaudeUsage_DerivesFromPromptAndThoughts(t *testing.T) {
+	steps := []TrajectoryStep{{
+		Type:   "CORTEX_STEP_TYPE_CHECKPOINT",
+		Status: "CORTEX_STEP_STATUS_DONE",
+		Metadata: &StepMetadata{ModelUsage: &ModelUsage{
+			PromptTokenCount:        200,
+			CandidatesTokenCount:    25,
+			ThoughtsTokenCount:      5,
+			CachedContentTokenCount: 40,
+		}},
+	}}
+
+	usage := ExtractClaudeUsage(steps)
+	if usage.InputTokens != 160 || usage.OutputTokens != 30 || usage.CacheReadInputTokens != 40 {
+		t.Fatalf("unexpected derived usage: %+v", usage)
+	}
+}

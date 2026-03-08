@@ -279,7 +279,7 @@ func (s *AntigravityLSGatewayService) handleStreamingResponse(
 	)
 
 	// 轮询 Trajectory 直到完成
-	_, err := s.lsClient.PollTrajectoryUntilDone(ctx, baseURL, cascadeID, lsPollInterval,
+	finalSteps, err := s.lsClient.PollTrajectoryUntilDone(ctx, baseURL, cascadeID, lsPollInterval,
 		func(steps []antigravityls.TrajectoryStep) error {
 			events := transformer.ProcessNewSteps(steps)
 			if len(events) == 0 {
@@ -312,15 +312,20 @@ func (s *AntigravityLSGatewayService) handleStreamingResponse(
 		slog.Error("轮询 Trajectory 失败", "cascadeId", cascadeID, "error", err)
 	}
 
+	usageData := antigravityls.ExtractClaudeUsage(finalSteps)
+
 	// 发送结束事件
-	stopReason := "end_turn"
-	finishEvents := transformer.Finish(stopReason)
+	finishEvents := transformer.Finish(transformer.StopReason(), usageData)
 	if !clientDisconnect && len(finishEvents) > 0 {
 		_, _ = c.Writer.Write(finishEvents)
 		flusher.Flush()
 	}
 
-	usage := &ClaudeUsage{}
+	usage := &ClaudeUsage{
+		InputTokens:          usageData.InputTokens,
+		OutputTokens:         usageData.OutputTokens,
+		CacheReadInputTokens: usageData.CacheReadInputTokens,
+	}
 	return usage, firstTokenMs, clientDisconnect, nil
 }
 
@@ -347,8 +352,9 @@ func (s *AntigravityLSGatewayService) handleNonStreamingResponse(
 	c.JSON(http.StatusOK, claudeResp)
 
 	usage := &ClaudeUsage{
-		InputTokens:  claudeResp.Usage.InputTokens,
-		OutputTokens: claudeResp.Usage.OutputTokens,
+		InputTokens:          claudeResp.Usage.InputTokens,
+		OutputTokens:         claudeResp.Usage.OutputTokens,
+		CacheReadInputTokens: claudeResp.Usage.CacheReadInputTokens,
 	}
 	return usage, nil
 }
@@ -391,37 +397,212 @@ func (s *AntigravityLSGatewayService) mapToLSModel(requestedModel string) string
 }
 
 // buildUserText 从 Claude Messages 中提取用户消息文本
-// 将最后一条 user 消息的所有 text 内容拼接
+// 单轮纯文本请求直接返回文本，多轮/工具请求则展开为结构化对话转录。
 func (s *AntigravityLSGatewayService) buildUserText(claudeReq *antigravity.ClaudeRequest) string {
-	// 从后往前查找最后一条 user 消息
-	for i := len(claudeReq.Messages) - 1; i >= 0; i-- {
-		msg := claudeReq.Messages[i]
+	if claudeReq == nil {
+		return ""
+	}
+
+	if text := extractSimpleLastUserText(claudeReq.Messages); text != "" && len(claudeReq.Messages) == 1 && len(claudeReq.Tools) == 0 && len(claudeReq.System) == 0 {
+		return text
+	}
+
+	var sections []string
+	if systemText := extractSystemText(claudeReq.System); systemText != "" {
+		sections = append(sections, "[System]\n"+systemText)
+	}
+	if toolsText := renderToolsForLSTranscript(claudeReq.Tools); toolsText != "" {
+		sections = append(sections, toolsText)
+	}
+
+	toolIDToName := make(map[string]string)
+	for _, msg := range claudeReq.Messages {
+		blockText := renderMessageForLSTranscript(msg, toolIDToName)
+		if blockText == "" {
+			continue
+		}
+		sections = append(sections, blockText)
+	}
+
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func extractSimpleLastUserText(messages []antigravity.ClaudeMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
 		if msg.Role != "user" {
 			continue
 		}
-
-		// content 可能是字符串或数组
-		var textStr string
-		if err := json.Unmarshal(msg.Content, &textStr); err == nil {
-			return textStr
-		}
-
-		// 尝试解析为内容块数组
-		var blocks []struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-		}
-		if err := json.Unmarshal(msg.Content, &blocks); err == nil {
-			var parts []string
-			for _, b := range blocks {
-				if b.Type == "text" && b.Text != "" {
-					parts = append(parts, b.Text)
-				}
-			}
-			return strings.Join(parts, "\n")
+		if text := extractPlainTextFromContent(msg.Content); text != "" {
+			return text
 		}
 	}
 	return ""
+}
+
+func extractSystemText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	var blocks []antigravity.SystemBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if strings.TrimSpace(block.Text) != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func extractPlainTextFromContent(raw json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	var blocks []antigravity.ContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func renderMessageForLSTranscript(msg antigravity.ClaudeMessage, toolIDToName map[string]string) string {
+	var textContent string
+	if err := json.Unmarshal(msg.Content, &textContent); err == nil {
+		if strings.TrimSpace(textContent) == "" {
+			return ""
+		}
+		return fmt.Sprintf("[%s]\n%s", normalizeTranscriptRole(msg.Role), strings.TrimSpace(textContent))
+	}
+
+	var blocks []antigravity.ContentBlock
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		return ""
+	}
+
+	var parts []string
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			if strings.TrimSpace(block.Text) != "" {
+				parts = append(parts, block.Text)
+			}
+		case "thinking":
+			if strings.TrimSpace(block.Thinking) != "" {
+				parts = append(parts, "[Thinking]\n"+block.Thinking)
+			}
+		case "tool_use":
+			toolName := translateToolNameForTranscript(block.Name)
+			if block.ID != "" && block.Name != "" {
+				toolIDToName[block.ID] = toolName
+			}
+			inputJSON := "{}"
+			if block.Input != nil {
+				if data, err := json.Marshal(block.Input); err == nil && len(data) > 0 {
+					inputJSON = string(data)
+				}
+			}
+			parts = append(parts, fmt.Sprintf("[Tool Call]\nname: %s\nid: %s\ninput: %s", toolName, block.ID, inputJSON))
+		case "tool_result":
+			toolName := translateToolNameForTranscript(block.Name)
+			if toolName == "" {
+				toolName = toolIDToName[block.ToolUseID]
+			}
+			resultText := parseToolResultTranscript(block.Content, block.IsError)
+			parts = append(parts, fmt.Sprintf("[Tool Result]\nname: %s\nid: %s\ncontent: %s", toolName, block.ToolUseID, resultText))
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[%s]\n%s", normalizeTranscriptRole(msg.Role), strings.Join(parts, "\n"))
+}
+
+func normalizeTranscriptRole(role string) string {
+	switch role {
+	case "assistant":
+		return "Assistant"
+	case "user":
+		return "User"
+	default:
+		return role
+	}
+}
+
+func translateToolNameForTranscript(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+	return antigravityls.TranslateClientToolNameToAGForPrompt(trimmed)
+}
+
+func parseToolResultTranscript(content json.RawMessage, isError bool) string {
+	if len(content) == 0 {
+		if isError {
+			return "Tool execution failed with no output."
+		}
+		return "Command executed successfully."
+	}
+	var text string
+	if err := json.Unmarshal(content, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	var blocks []antigravity.ContentBlock
+	if err := json.Unmarshal(content, &blocks); err == nil {
+		parts := make([]string, 0, len(blocks))
+		for _, block := range blocks {
+			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n")
+		}
+	}
+	return strings.TrimSpace(string(content))
+}
+
+func renderToolsForLSTranscript(tools []antigravity.ClaudeTool) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(tools)+1)
+	lines = append(lines, "[Available Tools]")
+	for _, tool := range tools {
+		clientName := strings.TrimSpace(tool.Name)
+		if clientName == "" {
+			continue
+		}
+		agName := antigravityls.TranslateClientToolNameToAGForPrompt(clientName)
+		line := fmt.Sprintf("- client=%s, ag=%s", clientName, agName)
+		description := strings.TrimSpace(tool.Description)
+		if description == "" && tool.Custom != nil {
+			description = strings.TrimSpace(tool.Custom.Description)
+		}
+		if description != "" {
+			line += ": " + description
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 // writeClaudeError 写入 Claude 格式的错误响应
