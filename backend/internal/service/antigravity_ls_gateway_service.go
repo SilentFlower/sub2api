@@ -187,6 +187,69 @@ func (s *AntigravityLSGatewayService) Forward(ctx context.Context, c *gin.Contex
 	}, nil
 }
 
+// TestConnection 测试 LS 模式的 Antigravity 账号连通性。
+// 该方法复用真实的 LS 请求链路，避免后台“测试账号”接口误走直连网关。
+func (s *AntigravityLSGatewayService) TestConnection(ctx context.Context, account *Account, modelID string) (*TestConnectionResult, error) {
+	if s == nil || s.tokenProvider == nil || s.lsManager == nil || s.lsClient == nil {
+		return nil, fmt.Errorf("antigravity LS gateway service not configured")
+	}
+
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = "claude-sonnet-4-5"
+	}
+	lsModel := s.mapToLSModel(testModelID)
+
+	accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, fmt.Errorf("获取 access_token 失败: %w", err)
+	}
+	refreshToken := account.GetCredential("refresh_token")
+
+	inst, err := s.lsManager.GetOrStartInstance(ctx, account.ID, refreshToken, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("获取 LS 实例失败: %w", err)
+	}
+
+	cascadeID, err := s.lsClient.StartCascade(ctx, inst.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("StartCascade 失败: %w", err)
+	}
+
+	sendReq := &antigravityls.SendUserCascadeMessageRequest{
+		CascadeID: cascadeID,
+		CascadeConfig: &antigravityls.CascadeConfig{
+			PlannerConfig: &antigravityls.PlannerConfig{
+				Google:         map[string]any{},
+				PlanModel:      lsModel,
+				RequestedModel: &antigravityls.RequestedModel{Model: lsModel},
+			},
+		},
+		Items: []antigravityls.CascadeItem{
+			{TextOrScopeItem: &antigravityls.TextOrScopeItem{Text: "."}},
+		},
+		ClientType:    "IDE",
+		MessageOrigin: "IDE",
+	}
+
+	if err := s.lsClient.SendUserCascadeMessage(ctx, inst.BaseURL, sendReq); err != nil {
+		return nil, fmt.Errorf("SendUserCascadeMessage 失败: %w", err)
+	}
+
+	pollCtx, pollCancel := context.WithTimeout(ctx, lsPollTimeout)
+	defer pollCancel()
+
+	steps, err := s.lsClient.PollTrajectoryUntilDone(pollCtx, inst.BaseURL, cascadeID, lsPollInterval, nil)
+	if err != nil {
+		return nil, fmt.Errorf("轮询 Trajectory 失败: %w", err)
+	}
+
+	return &TestConnectionResult{
+		Text:        extractLSTestResponseText(steps),
+		MappedModel: lsModel,
+	}, nil
+}
+
 // handleStreamingResponse 处理流式请求：轮询 Trajectory 并以 SSE 事件推送给客户端
 func (s *AntigravityLSGatewayService) handleStreamingResponse(
 	ctx context.Context,
@@ -288,6 +351,28 @@ func (s *AntigravityLSGatewayService) handleNonStreamingResponse(
 		OutputTokens: claudeResp.Usage.OutputTokens,
 	}
 	return usage, nil
+}
+
+// extractLSTestResponseText 提取测试请求的最终文本。
+// LS 在轮询阶段会反复返回同一个 PLANNER_RESPONSE 的累积内容，因此这里取最后一个即可，避免重复拼接。
+func extractLSTestResponseText(steps []antigravityls.TrajectoryStep) string {
+	for i := len(steps) - 1; i >= 0; i-- {
+		step := steps[i]
+		if step.Type != "PLANNER_RESPONSE" {
+			continue
+		}
+		pr := step.GetPlannerResponse()
+		if pr == nil {
+			continue
+		}
+		if strings.TrimSpace(pr.Text) != "" {
+			return pr.Text
+		}
+		if strings.TrimSpace(pr.Thinking) != "" {
+			return pr.Thinking
+		}
+	}
+	return ""
 }
 
 // mapToLSModel 将 Claude/Gemini 模型名映射到 LS 的模型 key

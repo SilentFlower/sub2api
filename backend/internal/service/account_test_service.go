@@ -57,34 +57,37 @@ type TestEvent struct {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	accountRepo               AccountRepository
-	geminiTokenProvider       *GeminiTokenProvider
-	antigravityGatewayService *AntigravityGatewayService
-	httpUpstream              HTTPUpstream
-	cfg                       *config.Config
-	soraTestGuardMu           sync.Mutex
-	soraTestLastRun           map[int64]time.Time
-	soraTestCooldown          time.Duration
+	accountRepo                 AccountRepository
+	geminiTokenProvider         *GeminiTokenProvider
+	antigravityGatewayService   *AntigravityGatewayService
+	antigravityLSGatewayService *AntigravityLSGatewayService
+	httpUpstream                HTTPUpstream
+	cfg                         *config.Config
+	soraTestGuardMu             sync.Mutex
+	soraTestLastRun             map[int64]time.Time
+	soraTestCooldown            time.Duration
 }
 
 const defaultSoraTestCooldown = 10 * time.Second
 
-// NewAccountTestService creates a new AccountTestService
+// NewAccountTestService 创建账号测试服务。
 func NewAccountTestService(
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
+	antigravityLSGatewayService *AntigravityLSGatewayService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 ) *AccountTestService {
 	return &AccountTestService{
-		accountRepo:               accountRepo,
-		geminiTokenProvider:       geminiTokenProvider,
-		antigravityGatewayService: antigravityGatewayService,
-		httpUpstream:              httpUpstream,
-		cfg:                       cfg,
-		soraTestLastRun:           make(map[int64]time.Time),
-		soraTestCooldown:          defaultSoraTestCooldown,
+		accountRepo:                 accountRepo,
+		geminiTokenProvider:         geminiTokenProvider,
+		antigravityGatewayService:   antigravityGatewayService,
+		antigravityLSGatewayService: antigravityLSGatewayService,
+		httpUpstream:                httpUpstream,
+		cfg:                         cfg,
+		soraTestLastRun:             make(map[int64]time.Time),
+		soraTestCooldown:            defaultSoraTestCooldown,
 	}
 }
 
@@ -1178,8 +1181,11 @@ func truncateSoraErrorBody(body []byte, max int) string {
 }
 
 // routeAntigravityTest 路由 Antigravity 账号的测试请求。
-// APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
+// 与 gateway_handler 路由保持一致：LS 模式优先，其次是 APIKey 原生协议，其余走 CRS 中转。
 func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string) error {
+	if account.IsLSEnabled() {
+		return s.testAntigravityLSAccountConnection(c, account, modelID)
+	}
 	if account.Type == AccountTypeAPIKey {
 		if strings.HasPrefix(modelID, "gemini-") {
 			return s.testGeminiAccountConnection(c, account, modelID)
@@ -1187,6 +1193,41 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		return s.testClaudeAccountConnection(c, account, modelID)
 	}
 	return s.testAntigravityAccountConnection(c, account, modelID)
+}
+
+// testAntigravityLSAccountConnection 测试启用 LS 模式的 Antigravity 账号连接。
+// 这里必须复用 LS 网关，否则测试流量会错误走直连链路，表现为“LS 模式发送消息没反应”。
+func (s *AccountTestService) testAntigravityLSAccountConnection(c *gin.Context, account *Account, modelID string) error {
+	ctx := c.Request.Context()
+
+	testModelID := modelID
+	if testModelID == "" {
+		testModelID = "claude-sonnet-4-5"
+	}
+
+	if s.antigravityLSGatewayService == nil {
+		return s.sendErrorAndEnd(c, "Antigravity LS gateway service not configured")
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+
+	result, err := s.antigravityLSGatewayService.TestConnection(ctx, account, testModelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	if result.Text != "" {
+		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
+	}
+
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
