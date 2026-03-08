@@ -5,6 +5,7 @@ package antigravityls
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"strings"
@@ -49,6 +50,20 @@ type RequestedModel struct {
 // CascadeItem Cascade 消息项
 type CascadeItem struct {
 	TextOrScopeItem *TextOrScopeItem `json:"textOrScopeItem,omitempty"`
+}
+
+// MarshalJSON 将消息项序列化为 LS 实际接受的扁平 JSON 结构。
+// 当前 headless LS 对 `items` 的 JSON 兼容性较差，发送 `{"textOrScopeItem":{"text":"..."}}`
+// 时会在轨迹里落成 `{}`，导致上游收到空消息，因此这里主动展开成 `{"text":"..."}`。
+func (i CascadeItem) MarshalJSON() ([]byte, error) {
+	if i.TextOrScopeItem != nil {
+		return json.Marshal(struct {
+			Text string `json:"text,omitempty"`
+		}{
+			Text: i.TextOrScopeItem.Text,
+		})
+	}
+	return []byte(`{}`), nil
 }
 
 // TextOrScopeItem 文本消息项
