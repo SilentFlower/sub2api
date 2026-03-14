@@ -73,6 +73,36 @@ const (
 	antigravityModelCapacityCooldown = 10 * time.Second
 )
 
+// creditsExhaustedCache 记录账号的 AI Credits 耗尽时间。
+// 当 credits 重试失败时设置，避免后续请求重复尝试无效的 credits 重试。
+// key: accountID (int64), value: time.Time (耗尽截止时间，与配额重置时间一致)
+var creditsExhaustedCache sync.Map
+
+// isCreditsExhausted 检查账号的 credits 是否已标记为耗尽
+func isCreditsExhausted(accountID int64) bool {
+	v, ok := creditsExhaustedCache.Load(accountID)
+	if !ok {
+		return false
+	}
+	until := v.(time.Time)
+	if time.Now().After(until) {
+		// 已过期，清除标记
+		creditsExhaustedCache.Delete(accountID)
+		return false
+	}
+	return true
+}
+
+// setCreditsExhausted 标记账号的 credits 已耗尽，直到指定时间
+func setCreditsExhausted(accountID int64, until time.Time) {
+	creditsExhaustedCache.Store(accountID, until)
+}
+
+// clearCreditsExhausted 清除账号的 credits 耗尽标记（如用户充值或重新开启 overages）
+func clearCreditsExhausted(accountID int64) {
+	creditsExhaustedCache.Delete(accountID)
+}
+
 // antigravityPassthroughErrorMessages 透传给客户端的错误消息白名单（小写）
 // 匹配时使用 strings.Contains，无需完全匹配
 var antigravityPassthroughErrorMessages = []string{
@@ -191,48 +221,58 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 	// 判断是否触发智能重试
 	shouldSmartRetry, shouldRateLimitModel, waitDuration, modelName, isModelCapacityExhausted := shouldTriggerAntigravitySmartRetry(p.account, respBody)
 
-	// 情况1: retryDelay >= 阈值，限流模型并切换账号
-	if shouldRateLimitModel {
-		// AI Credits 超量降级：配额耗尽(429)时，如果账号启用了 allow_overages，
-		// 在请求 body 中注入 enabledCreditTypes 后重试一次，用 credits 完成请求。
-		if resp.StatusCode == http.StatusTooManyRequests && p.account.IsOveragesEnabled() {
-			creditsBody := injectEnabledCreditTypes(p.body)
-			if creditsBody != nil {
-				logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
-					p.prefix, modelName, p.account.ID)
+	// AI Credits 超量降级（最优先处理）：
+	// 只要是 429 + allow_overages 启用 + credits 未耗尽，先尝试 credits 重试。
+	// 成功则直接返回；失败则标记 credits 耗尽，继续走原有的限流/重试逻辑。
+	if resp.StatusCode == http.StatusTooManyRequests && p.account.IsOveragesEnabled() && !isCreditsExhausted(p.account.ID) {
+		creditsBody := injectEnabledCreditTypes(p.body)
+		if creditsBody != nil {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
+				p.prefix, modelName, p.account.ID)
 
-				creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, creditsBody)
-				if err == nil {
-					creditsResp, err := p.httpUpstream.Do(creditsReq, p.proxyURL, p.account.ID, p.account.Concurrency)
-					if err == nil && creditsResp != nil && creditsResp.StatusCode < 400 {
-						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
-							p.prefix, creditsResp.StatusCode, modelName, p.account.ID)
+			creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, creditsBody)
+			if err == nil {
+				creditsResp, err := p.httpUpstream.Do(creditsReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+				if err == nil && creditsResp != nil && creditsResp.StatusCode < 400 {
+					logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
+						p.prefix, creditsResp.StatusCode, modelName, p.account.ID)
 
-						// 设置模型限流标记，后续请求在预检查中直接注入 enabledCreditTypes，
-						// 避免每次都先 429 再降级。配额重置后限流自然过期。
-						rateLimitDuration := waitDuration
-						if rateLimitDuration <= 0 {
-							rateLimitDuration = antigravityDefaultRateLimitDuration
-						}
-						resetAt := time.Now().Add(rateLimitDuration)
-						if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, false) {
-							s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
-						}
+					// credits 成功，清除可能残留的耗尽标记
+					clearCreditsExhausted(p.account.ID)
 
-						return &smartRetryResult{
-							action: smartRetryActionBreakWithResp,
-							resp:   creditsResp,
-						}
+					// 设置模型限流标记，后续请求在预检查中直接注入 enabledCreditTypes，
+					// 避免每次都先 429 再降级。配额重置后限流自然过期。
+					rateLimitDuration := waitDuration
+					if rateLimitDuration <= 0 {
+						rateLimitDuration = antigravityDefaultRateLimitDuration
 					}
-					// credits 重试也失败了，继续原有的切换账号逻辑
-					if creditsResp != nil && creditsResp.Body != nil {
-						_ = creditsResp.Body.Close()
+					resetAt := time.Now().Add(rateLimitDuration)
+					if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, false) {
+						s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
 					}
-					logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d (fallback to account switch)",
-						p.prefix, modelName, p.account.ID)
+
+					return &smartRetryResult{
+						action: smartRetryActionBreakWithResp,
+						resp:   creditsResp,
+					}
 				}
+				// credits 重试也失败了，标记 credits 耗尽，避免后续请求重复尝试
+				if creditsResp != nil && creditsResp.Body != nil {
+					_ = creditsResp.Body.Close()
+				}
+				exhaustedUntil := waitDuration
+				if exhaustedUntil <= 0 {
+					exhaustedUntil = antigravityDefaultRateLimitDuration
+				}
+				setCreditsExhausted(p.account.ID, time.Now().Add(exhaustedUntil))
+				logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d exhausted_for=%v (fallback to normal handling)",
+					p.prefix, modelName, p.account.ID, exhaustedUntil)
 			}
 		}
+	}
+
+	// 情况1: retryDelay >= 阈值，限流模型并切换账号
+	if shouldRateLimitModel {
 
 		// 单账号 503 退避重试模式：不设限流、不切换账号，改为原地等待+重试
 		// 谷歌上游 503 (MODEL_CAPACITY_EXHAUSTED) 通常是暂时性的，等几秒就能恢复。
@@ -578,7 +618,8 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		if remaining := p.account.GetRateLimitRemainingTimeWithContext(p.ctx, p.requestedModel); remaining > 0 {
 			// AI Credits 超量：模型配额耗尽但启用了 allow_overages，
 			// 直接注入 enabledCreditTypes 用 credits 请求，跳过限流预检查。
-			if p.account.IsOveragesEnabled() {
+			// 如果 credits 已标记为耗尽（之前重试失败），则跳过，走正常限流逻辑。
+			if p.account.IsOveragesEnabled() && !isCreditsExhausted(p.account.ID) {
 				if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
 					p.body = creditsBody
 					logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: credit_overages_bypass remaining=%v model=%s account=%d (using AI Credits)",
