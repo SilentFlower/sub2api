@@ -428,6 +428,55 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_Antigra
 	require.Equal(t, PlatformAntigravity, acc.Platform, "antigravity 分组应只返回 antigravity 账户")
 }
 
+// TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_AntigravityOverages 测试 antigravity 开启超量后仍可被选中。
+func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_AntigravityOverages(t *testing.T) {
+	ctx := context.Background()
+	resetAt := time.Now().Add(30 * time.Second).Format(time.RFC3339)
+
+	repo := &mockAccountRepoForGemini{
+		accounts: []Account{
+			{
+				ID:          2,
+				Platform:    PlatformAntigravity,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"gemini-2.5-flash": map[string]any{
+							"rate_limit_reset_at": resetAt,
+						},
+					},
+				},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+
+	cache := &mockGatewayCacheForGemini{}
+	groupRepo := &mockGroupRepoForGemini{
+		groups: map[int64]*Group{
+			1: {ID: 1, Platform: PlatformAntigravity},
+		},
+	}
+
+	svc := &GeminiMessagesCompatService{
+		accountRepo: repo,
+		groupRepo:   groupRepo,
+		cache:       cache,
+	}
+
+	groupID := int64(1)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+	require.Equal(t, int64(2), acc.ID, "开启 overages 的 antigravity 账户不应在 Gemini 兼容调度阶段被提前过滤")
+}
+
 // TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_OAuthPreferred 测试 OAuth 优先
 func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_OAuthPreferred(t *testing.T) {
 	ctx := context.Background()

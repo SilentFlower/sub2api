@@ -43,6 +43,8 @@ func TestShouldClearStickySession(t *testing.T) {
 		name           string
 		account        *Account
 		requestedModel string
+		before         func()
+		after          func()
 		want           bool
 	}{
 		{name: "nil account", account: nil, requestedModel: "", want: false},
@@ -86,6 +88,50 @@ func TestShouldClearStickySession(t *testing.T) {
 			want:           true, // 有限流即清除
 		},
 		{
+			name: "antigravity overages keeps sticky session",
+			account: &Account{
+				ID:          101,
+				Platform:    PlatformAntigravity,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": longRateLimitReset,
+						},
+					},
+				},
+			},
+			requestedModel: "claude-sonnet-4-5",
+			want:           false, // 开启 overages 后仍可继续调度，不应清除粘性会话
+		},
+		{
+			name: "antigravity overages exhausted still clears sticky session",
+			account: &Account{
+				ID:          102,
+				Platform:    PlatformAntigravity,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": longRateLimitReset,
+						},
+					},
+				},
+			},
+			requestedModel: "claude-sonnet-4-5",
+			before: func() {
+				setCreditsExhausted(102, future)
+			},
+			after: func() {
+				clearCreditsExhausted(102)
+			},
+			want: true, // credits 已耗尽时仍应回退到原有限流清理逻辑
+		},
+		{
 			name: "model rate limited different model",
 			account: &Account{
 				Status:      StatusActive,
@@ -105,6 +151,12 @@ func TestShouldClearStickySession(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.before != nil {
+				tt.before()
+			}
+			if tt.after != nil {
+				t.Cleanup(tt.after)
+			}
 			require.Equal(t, tt.want, shouldClearStickySession(tt.account, tt.requestedModel))
 		})
 	}

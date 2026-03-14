@@ -244,7 +244,7 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 ) bool {
 	// 检查模型调度能力
 	// Check model scheduling capability
-	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if !isAccountSchedulableForRequestedModel(ctx, account, requestedModel) {
 		return false
 	}
 

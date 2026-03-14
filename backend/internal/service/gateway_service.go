@@ -454,6 +454,9 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 	}
 	// 检查模型限流和 scope 限流，有限流即清除粘性会话
 	if remaining := account.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel); remaining > 0 {
+		if canUseAntigravityCreditsOverages(context.Background(), account, requestedModel) {
+			return false
+		}
 		return true
 	}
 	return false
@@ -2022,7 +2025,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 		}
 		return account.GetRateLimitRemainingTimeWithContext(ctx, requestedModel) <= 0
 	}
-	return account.IsSchedulableForModelWithContext(ctx, requestedModel)
+	return isAccountSchedulableForRequestedModel(ctx, account, requestedModel)
 }
 
 // isAccountInGroup checks if the account belongs to the specified group.

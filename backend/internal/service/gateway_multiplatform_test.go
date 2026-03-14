@@ -362,6 +362,50 @@ func TestGatewayService_SelectAccountForModelWithPlatform_Antigravity(t *testing
 	require.Equal(t, PlatformAntigravity, acc.Platform, "应只返回 antigravity 平台账户")
 }
 
+// TestGatewayService_SelectAccountForModelWithPlatform_AntigravityOverages 测试 antigravity 开启超量后仍可被调度。
+func TestGatewayService_SelectAccountForModelWithPlatform_AntigravityOverages(t *testing.T) {
+	ctx := context.Background()
+	resetAt := time.Now().Add(30 * time.Second).Format(time.RFC3339)
+
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
+			{
+				ID:          2,
+				Platform:    PlatformAntigravity,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": resetAt,
+						},
+					},
+				},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+
+	cache := &mockGatewayCacheForPlatform{}
+
+	svc := &GatewayService{
+		accountRepo: repo,
+		cache:       cache,
+		cfg:         testConfig(),
+	}
+
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-sonnet-4-5", nil, PlatformAntigravity)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+	require.Equal(t, int64(2), acc.ID, "开启 overages 的 antigravity 账户不应被模型限流预检查过滤")
+}
+
 // TestGatewayService_SelectAccountForModelWithPlatform_PriorityAndLastUsed 测试优先级和最后使用时间
 func TestGatewayService_SelectAccountForModelWithPlatform_PriorityAndLastUsed(t *testing.T) {
 	ctx := context.Background()
