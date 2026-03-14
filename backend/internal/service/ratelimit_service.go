@@ -1135,8 +1135,17 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 
 	if hasRecoverableRuntimeState(account) {
-		if err := s.ClearRateLimit(ctx, accountID); err != nil {
-			return nil, err
+		// Antigravity overages 账号：model_rate_limits 是超量请求的正常工作状态，
+		// 恢复/测试成功时不应清除，否则会中断超量请求 + 丢失前端状态显示。
+		// 只清除账号级限流、临时不可调度等非 overages 状态。
+		if account.IsOveragesEnabled() && hasActiveModelRateLimits(account) {
+			if err := s.clearRateLimitPreserveModelLimits(ctx, accountID); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := s.ClearRateLimit(ctx, accountID); err != nil {
+				return nil, err
+			}
 		}
 		result.ClearedRateLimit = true
 	}
@@ -1148,6 +1157,64 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 // 按需恢复 error / rate-limit / overload / temp-unsched / model-rate-limit 等运行时状态。
 func (s *RateLimitService) RecoverAccountAfterSuccessfulTest(ctx context.Context, accountID int64) (*SuccessfulTestRecoveryResult, error) {
 	return s.RecoverAccountState(ctx, accountID, AccountRecoveryOptions{})
+}
+
+// clearRateLimitPreserveModelLimits 清除账号级限流，但保留 model_rate_limits。
+// 专用于 overages 账号：model_rate_limits 记录了哪些模型正在走超量请求，
+// 清除它会导致前端超量状态消失 + 下次请求浪费一次 429。
+func (s *RateLimitService) clearRateLimitPreserveModelLimits(ctx context.Context, accountID int64) error {
+	if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
+		return err
+	}
+	if err := s.accountRepo.ClearAntigravityQuotaScopes(ctx, accountID); err != nil {
+		return err
+	}
+	// 注意：不清除 model_rate_limits
+	if err := s.accountRepo.ClearTempUnschedulable(ctx, accountID); err != nil {
+		return err
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, accountID); err != nil {
+			slog.Warn("temp_unsched_cache_delete_failed", "account_id", accountID, "error", err)
+		}
+	}
+	// 清除 credits 耗尽标记，允许重新尝试超量请求
+	clearCreditsExhausted(accountID)
+	return nil
+}
+
+// hasActiveModelRateLimits 检查账号是否有未过期的 model_rate_limits
+func hasActiveModelRateLimits(account *Account) bool {
+	if account == nil || len(account.Extra) == 0 {
+		return false
+	}
+	raw, ok := account.Extra["model_rate_limits"]
+	if !ok || raw == nil {
+		return false
+	}
+	limits, ok := raw.(map[string]any)
+	if !ok || len(limits) == 0 {
+		return false
+	}
+	now := time.Now()
+	for _, v := range limits {
+		info, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		resetStr, _ := info["rate_limit_reset_at"].(string)
+		if resetStr == "" {
+			continue
+		}
+		resetAt, err := time.Parse(time.RFC3339, resetStr)
+		if err != nil {
+			continue
+		}
+		if resetAt.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID int64) error {
