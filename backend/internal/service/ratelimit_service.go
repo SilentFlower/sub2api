@@ -1115,37 +1115,34 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 }
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
+// 注意：恢复状态会全量清除（包括 model_rate_limits），
+// overages 账号下次请求会重新走 429 → credits 降级 → 重新设置 model_rate_limits。
 func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID int64, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
+	return s.recoverAccountStateWithAccount(ctx, account, options)
+}
 
+// recoverAccountStateWithAccount 内部实现，接受已加载的 account 对象避免重复查询
+func (s *RateLimitService) recoverAccountStateWithAccount(ctx context.Context, account *Account, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
 	result := &SuccessfulTestRecoveryResult{}
 	if account.Status == StatusError {
-		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
+		if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
 			return nil, err
 		}
 		result.ClearedError = true
 		if options.InvalidateToken && s.tokenCacheInvalidator != nil && account.IsOAuth() {
 			if invalidateErr := s.tokenCacheInvalidator.InvalidateToken(ctx, account); invalidateErr != nil {
-				slog.Warn("recover_account_state_invalidate_token_failed", "account_id", accountID, "error", invalidateErr)
+				slog.Warn("recover_account_state_invalidate_token_failed", "account_id", account.ID, "error", invalidateErr)
 			}
 		}
 	}
 
 	if hasRecoverableRuntimeState(account) {
-		// Antigravity overages 账号：model_rate_limits 是超量请求的正常工作状态，
-		// 恢复/测试成功时不应清除，否则会中断超量请求 + 丢失前端状态显示。
-		// 只清除账号级限流、临时不可调度等非 overages 状态。
-		if account.IsOveragesEnabled() && hasActiveModelRateLimits(account) {
-			if err := s.clearRateLimitPreserveModelLimits(ctx, accountID); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := s.ClearRateLimit(ctx, accountID); err != nil {
-				return nil, err
-			}
+		if err := s.ClearRateLimit(ctx, account.ID); err != nil {
+			return nil, err
 		}
 		result.ClearedRateLimit = true
 	}
@@ -1154,9 +1151,40 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 }
 
 // RecoverAccountAfterSuccessfulTest 将一次成功测试视为正常请求，
-// 按需恢复 error / rate-limit / overload / temp-unsched / model-rate-limit 等运行时状态。
+// 按需恢复 error / rate-limit / overload / temp-unsched 等运行时状态。
+//
+// 对于 overages 账号：保留 model_rate_limits，避免测试成功后清掉超量请求的工作状态。
+// model_rate_limits 对 overages 账号是正常工作标记（表示"正在用 credits 超量请求"），
+// 清除它会导致前端 ⚡ 状态消失 + 下次请求浪费一次 429。
 func (s *RateLimitService) RecoverAccountAfterSuccessfulTest(ctx context.Context, accountID int64) (*SuccessfulTestRecoveryResult, error) {
-	return s.RecoverAccountState(ctx, accountID, AccountRecoveryOptions{})
+	// 注意：RecoverAccountState 内部已经调用 GetByID，这里复用其返回而非重复查询。
+	// 先走通用路径获取 account 并判断是否为 overages 账号。
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 非 overages 账号 或没有活跃的模型限流：直接走全量恢复
+	if !account.IsOveragesEnabled() || !hasActiveModelRateLimits(account) {
+		// 已经有了 account，直接执行恢复逻辑，避免重复 GetByID
+		return s.recoverAccountStateWithAccount(ctx, account, AccountRecoveryOptions{})
+	}
+
+	// Overages 账号且有活跃的模型限流：只清除非 overages 状态，保留 model_rate_limits
+	result := &SuccessfulTestRecoveryResult{}
+	if account.Status == StatusError {
+		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
+			return nil, err
+		}
+		result.ClearedError = true
+	}
+	if account.RateLimitedAt != nil || account.RateLimitResetAt != nil || account.OverloadUntil != nil || account.TempUnschedulableUntil != nil {
+		if err := s.clearRateLimitPreserveModelLimits(ctx, accountID); err != nil {
+			return nil, err
+		}
+		result.ClearedRateLimit = true
+	}
+	return result, nil
 }
 
 // clearRateLimitPreserveModelLimits 清除账号级限流，但保留 model_rate_limits。

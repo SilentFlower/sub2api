@@ -246,6 +246,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'tested', accountId: number): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -497,6 +498,11 @@ const handleEvent = (event: {
       }
       if (event.success) {
         status.value = 'success'
+        // 通知父组件测试成功，触发账号数据刷新
+        // （后端 RecoverAccountAfterSuccessfulTest 可能修改了账号状态）
+        if (props.account?.id) {
+          emit('tested', props.account.id)
+        }
       } else {
         status.value = 'error'
         errorMessage.value = event.error || 'Test failed'
