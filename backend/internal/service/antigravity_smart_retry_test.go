@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -1271,6 +1272,199 @@ func TestHandleSmartRetry_ShortDelay_503_StickySession_FailedRetry_ClearsSession
 	// 验证模型限流已设置
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gemini-3-pro", repo.modelRateLimitCalls[0].modelKey)
+}
+
+// TestHandleSmartRetry_CreditOveragesNetworkError_DoesNotMarkCreditsExhausted
+// credits 降级遇到网络错误时，不应把账号错误标记为 credits 耗尽。
+func TestHandleSmartRetry_CreditOveragesNetworkError_DoesNotMarkCreditsExhausted(t *testing.T) {
+	upstream := &mockSmartRetryUpstream{
+		responses: []*http.Response{nil},
+		errors:    []error{errors.New("dial tcp timeout")},
+	}
+
+	repo := &stubAntigravityAccountRepo{}
+	account := &Account{
+		ID:       201,
+		Name:     "acc-201",
+		Type:     AccountTypeOAuth,
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			"allow_overages": true,
+		},
+	}
+	clearCreditsExhausted(account.ID)
+	t.Cleanup(func() {
+		clearCreditsExhausted(account.ID)
+	})
+
+	respBody := []byte(`{
+		"error": {
+			"status": "RESOURCE_EXHAUSTED",
+			"details": [
+				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "claude-sonnet-4-5"}, "reason": "RATE_LIMIT_EXCEEDED"},
+				{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "15s"}
+			]
+		}
+	}`)
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+	}
+
+	params := antigravityRetryLoopParams{
+		ctx:          context.Background(),
+		prefix:       "[test]",
+		account:      account,
+		accessToken:  "token",
+		action:       "generateContent",
+		body:         []byte(`{"input":"test"}`),
+		httpUpstream: upstream,
+		accountRepo:  repo,
+		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
+			return nil
+		},
+	}
+
+	svc := &AntigravityGatewayService{}
+	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, []string{"https://ag-1.test"})
+
+	require.NotNil(t, result)
+	require.NotNil(t, result.switchError)
+	require.False(t, isCreditsExhausted(account.ID), "网络错误不应把 credits 标记为耗尽")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+}
+
+// TestHandleSmartRetry_CreditOveragesServerError_DoesNotMarkCreditsExhausted
+// credits 降级遇到 5xx 时，不应把账号错误标记为 credits 耗尽。
+func TestHandleSmartRetry_CreditOveragesServerError_DoesNotMarkCreditsExhausted(t *testing.T) {
+	failResp := &http.Response{
+		StatusCode: http.StatusServiceUnavailable,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"temporary upstream failure"}}`)),
+	}
+	upstream := &mockSmartRetryUpstream{
+		responses: []*http.Response{failResp},
+		errors:    []error{nil},
+	}
+
+	repo := &stubAntigravityAccountRepo{}
+	account := &Account{
+		ID:       202,
+		Name:     "acc-202",
+		Type:     AccountTypeOAuth,
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			"allow_overages": true,
+		},
+	}
+	clearCreditsExhausted(account.ID)
+	t.Cleanup(func() {
+		clearCreditsExhausted(account.ID)
+	})
+
+	respBody := []byte(`{
+		"error": {
+			"status": "RESOURCE_EXHAUSTED",
+			"details": [
+				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "claude-sonnet-4-5"}, "reason": "RATE_LIMIT_EXCEEDED"},
+				{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "15s"}
+			]
+		}
+	}`)
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+	}
+
+	params := antigravityRetryLoopParams{
+		ctx:          context.Background(),
+		prefix:       "[test]",
+		account:      account,
+		accessToken:  "token",
+		action:       "generateContent",
+		body:         []byte(`{"input":"test"}`),
+		httpUpstream: upstream,
+		accountRepo:  repo,
+		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
+			return nil
+		},
+	}
+
+	svc := &AntigravityGatewayService{}
+	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, []string{"https://ag-1.test"})
+
+	require.NotNil(t, result)
+	require.NotNil(t, result.switchError)
+	require.False(t, isCreditsExhausted(account.ID), "5xx 不应把 credits 标记为耗尽")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+}
+
+// TestHandleSmartRetry_CreditOveragesExplicitCreditError_MarksCreditsExhausted
+// 上游明确返回 credits 余额不足时，才应标记为 credits 耗尽。
+func TestHandleSmartRetry_CreditOveragesExplicitCreditError_MarksCreditsExhausted(t *testing.T) {
+	failResp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Insufficient GOOGLE_ONE_AI credits"}}`)),
+	}
+	upstream := &mockSmartRetryUpstream{
+		responses: []*http.Response{failResp},
+		errors:    []error{nil},
+	}
+
+	repo := &stubAntigravityAccountRepo{}
+	account := &Account{
+		ID:       203,
+		Name:     "acc-203",
+		Type:     AccountTypeOAuth,
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			"allow_overages": true,
+		},
+	}
+	clearCreditsExhausted(account.ID)
+	t.Cleanup(func() {
+		clearCreditsExhausted(account.ID)
+	})
+
+	respBody := []byte(`{
+		"error": {
+			"status": "RESOURCE_EXHAUSTED",
+			"details": [
+				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "claude-sonnet-4-5"}, "reason": "RATE_LIMIT_EXCEEDED"},
+				{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "15s"}
+			]
+		}
+	}`)
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+	}
+
+	params := antigravityRetryLoopParams{
+		ctx:          context.Background(),
+		prefix:       "[test]",
+		account:      account,
+		accessToken:  "token",
+		action:       "generateContent",
+		body:         []byte(`{"input":"test"}`),
+		httpUpstream: upstream,
+		accountRepo:  repo,
+		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
+			return nil
+		},
+	}
+
+	svc := &AntigravityGatewayService{}
+	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, []string{"https://ag-1.test"})
+
+	require.NotNil(t, result)
+	require.NotNil(t, result.switchError)
+	require.True(t, isCreditsExhausted(account.ID), "明确的 credits 错误应标记为耗尽")
+	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
 // TestAntigravityRetryLoop_SmartRetryFailed_StickySession_SwitchErrorPropagates

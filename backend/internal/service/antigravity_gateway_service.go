@@ -103,6 +103,48 @@ func clearCreditsExhausted(accountID int64) {
 	creditsExhaustedCache.Delete(accountID)
 }
 
+// shouldMarkCreditsExhausted 判断一次 credits 降级失败是否应标记为“credits 已耗尽”。
+// 这里采用保守策略：只有在上游明确返回与 credits 相关的非瞬时错误时才打标，
+// 避免把网络抖动、5xx、URL 级限流或普通模型限流误判成 credits 耗尽。
+func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr error) bool {
+	if reqErr != nil || resp == nil {
+		return false
+	}
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout {
+		return false
+	}
+	if isURLLevelRateLimit(respBody) {
+		return false
+	}
+	if info := parseAntigravitySmartRetryInfo(respBody); info != nil {
+		return false
+	}
+
+	bodyLower := strings.ToLower(string(respBody))
+	if bodyLower == "" {
+		return false
+	}
+
+	for _, keyword := range []string{
+		"google_one_ai",
+		"insufficient credit",
+		"insufficient credits",
+		"not enough credit",
+		"not enough credits",
+		"credit exhausted",
+		"credits exhausted",
+		"credit balance",
+		"minimumcreditamountforusage",
+		"minimum credit amount for usage",
+		"minimum credit",
+	} {
+		if strings.Contains(bodyLower, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
 // antigravityPassthroughErrorMessages 透传给客户端的错误消息白名单（小写）
 // 匹配时使用 strings.Contains，无需完全匹配
 var antigravityPassthroughErrorMessages = []string{
@@ -256,17 +298,28 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 						resp:   creditsResp,
 					}
 				}
-				// credits 重试也失败了，标记 credits 耗尽，避免后续请求重复尝试
-				if creditsResp != nil && creditsResp.Body != nil {
-					_ = creditsResp.Body.Close()
+				var creditsRespBody []byte
+				creditsStatusCode := 0
+				if creditsResp != nil {
+					creditsStatusCode = creditsResp.StatusCode
+					if creditsResp.Body != nil {
+						creditsRespBody, _ = io.ReadAll(io.LimitReader(creditsResp.Body, 64<<10))
+						_ = creditsResp.Body.Close()
+					}
 				}
-				exhaustedUntil := waitDuration
-				if exhaustedUntil <= 0 {
-					exhaustedUntil = antigravityDefaultRateLimitDuration
+
+				if shouldMarkCreditsExhausted(creditsResp, creditsRespBody, err) {
+					exhaustedUntil := waitDuration
+					if exhaustedUntil <= 0 {
+						exhaustedUntil = antigravityDefaultRateLimitDuration
+					}
+					setCreditsExhausted(p.account.ID, time.Now().Add(exhaustedUntil))
+					logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=true status=%d exhausted_for=%v body=%s",
+						p.prefix, modelName, p.account.ID, creditsStatusCode, exhaustedUntil, truncateForLog(creditsRespBody, 200))
+				} else {
+					logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=false status=%d err=%v body=%s",
+						p.prefix, modelName, p.account.ID, creditsStatusCode, err, truncateForLog(creditsRespBody, 200))
 				}
-				setCreditsExhausted(p.account.ID, time.Now().Add(exhaustedUntil))
-				logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d exhausted_for=%v (fallback to normal handling)",
-					p.prefix, modelName, p.account.ID, exhaustedUntil)
 			}
 		}
 	}
