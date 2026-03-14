@@ -88,7 +88,18 @@
       ]"
     >
       <div v-for="item in activeModelRateLimits" :key="item.model" class="group relative mb-1 break-inside-avoid">
+        <!-- 超量请求中：amber 色 + ⚡ 图标 -->
         <span
+          v-if="item.isOverages"
+          class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+        >
+          ⚡
+          {{ formatScopeName(item.model) }}
+          <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
+        </span>
+        <!-- 普通限流：紫色 + 警告图标 -->
+        <span
+          v-else
           class="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
@@ -99,7 +110,10 @@
         <div
           class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
         >
-          {{ t('admin.accounts.status.modelRateLimitedUntil', { model: formatScopeName(item.model), time: formatTime(item.reset_at) }) }}
+          {{ item.isOverages
+            ? t('admin.accounts.status.modelCreditOveragesUntil', { model: formatScopeName(item.model), time: formatTime(item.reset_at) })
+            : t('admin.accounts.status.modelRateLimitedUntil', { model: formatScopeName(item.model), time: formatTime(item.reset_at) })
+          }}
           <div
             class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"
           ></div>
@@ -153,14 +167,16 @@ const isRateLimited = computed(() => {
 
 // Computed: active model rate limits (Antigravity OAuth Smart Retry)
 const activeModelRateLimits = computed(() => {
-  const modelLimits = (props.account.extra as Record<string, unknown> | undefined)?.model_rate_limits as
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  const modelLimits = extra?.model_rate_limits as
     | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     | undefined
   if (!modelLimits) return []
   const now = new Date()
+  const isOverages = extra?.allow_overages === true
   return Object.entries(modelLimits)
     .filter(([, info]) => new Date(info.rate_limit_reset_at) > now)
-    .map(([model, info]) => ({ model, reset_at: info.rate_limit_reset_at }))
+    .map(([model, info]) => ({ model, reset_at: info.rate_limit_reset_at, isOverages }))
 })
 
 const formatScopeName = (scope: string): string => {
