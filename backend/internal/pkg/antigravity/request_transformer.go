@@ -45,9 +45,6 @@ type TransformOptions struct {
 	// 为空时使用默认模板（包含 [IDENTITY_PATCH] 及 SYSTEM_PROMPT_BEGIN 标记）。
 	IdentityPatch string
 	EnableMCPXML  bool
-	// EnableCreditOverages 启用后在 v1internal 请求中注入 enabledCreditTypes，
-	// 使配额耗尽时自动使用 AI Credits 超量请求。
-	EnableCreditOverages bool
 }
 
 func DefaultTransformOptions() TransformOptions {
@@ -173,11 +170,6 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 		RequestType: requestType,
 		Model:       targetModel,
 		Request:     innerRequest,
-	}
-
-	// 启用 AI Credits 超量请求：注入 enabledCreditTypes
-	if opts.EnableCreditOverages {
-		v1Req.EnabledCreditTypes = []string{"GOOGLE_ONE_AI"}
 	}
 
 	return json.Marshal(v1Req)

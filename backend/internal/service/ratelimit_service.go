@@ -1109,6 +1109,8 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 			slog.Warn("temp_unsched_cache_delete_failed", "account_id", accountID, "error", err)
 		}
 	}
+	// 清除 Antigravity AI Credits 耗尽标记，允许恢复后重新尝试超量请求
+	clearCreditsExhausted(accountID)
 	return nil
 }
 
