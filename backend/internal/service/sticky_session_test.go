@@ -88,7 +88,7 @@ func TestShouldClearStickySession(t *testing.T) {
 			want:           true, // 有限流即清除
 		},
 		{
-			name: "antigravity overages keeps sticky session",
+			name: "antigravity overages active keeps sticky session",
 			account: &Account{
 				ID:          101,
 				Platform:    PlatformAntigravity,
@@ -101,6 +101,7 @@ func TestShouldClearStickySession(t *testing.T) {
 							"rate_limit_reset_at": longRateLimitReset,
 						},
 					},
+					antigravityCreditOveragesUntilExtraKey("claude-sonnet-4-5"): longRateLimitReset,
 				},
 			},
 			requestedModel: "claude-sonnet-4-5",
@@ -120,6 +121,7 @@ func TestShouldClearStickySession(t *testing.T) {
 							"rate_limit_reset_at": longRateLimitReset,
 						},
 					},
+					antigravityCreditOveragesUntilExtraKey("claude-sonnet-4-5"): longRateLimitReset,
 				},
 			},
 			requestedModel: "claude-sonnet-4-5",
@@ -130,6 +132,46 @@ func TestShouldClearStickySession(t *testing.T) {
 				clearCreditsExhausted(102)
 			},
 			want: true, // credits 已耗尽时仍应回退到原有限流清理逻辑
+		},
+		{
+			name: "antigravity overages without active marker still clears sticky session",
+			account: &Account{
+				ID:          103,
+				Platform:    PlatformAntigravity,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": longRateLimitReset,
+						},
+					},
+				},
+			},
+			requestedModel: "claude-sonnet-4-5",
+			want:           true, // 只有开启开关但未进入超量状态时，仍应按普通限流处理
+		},
+		{
+			name: "antigravity persisted exhausted still clears sticky session",
+			account: &Account{
+				ID:          104,
+				Platform:    PlatformAntigravity,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": longRateLimitReset,
+						},
+					},
+					antigravityCreditOveragesUntilExtraKey("claude-sonnet-4-5"): longRateLimitReset,
+					antigravityCreditsExhaustedUntilExtraKey:                    future.Format(time.RFC3339),
+				},
+			},
+			requestedModel: "claude-sonnet-4-5",
+			want:           true,
 		},
 		{
 			name: "model rate limited different model",

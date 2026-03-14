@@ -3,16 +3,16 @@ package service
 import "context"
 
 // canUseAntigravityCreditsOverages 判断当前请求是否可以通过 AI Credits 超量继续使用。
-// 命中模型限流时，只要 antigravity 账号开启了 allow_overages 且 credits 未耗尽，
-// 就不应在调度阶段被提前过滤，而应继续走请求前注入 enabledCreditTypes 的链路。
+// 只有在模型已经进入 credits 超量状态，且账号未被标记为 credits 耗尽时，
+// 才允许在调度阶段继续放行并走 enabledCreditTypes 链路。
 func canUseAntigravityCreditsOverages(ctx context.Context, account *Account, requestedModel string) bool {
 	if account == nil || account.Platform != PlatformAntigravity {
 		return false
 	}
-	if !account.IsOveragesEnabled() || isCreditsExhausted(account.ID) {
+	if !account.IsOveragesEnabled() || isAntigravityCreditsExhausted(account) {
 		return false
 	}
-	return account.GetRateLimitRemainingTimeWithContext(ctx, requestedModel) > 0
+	return account.IsAntigravityCreditOveragesActive(ctx, requestedModel)
 }
 
 // isAccountSchedulableForRequestedModel 统一封装“模型可调度”判断。
@@ -25,4 +25,14 @@ func isAccountSchedulableForRequestedModel(ctx context.Context, account *Account
 		return true
 	}
 	return canUseAntigravityCreditsOverages(ctx, account, requestedModel)
+}
+
+func isAntigravityCreditsExhausted(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if isCreditsExhausted(account.ID) {
+		return true
+	}
+	return account.IsAntigravityCreditsExhausted()
 }

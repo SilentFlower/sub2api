@@ -103,6 +103,27 @@ func clearCreditsExhausted(accountID int64) {
 	creditsExhaustedCache.Delete(accountID)
 }
 
+func formatAntigravityExtraTime(until *time.Time) any {
+	if until == nil {
+		return nil
+	}
+	return until.UTC().Format(time.RFC3339)
+}
+
+func setAntigravityExtraValue(account *Account, key string, value any) {
+	if account == nil || key == "" {
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	if value == nil {
+		delete(account.Extra, key)
+		return
+	}
+	account.Extra[key] = value
+}
+
 // shouldMarkCreditsExhausted 判断一次 credits 降级失败是否应标记为“credits 已耗尽”。
 // 这里采用保守策略：只有在上游明确返回与 credits 相关的非瞬时错误时才打标，
 // 避免把网络抖动、5xx、URL 级限流或普通模型限流误判成 credits 耗尽。
@@ -143,6 +164,54 @@ func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr err
 		}
 	}
 	return false
+}
+
+func (s *AntigravityGatewayService) persistAntigravityExtraValue(ctx context.Context, repo AccountRepository, account *Account, key string, value any) {
+	if repo == nil || account == nil || key == "" {
+		return
+	}
+	if err := repo.UpdateExtra(ctx, account.ID, map[string]any{key: value}); err != nil {
+		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] persist extra failed account=%d key=%s err=%v", account.ID, key, err)
+	}
+}
+
+func (s *AntigravityGatewayService) syncAccountExtraValueInCache(ctx context.Context, account *Account, key string, value any) {
+	if account == nil || key == "" {
+		return
+	}
+	setAntigravityExtraValue(account, key, value)
+	if s.schedulerSnapshot == nil {
+		return
+	}
+	if err := s.schedulerSnapshot.UpdateAccountInCache(ctx, account); err != nil {
+		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] cache extra update failed account=%d key=%s err=%v", account.ID, key, err)
+	}
+}
+
+func (s *AntigravityGatewayService) markAntigravityCreditsExhausted(ctx context.Context, repo AccountRepository, account *Account, until time.Time) {
+	setCreditsExhausted(account.ID, until)
+	value := formatAntigravityExtraTime(&until)
+	s.persistAntigravityExtraValue(ctx, repo, account, antigravityCreditsExhaustedUntilExtraKey, value)
+	s.syncAccountExtraValueInCache(ctx, account, antigravityCreditsExhaustedUntilExtraKey, value)
+}
+
+func (s *AntigravityGatewayService) clearAntigravityCreditsExhausted(ctx context.Context, repo AccountRepository, account *Account) {
+	if account == nil {
+		return
+	}
+	clearCreditsExhausted(account.ID)
+	s.persistAntigravityExtraValue(ctx, repo, account, antigravityCreditsExhaustedUntilExtraKey, nil)
+	s.syncAccountExtraValueInCache(ctx, account, antigravityCreditsExhaustedUntilExtraKey, nil)
+}
+
+func (s *AntigravityGatewayService) markAntigravityCreditOveragesActive(ctx context.Context, repo AccountRepository, account *Account, modelName string, until time.Time) {
+	key := antigravityCreditOveragesUntilExtraKey(modelName)
+	if key == "" {
+		return
+	}
+	value := formatAntigravityExtraTime(&until)
+	s.persistAntigravityExtraValue(ctx, repo, account, key, value)
+	s.syncAccountExtraValueInCache(ctx, account, key, value)
 }
 
 // antigravityPassthroughErrorMessages 透传给客户端的错误消息白名单（小写）
@@ -266,7 +335,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 	// AI Credits 超量降级（最优先处理）：
 	// 只要是 429 + allow_overages 启用 + credits 未耗尽，先尝试 credits 重试。
 	// 成功则直接返回；失败则标记 credits 耗尽，继续走原有的限流/重试逻辑。
-	if resp.StatusCode == http.StatusTooManyRequests && p.account.IsOveragesEnabled() && !isCreditsExhausted(p.account.ID) {
+	if resp.StatusCode == http.StatusTooManyRequests && p.account.IsOveragesEnabled() && !isAntigravityCreditsExhausted(p.account) {
 		creditsBody := injectEnabledCreditTypes(p.body)
 		if creditsBody != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
@@ -279,8 +348,8 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 					logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
 						p.prefix, creditsResp.StatusCode, modelName, p.account.ID)
 
-					// credits 成功，清除可能残留的耗尽标记
-					clearCreditsExhausted(p.account.ID)
+					// credits 成功，清除可能残留的耗尽标记，并记录该模型进入超量状态。
+					s.clearAntigravityCreditsExhausted(p.ctx, p.accountRepo, p.account)
 
 					// 设置模型限流标记，后续请求在预检查中直接注入 enabledCreditTypes，
 					// 避免每次都先 429 再降级。配额重置后限流自然过期。
@@ -291,6 +360,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 					resetAt := time.Now().Add(rateLimitDuration)
 					if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, false) {
 						s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
+						s.markAntigravityCreditOveragesActive(p.ctx, p.accountRepo, p.account, modelName, resetAt)
 					}
 
 					return &smartRetryResult{
@@ -313,7 +383,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 					if exhaustedUntil <= 0 {
 						exhaustedUntil = antigravityDefaultRateLimitDuration
 					}
-					setCreditsExhausted(p.account.ID, time.Now().Add(exhaustedUntil))
+					s.markAntigravityCreditsExhausted(p.ctx, p.accountRepo, p.account, time.Now().Add(exhaustedUntil))
 					logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=true status=%d exhausted_for=%v body=%s",
 						p.prefix, modelName, p.account.ID, creditsStatusCode, exhaustedUntil, truncateForLog(creditsRespBody, 200))
 				} else {
@@ -672,7 +742,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 			// AI Credits 超量：模型配额耗尽但启用了 allow_overages，
 			// 直接注入 enabledCreditTypes 用 credits 请求，跳过限流预检查。
 			// 如果 credits 已标记为耗尽（之前重试失败），则跳过，走正常限流逻辑。
-			if p.account.IsOveragesEnabled() && !isCreditsExhausted(p.account.ID) {
+			if canUseAntigravityCreditsOverages(p.ctx, p.account, p.requestedModel) {
 				if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
 					p.body = creditsBody
 					logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: credit_overages_bypass remaining=%v model=%s account=%d (using AI Credits)",

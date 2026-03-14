@@ -1626,11 +1626,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 
 	// Antigravity 账号开启超量请求时：
-	// - 保留 model_rate_limits（预检查用它判断是否注入 enabledCreditTypes + 前端展示超量状态）
+	// - 保留 model_rate_limits（配额窗口仍由模型级限流控制）
 	// - 清除账号级限流（让调度器继续选中此账号）
 	// - 清除 credits 耗尽标记（允许重新尝试 credits）
 	if account.Platform == PlatformAntigravity && account.IsOveragesEnabled() {
-		_ = s.accountRepo.ClearRateLimit(ctx, account.ID)
+		if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
+			return nil, err
+		}
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+			antigravityCreditsExhaustedUntilExtraKey: nil,
+		}); err != nil {
+			return nil, err
+		}
 		clearCreditsExhausted(account.ID)
 	}
 

@@ -448,6 +448,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_Antigra
 							"rate_limit_reset_at": resetAt,
 						},
 					},
+					antigravityCreditOveragesUntilExtraKey("gemini-2.5-flash"): resetAt,
 				},
 			},
 		},

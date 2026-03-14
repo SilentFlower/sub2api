@@ -173,10 +173,19 @@ const activeModelRateLimits = computed(() => {
     | undefined
   if (!modelLimits) return []
   const now = new Date()
-  const isOverages = extra?.allow_overages === true
+  const overagesEnabled = extra?.allow_overages === true
+  const exhaustedUntilRaw = extra?.antigravity_credits_exhausted_until
+  const exhaustedUntil = typeof exhaustedUntilRaw === 'string' ? new Date(exhaustedUntilRaw) : null
+  const isCreditsExhausted = !!exhaustedUntil && exhaustedUntil > now
   return Object.entries(modelLimits)
     .filter(([, info]) => new Date(info.rate_limit_reset_at) > now)
-    .map(([model, info]) => ({ model, reset_at: info.rate_limit_reset_at, isOverages }))
+    .map(([model, info]) => {
+      const overagesKey = `antigravity_credit_overages_until__${model.trim().toLowerCase().replace(/^models\//, '')}`
+      const overagesUntilRaw = extra?.[overagesKey]
+      const overagesUntil = typeof overagesUntilRaw === 'string' ? new Date(overagesUntilRaw) : null
+      const isOverages = overagesEnabled && !isCreditsExhausted && !!overagesUntil && overagesUntil > now
+      return { model, reset_at: info.rate_limit_reset_at, isOverages }
+    })
 })
 
 const formatScopeName = (scope: string): string => {

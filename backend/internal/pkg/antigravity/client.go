@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,9 +131,9 @@ type LoadCodeAssistResponse struct {
 
 // PaidTierInfo 付费等级信息（包含 AI Credits 余额）
 type PaidTierInfo struct {
-	ID               string            `json:"id"`          // free-tier, g1-pro-tier, g1-ultra-tier
-	Name             string            `json:"name"`        // 显示名称
-	Description      string            `json:"description"` // 描述
+	ID               string            `json:"id"`                         // free-tier, g1-pro-tier, g1-ultra-tier
+	Name             string            `json:"name"`                       // 显示名称
+	Description      string            `json:"description"`                // 描述
 	AvailableCredits []AvailableCredit `json:"availableCredits,omitempty"` // AI Credits 余额
 }
 
@@ -163,8 +164,8 @@ func (p *PaidTierInfo) UnmarshalJSON(data []byte) error {
 
 // AvailableCredit AI Credits 余额条目
 type AvailableCredit struct {
-	CreditType                 string `json:"creditType,omitempty"`                 // 如 "GOOGLE_ONE_AI"
-	CreditAmount               string `json:"creditAmount,omitempty"`               // 余额数量（字符串格式）
+	CreditType                  string `json:"creditType,omitempty"`                  // 如 "GOOGLE_ONE_AI"
+	CreditAmount                string `json:"creditAmount,omitempty"`                // 余额数量（字符串格式）
 	MinimumCreditAmountForUsage string `json:"minimumCreditAmountForUsage,omitempty"` // 最低使用阈值（字符串格式）
 }
 
@@ -173,8 +174,10 @@ func (c *AvailableCredit) GetAmount() float64 {
 	if c.CreditAmount == "" {
 		return 0
 	}
-	var f float64
-	fmt.Sscanf(c.CreditAmount, "%f", &f)
+	f, err := strconv.ParseFloat(strings.TrimSpace(c.CreditAmount), 64)
+	if err != nil {
+		return 0
+	}
 	return f
 }
 
@@ -183,8 +186,10 @@ func (c *AvailableCredit) GetMinimumAmount() float64 {
 	if c.MinimumCreditAmountForUsage == "" {
 		return 0
 	}
-	var f float64
-	fmt.Sscanf(c.MinimumCreditAmountForUsage, "%f", &f)
+	f, err := strconv.ParseFloat(strings.TrimSpace(c.MinimumCreditAmountForUsage), 64)
+	if err != nil {
+		return 0
+	}
 	return f
 }
 

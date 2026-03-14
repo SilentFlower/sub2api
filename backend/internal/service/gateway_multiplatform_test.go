@@ -383,6 +383,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_AntigravityOverages(t 
 							"rate_limit_reset_at": resetAt,
 						},
 					},
+					antigravityCreditOveragesUntilExtraKey("claude-sonnet-4-5"): resetAt,
 				},
 			},
 		},
