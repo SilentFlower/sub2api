@@ -2386,6 +2386,7 @@ export default {
       allowOveragesTooltip:
         '启用后，当免费配额耗尽时会自动使用 Google One AI Credits 继续请求（需要账号有可用余额）。关闭时配额耗尽将返回 429 错误。',
       aiCreditsBalance: 'AI Credits 余额',
+      creditOveragesActive: '超量请求中',
       creating: '创建中...',
       updating: '更新中...',
       accountCreated: '账号创建成功',

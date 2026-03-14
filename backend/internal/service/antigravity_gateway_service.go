@@ -193,6 +193,47 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 	// 情况1: retryDelay >= 阈值，限流模型并切换账号
 	if shouldRateLimitModel {
+		// AI Credits 超量降级：配额耗尽(429)时，如果账号启用了 allow_overages，
+		// 在请求 body 中注入 enabledCreditTypes 后重试一次，用 credits 完成请求。
+		if resp.StatusCode == http.StatusTooManyRequests && p.account.IsOveragesEnabled() {
+			creditsBody := injectEnabledCreditTypes(p.body)
+			if creditsBody != nil {
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
+					p.prefix, modelName, p.account.ID)
+
+				creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, creditsBody)
+				if err == nil {
+					creditsResp, err := p.httpUpstream.Do(creditsReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+					if err == nil && creditsResp != nil && creditsResp.StatusCode < 400 {
+						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
+							p.prefix, creditsResp.StatusCode, modelName, p.account.ID)
+
+						// 设置模型限流标记，后续请求在预检查中直接注入 enabledCreditTypes，
+						// 避免每次都先 429 再降级。配额重置后限流自然过期。
+						rateLimitDuration := waitDuration
+						if rateLimitDuration <= 0 {
+							rateLimitDuration = antigravityDefaultRateLimitDuration
+						}
+						resetAt := time.Now().Add(rateLimitDuration)
+						if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, false) {
+							s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
+						}
+
+						return &smartRetryResult{
+							action: smartRetryActionBreakWithResp,
+							resp:   creditsResp,
+						}
+					}
+					// credits 重试也失败了，继续原有的切换账号逻辑
+					if creditsResp != nil && creditsResp.Body != nil {
+						_ = creditsResp.Body.Close()
+					}
+					logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d (fallback to account switch)",
+						p.prefix, modelName, p.account.ID)
+				}
+			}
+		}
+
 		// 单账号 503 退避重试模式：不设限流、不切换账号，改为原地等待+重试
 		// 谷歌上游 503 (MODEL_CAPACITY_EXHAUSTED) 通常是暂时性的，等几秒就能恢复。
 		// 多账号场景下切换账号是最优选择，但单账号场景下设限流毫无意义（只会导致双重等待）。
@@ -535,11 +576,19 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 	// 预检查：如果账号已限流，直接返回切换信号
 	if p.requestedModel != "" {
 		if remaining := p.account.GetRateLimitRemainingTimeWithContext(p.ctx, p.requestedModel); remaining > 0 {
-			// 单账号 503 退避重试模式：跳过限流预检查，直接发请求。
-			// 首次请求设的限流是为了多账号调度器跳过该账号，在单账号模式下无意义。
-			// 如果上游确实还不可用，handleSmartRetry → handleSingleAccountRetryInPlace
-			// 会在 Service 层原地等待+重试，不需要在预检查这里等。
-			if isSingleAccountRetry(p.ctx) {
+			// AI Credits 超量：模型配额耗尽但启用了 allow_overages，
+			// 直接注入 enabledCreditTypes 用 credits 请求，跳过限流预检查。
+			if p.account.IsOveragesEnabled() {
+				if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
+					p.body = creditsBody
+					logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: credit_overages_bypass remaining=%v model=%s account=%d (using AI Credits)",
+						p.prefix, remaining.Truncate(time.Millisecond), p.requestedModel, p.account.ID)
+				}
+			} else if isSingleAccountRetry(p.ctx) {
+				// 单账号 503 退避重试模式：跳过限流预检查，直接发请求。
+				// 首次请求设的限流是为了多账号调度器跳过该账号，在单账号模式下无意义。
+				// 如果上游确实还不可用，handleSmartRetry → handleSingleAccountRetryInPlace
+				// 会在 Service 层原地等待+重试，不需要在预检查这里等。
 				logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: single_account_retry skipping rate_limit remaining=%v model=%s account=%d (will retry in-place if 503)",
 					p.prefix, remaining.Truncate(time.Millisecond), p.requestedModel, p.account.ID)
 			} else {
@@ -1223,6 +1272,21 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 	return json.Marshal(request)
 }
 
+// injectEnabledCreditTypes 在已序列化的 v1internal JSON body 中注入 enabledCreditTypes 字段
+// 用于 429 QUOTA_EXHAUSTED 时的 credits 降级重试
+func injectEnabledCreditTypes(body []byte) []byte {
+	var obj map[string]any
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil
+	}
+	obj["enabledCreditTypes"] = []string{"GOOGLE_ONE_AI"}
+	result, err := json.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+	return result
+}
+
 // wrapV1InternalRequest 包装请求为 v1internal 格式
 func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model string, originalBody []byte, enableCreditOverages bool) ([]byte, error) {
 	var request any
@@ -1337,10 +1401,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	transformOpts := s.getClaudeTransformOptions(ctx)
 	transformOpts.EnableIdentityPatch = true // 强制启用，Antigravity 上游必需
 
-	// 启用 AI Credits 超量请求
-	if account.IsOveragesEnabled() {
-		transformOpts.EnableCreditOverages = true
-	}
+	// 注意：不在这里无条件设置 EnableCreditOverages。
+	// credits 超量请求仅在配额耗尽（429）时通过 handleSmartRetry 中的 credits 降级重试注入。
 
 	// 转换 Claude 请求为 Gemini 格式
 	geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)
@@ -2093,8 +2155,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
 	}
 
-	// 包装请求
-	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody, account.IsOveragesEnabled())
+	// 包装请求（不在初始请求中注入 enabledCreditTypes，仅在 429 重试时注入）
+	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody, false)
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
@@ -2158,7 +2220,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			if fallbackModel != "" && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
 
-				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody, account.IsOveragesEnabled())
+				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody, false)
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
@@ -2201,7 +2263,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
 			cleanedInjectedBody := CleanGeminiNativeThoughtSignatures(injectedBody)
-			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody, account.IsOveragesEnabled())
+			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody, false)
 			if wrapErr == nil {
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 					ctx:             ctx,

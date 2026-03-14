@@ -2236,6 +2236,7 @@ export default {
       allowOveragesTooltip:
         'When enabled, requests will automatically use Google One AI Credits when free quota is exhausted (requires account balance). When disabled, quota exhaustion returns 429 error.',
       aiCreditsBalance: 'AI Credits Balance',
+      creditOveragesActive: 'Using Credits',
       creating: 'Creating...',
       updating: 'Updating...',
       accountCreated: 'Account created successfully',

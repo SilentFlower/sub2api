@@ -294,10 +294,19 @@
         <div v-if="aiCreditsDisplay" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
           💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
         </div>
+        <!-- 超量请求中状态 -->
+        <div v-if="creditOveragesActiveInfo" class="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          ⚡ {{ t('admin.accounts.creditOveragesActive') }} ({{ creditOveragesActiveInfo }})
+        </div>
       </div>
       <!-- 无配额数据但有 credits 余额时独立展示 -->
-      <div v-else-if="aiCreditsDisplay" class="text-[10px] text-gray-500 dark:text-gray-400">
-        💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+      <div v-else-if="aiCreditsDisplay || creditOveragesActiveInfo">
+        <div v-if="aiCreditsDisplay" class="text-[10px] text-gray-500 dark:text-gray-400">
+          💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+        </div>
+        <div v-if="creditOveragesActiveInfo" class="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          ⚡ {{ t('admin.accounts.creditOveragesActive') }} ({{ creditOveragesActiveInfo }})
+        </div>
       </div>
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
@@ -598,6 +607,41 @@ const aiCreditsDisplay = computed(() => {
   const total = credits.reduce((sum, c) => sum + (c.amount ?? 0), 0)
   if (total <= 0) return null
   return total.toFixed(0)
+})
+
+// 超量请求中状态：检查 model_rate_limits 中是否有活跃限流 + allow_overages 启用
+const creditOveragesActiveInfo = computed(() => {
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  if (!extra) return null
+  // 只有启用了 allow_overages 才展示
+  if (extra.allow_overages !== true) return null
+
+  const limits = extra.model_rate_limits as Record<string, { rate_limited_at?: string; rate_limit_reset_at?: string }> | undefined
+  if (!limits) return null
+
+  // 找出仍然活跃的限流模型中最晚的重置时间
+  const now = Date.now()
+  let latestReset = 0
+  let activeCount = 0
+  for (const [, info] of Object.entries(limits)) {
+    if (!info.rate_limit_reset_at) continue
+    const resetAt = new Date(info.rate_limit_reset_at).getTime()
+    if (resetAt > now) {
+      activeCount++
+      if (resetAt > latestReset) latestReset = resetAt
+    }
+  }
+  if (activeCount === 0) return null
+
+  // 格式化剩余时间
+  const remainMs = latestReset - now
+  const remainMin = Math.ceil(remainMs / 60000)
+  if (remainMin >= 60) {
+    const h = Math.floor(remainMin / 60)
+    const m = remainMin % 60
+    return `${h}h${m > 0 ? m + 'm' : ''}`
+  }
+  return `${remainMin}m`
 })
 
 // Antigravity 账户类型（从 load_code_assist 响应中提取）

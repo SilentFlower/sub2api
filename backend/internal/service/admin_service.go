@@ -1534,7 +1534,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if len(input.Credentials) > 0 {
 		account.Credentials = input.Credentials
 	}
-	if len(input.Extra) > 0 {
+	if input.Extra != nil {
 		// 保留配额用量字段，防止编辑账号时意外重置
 		for _, key := range []string{"quota_used", "quota_daily_used", "quota_daily_start", "quota_weekly_used", "quota_weekly_start"} {
 			if v, ok := account.Extra[key]; ok {
@@ -1623,6 +1623,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, err
+	}
+
+	// Antigravity 账号开启超量请求时，清除已有的模型限流和账号限流状态，
+	// 使配额耗尽的模型能立即通过 AI Credits 继续请求。
+	if account.Platform == PlatformAntigravity && account.IsOveragesEnabled() {
+		_ = s.accountRepo.ClearModelRateLimits(ctx, account.ID)
+		_ = s.accountRepo.ClearRateLimit(ctx, account.ID)
 	}
 
 	// 绑定分组
