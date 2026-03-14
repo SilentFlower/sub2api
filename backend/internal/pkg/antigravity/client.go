@@ -124,8 +124,22 @@ type IneligibleTier struct {
 type LoadCodeAssistResponse struct {
 	CloudAICompanionProject string            `json:"cloudaicompanionProject"`
 	CurrentTier             *TierInfo         `json:"currentTier,omitempty"`
-	PaidTier                *TierInfo         `json:"paidTier,omitempty"`
+	PaidTier                *PaidTierInfo     `json:"paidTier,omitempty"`
 	IneligibleTiers         []*IneligibleTier `json:"ineligibleTiers,omitempty"`
+}
+
+// PaidTierInfo 付费等级信息（扩展 TierInfo，包含 AI Credits 余额）
+type PaidTierInfo struct {
+	TierInfo
+	AvailableCredits []AvailableCredit `json:"availableCredits,omitempty"` // AI Credits 余额
+}
+
+// AvailableCredit AI Credits 余额条目
+type AvailableCredit struct {
+	CreditType     string  `json:"creditType,omitempty"`     // 如 "GOOGLE_ONE_AI"
+	Amount         float64 `json:"amount,omitempty"`         // 余额数量
+	Currency       string  `json:"currency,omitempty"`       // 货币类型
+	MinimumBalance float64 `json:"minimumBalance,omitempty"` // 最低阈值
 }
 
 // OnboardUserRequest onboardUser 请求
@@ -155,6 +169,14 @@ func (r *LoadCodeAssistResponse) GetTier() string {
 		return r.CurrentTier.ID
 	}
 	return ""
+}
+
+// GetAvailableCredits 获取 AI Credits 余额列表
+func (r *LoadCodeAssistResponse) GetAvailableCredits() []AvailableCredit {
+	if r.PaidTier == nil {
+		return nil
+	}
+	return r.PaidTier.AvailableCredits
 }
 
 // Client Antigravity API 客户端

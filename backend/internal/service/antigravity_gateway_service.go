@@ -1079,7 +1079,7 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model stri
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	return s.wrapV1InternalRequest(projectID, model, payloadBytes)
+	return s.wrapV1InternalRequest(projectID, model, payloadBytes, false)
 }
 
 // buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
@@ -1224,7 +1224,7 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 }
 
 // wrapV1InternalRequest 包装请求为 v1internal 格式
-func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model string, originalBody []byte) ([]byte, error) {
+func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model string, originalBody []byte, enableCreditOverages bool) ([]byte, error) {
 	var request any
 	if err := json.Unmarshal(originalBody, &request); err != nil {
 		return nil, fmt.Errorf("解析请求体失败: %w", err)
@@ -1237,6 +1237,11 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 		"requestType": "agent",
 		"model":       model,
 		"request":     request,
+	}
+
+	// 启用 AI Credits 超量请求：注入 enabledCreditTypes
+	if enableCreditOverages {
+		wrapped["enabledCreditTypes"] = []string{"GOOGLE_ONE_AI"}
 	}
 
 	return json.Marshal(wrapped)
@@ -1331,6 +1336,11 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	// Antigravity 上游要求必须包含身份提示词，否则会返回 429
 	transformOpts := s.getClaudeTransformOptions(ctx)
 	transformOpts.EnableIdentityPatch = true // 强制启用，Antigravity 上游必需
+
+	// 启用 AI Credits 超量请求
+	if account.IsOveragesEnabled() {
+		transformOpts.EnableCreditOverages = true
+	}
 
 	// 转换 Claude 请求为 Gemini 格式
 	geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)
@@ -2084,7 +2094,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	}
 
 	// 包装请求
-	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
+	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody, account.IsOveragesEnabled())
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
@@ -2148,7 +2158,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			if fallbackModel != "" && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
 
-				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody)
+				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody, account.IsOveragesEnabled())
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
@@ -2191,7 +2201,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
 			cleanedInjectedBody := CleanGeminiNativeThoughtSignatures(injectedBody)
-			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody)
+			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody, account.IsOveragesEnabled())
 			if wrapErr == nil {
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 					ctx:             ctx,

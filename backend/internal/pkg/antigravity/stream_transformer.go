@@ -35,6 +35,10 @@ type StreamingProcessor struct {
 	inputTokens     int
 	outputTokens    int
 	cacheReadTokens int
+
+	// AI Credits 结算信息（从最后一帧解析）
+	consumedCredits  []CreditRecord
+	remainingCredits []CreditRecord
 }
 
 // NewStreamingProcessor 创建流式响应处理器
@@ -71,6 +75,16 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 	}
 
 	geminiResp := &v1Resp.Response
+
+	// 捕获 AI Credits 结算信息（通常在最后一帧）
+	if len(v1Resp.ConsumedCredits) > 0 {
+		p.consumedCredits = v1Resp.ConsumedCredits
+		log.Printf("[Antigravity] Credits consumed: %+v", v1Resp.ConsumedCredits)
+	}
+	if len(v1Resp.RemainingCredits) > 0 {
+		p.remainingCredits = v1Resp.RemainingCredits
+		log.Printf("[Antigravity] Credits remaining: %+v", v1Resp.RemainingCredits)
+	}
 
 	var result bytes.Buffer
 
@@ -144,6 +158,16 @@ func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 // MessageStartSent 报告流中是否已发出过 message_start 事件（即是否收到过有效的上游数据）
 func (p *StreamingProcessor) MessageStartSent() bool {
 	return p.messageStartSent
+}
+
+// ConsumedCredits 返回本次请求消耗的 AI Credits 记录
+func (p *StreamingProcessor) ConsumedCredits() []CreditRecord {
+	return p.consumedCredits
+}
+
+// RemainingCredits 返回本次请求后剩余的 AI Credits 记录
+func (p *StreamingProcessor) RemainingCredits() []CreditRecord {
+	return p.remainingCredits
 }
 
 // emitMessageStart 发送 message_start 事件

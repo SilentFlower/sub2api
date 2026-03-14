@@ -2232,6 +2232,10 @@ export default {
       mixedSchedulingHint: 'Enable to participate in Anthropic/Gemini group scheduling',
       mixedSchedulingTooltip:
         '!! WARNING !! Antigravity Claude and Anthropic Claude cannot be used in the same context. If you have both Anthropic and Antigravity accounts, enabling this option will cause frequent 400 errors. When enabled, please use the group feature to isolate Antigravity accounts from Anthropic accounts. Make sure you understand this before enabling!!',
+      allowOverages: 'Allow Overages (AI Credits)',
+      allowOveragesTooltip:
+        'When enabled, requests will automatically use Google One AI Credits when free quota is exhausted (requires account balance). When disabled, quota exhaustion returns 429 error.',
+      aiCreditsBalance: 'AI Credits Balance',
       creating: 'Creating...',
       updating: 'Updating...',
       accountCreated: 'Account created successfully',

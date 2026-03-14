@@ -2382,6 +2382,10 @@ export default {
       mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
+      allowOverages: '允许超量请求 (AI Credits)',
+      allowOveragesTooltip:
+        '启用后，当免费配额耗尽时会自动使用 Google One AI Credits 继续请求（需要账号有可用余额）。关闭时配额耗尽将返回 429 错误。',
+      aiCreditsBalance: 'AI Credits 余额',
       creating: '创建中...',
       updating: '更新中...',
       accountCreated: '账号创建成功',

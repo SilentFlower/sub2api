@@ -4,12 +4,13 @@ package antigravity
 
 // V1InternalRequest v1internal 请求包装
 type V1InternalRequest struct {
-	Project     string        `json:"project"`
-	RequestID   string        `json:"requestId"`
-	UserAgent   string        `json:"userAgent"`
-	RequestType string        `json:"requestType,omitempty"`
-	Model       string        `json:"model"`
-	Request     GeminiRequest `json:"request"`
+	Project            string        `json:"project"`
+	RequestID          string        `json:"requestId"`
+	UserAgent          string        `json:"userAgent"`
+	RequestType        string        `json:"requestType,omitempty"`
+	Model              string        `json:"model"`
+	Request            GeminiRequest `json:"request"`
+	EnabledCreditTypes []string      `json:"enabledCreditTypes,omitempty"` // AI Credits 超量请求类型（如 GOOGLE_ONE_AI）
 }
 
 // GeminiRequest Gemini 请求内容
@@ -128,9 +129,18 @@ type GeminiSafetySetting struct {
 
 // V1InternalResponse v1internal 响应包装
 type V1InternalResponse struct {
-	Response     GeminiResponse `json:"response"`
-	ResponseID   string         `json:"responseId,omitempty"`
-	ModelVersion string         `json:"modelVersion,omitempty"`
+	Response         GeminiResponse  `json:"response"`
+	ResponseID       string          `json:"responseId,omitempty"`
+	ModelVersion     string          `json:"modelVersion,omitempty"`
+	ConsumedCredits  []CreditRecord  `json:"consumedCredits,omitempty"`  // 本次请求消耗的 credits
+	RemainingCredits []CreditRecord  `json:"remainingCredits,omitempty"` // 剩余 credits
+}
+
+// CreditRecord AI Credits 记录（consumedCredits / remainingCredits 条目）
+type CreditRecord struct {
+	CreditType string  `json:"creditType,omitempty"` // 如 "GOOGLE_ONE_AI"
+	Amount     float64 `json:"amount,omitempty"`     // credits 数量
+	Currency   string  `json:"currency,omitempty"`   // 货币类型
 }
 
 // GeminiResponse Gemini 响应

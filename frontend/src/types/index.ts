@@ -780,6 +780,13 @@ export interface AccountUsageInfo {
   gemini_pro_minute?: UsageProgress | null
   gemini_flash_minute?: UsageProgress | null
   antigravity_quota?: Record<string, AntigravityModelQuota> | null
+  // AI Credits 余额（从 loadCodeAssist 获取）
+  ai_credits?: Array<{
+    credit_type?: string
+    amount?: number
+    currency?: string
+    minimum_balance?: number
+  }> | null
   // Antigravity 403 forbidden 状态
   is_forbidden?: boolean
   forbidden_reason?: string
