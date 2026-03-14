@@ -784,7 +784,6 @@ export interface AccountUsageInfo {
   ai_credits?: Array<{
     credit_type?: string
     amount?: number
-    currency?: string
     minimum_balance?: number
   }> | null
   // Antigravity 403 forbidden 状态

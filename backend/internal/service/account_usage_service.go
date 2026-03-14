@@ -168,8 +168,7 @@ type AntigravityModelDetail struct {
 type AICredit struct {
 	CreditType     string  `json:"credit_type,omitempty"`     // 如 "GOOGLE_ONE_AI"
 	Amount         float64 `json:"amount,omitempty"`          // 余额数量
-	Currency       string  `json:"currency,omitempty"`        // 货币类型
-	MinimumBalance float64 `json:"minimum_balance,omitempty"` // 最低阈值
+	MinimumBalance float64 `json:"minimum_balance,omitempty"` // 最低使用阈值
 }
 
 // UsageInfo 账号使用量信息

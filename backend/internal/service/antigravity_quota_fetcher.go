@@ -196,9 +196,8 @@ func (f *AntigravityQuotaFetcher) buildUsageInfo(modelsResp *antigravity.FetchAv
 		for _, credit := range loadResp.GetAvailableCredits() {
 			info.AICredits = append(info.AICredits, AICredit{
 				CreditType:     credit.CreditType,
-				Amount:         credit.Amount,
-				Currency:       credit.Currency,
-				MinimumBalance: credit.MinimumBalance,
+				Amount:         credit.GetAmount(),
+				MinimumBalance: credit.GetMinimumAmount(),
 			})
 		}
 	}

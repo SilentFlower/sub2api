@@ -295,6 +295,10 @@
           💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
         </div>
       </div>
+      <!-- 无配额数据但有 credits 余额时独立展示 -->
+      <div v-else-if="aiCreditsDisplay" class="text-[10px] text-gray-500 dark:text-gray-400">
+        💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+      </div>
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
@@ -588,15 +592,12 @@ const antigravityClaudeUsageFromAPI = computed(() =>
 
 // AI Credits 余额展示
 const aiCreditsDisplay = computed(() => {
-  const credits = usageInfo.value?.ai_credits as Array<{ credit_type?: string; amount?: number; currency?: string }> | undefined
+  const credits = usageInfo.value?.ai_credits as Array<{ credit_type?: string; amount?: number }> | undefined
   if (!credits || credits.length === 0) return null
-  return credits
-    .filter(c => c.amount != null && c.amount > 0)
-    .map(c => {
-      const amount = typeof c.amount === 'number' ? c.amount.toFixed(2) : '0.00'
-      return `${amount}${c.currency ? ' ' + c.currency : ''}`
-    })
-    .join(', ') || null
+  // 合并同类型 credits 总额
+  const total = credits.reduce((sum, c) => sum + (c.amount ?? 0), 0)
+  if (total <= 0) return null
+  return total.toFixed(0)
 })
 
 // Antigravity 账户类型（从 load_code_assist 响应中提取）

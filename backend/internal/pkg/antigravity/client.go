@@ -128,18 +128,64 @@ type LoadCodeAssistResponse struct {
 	IneligibleTiers         []*IneligibleTier `json:"ineligibleTiers,omitempty"`
 }
 
-// PaidTierInfo 付费等级信息（扩展 TierInfo，包含 AI Credits 余额）
+// PaidTierInfo 付费等级信息（包含 AI Credits 余额）
 type PaidTierInfo struct {
-	TierInfo
+	ID               string            `json:"id"`          // free-tier, g1-pro-tier, g1-ultra-tier
+	Name             string            `json:"name"`        // 显示名称
+	Description      string            `json:"description"` // 描述
 	AvailableCredits []AvailableCredit `json:"availableCredits,omitempty"` // AI Credits 余额
+}
+
+// UnmarshalJSON 兼容旧格式：纯字符串 tier ID 或对象
+func (p *PaidTierInfo) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	// 兼容旧格式：纯字符串 tier ID
+	if data[0] == '"' {
+		var id string
+		if err := json.Unmarshal(data, &id); err != nil {
+			return err
+		}
+		p.ID = id
+		return nil
+	}
+	// 对象格式
+	type alias PaidTierInfo
+	var raw alias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = PaidTierInfo(raw)
+	return nil
 }
 
 // AvailableCredit AI Credits 余额条目
 type AvailableCredit struct {
-	CreditType     string  `json:"creditType,omitempty"`     // 如 "GOOGLE_ONE_AI"
-	Amount         float64 `json:"amount,omitempty"`         // 余额数量
-	Currency       string  `json:"currency,omitempty"`       // 货币类型
-	MinimumBalance float64 `json:"minimumBalance,omitempty"` // 最低阈值
+	CreditType                 string `json:"creditType,omitempty"`                 // 如 "GOOGLE_ONE_AI"
+	CreditAmount               string `json:"creditAmount,omitempty"`               // 余额数量（字符串格式）
+	MinimumCreditAmountForUsage string `json:"minimumCreditAmountForUsage,omitempty"` // 最低使用阈值（字符串格式）
+}
+
+// GetAmount 将 creditAmount 字符串解析为 float64
+func (c *AvailableCredit) GetAmount() float64 {
+	if c.CreditAmount == "" {
+		return 0
+	}
+	var f float64
+	fmt.Sscanf(c.CreditAmount, "%f", &f)
+	return f
+}
+
+// GetMinimumAmount 将 minimumCreditAmountForUsage 字符串解析为 float64
+func (c *AvailableCredit) GetMinimumAmount() float64 {
+	if c.MinimumCreditAmountForUsage == "" {
+		return 0
+	}
+	var f float64
+	fmt.Sscanf(c.MinimumCreditAmountForUsage, "%f", &f)
+	return f
 }
 
 // OnboardUserRequest onboardUser 请求

@@ -138,9 +138,8 @@ type V1InternalResponse struct {
 
 // CreditRecord AI Credits 记录（consumedCredits / remainingCredits 条目）
 type CreditRecord struct {
-	CreditType string  `json:"creditType,omitempty"` // 如 "GOOGLE_ONE_AI"
-	Amount     float64 `json:"amount,omitempty"`     // credits 数量
-	Currency   string  `json:"currency,omitempty"`   // 货币类型
+	CreditType   string `json:"creditType,omitempty"`   // 如 "GOOGLE_ONE_AI"
+	CreditAmount string `json:"creditAmount,omitempty"` // credits 数量（字符串格式）
 }
 
 // GeminiResponse Gemini 响应
