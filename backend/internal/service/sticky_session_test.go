@@ -134,7 +134,7 @@ func TestShouldClearStickySession(t *testing.T) {
 			want: true, // credits 已耗尽时仍应回退到原有限流清理逻辑
 		},
 		{
-			name: "antigravity legacy overages state keeps sticky session",
+			name: "antigravity overages without active marker still clears sticky session",
 			account: &Account{
 				ID:          103,
 				Platform:    PlatformAntigravity,
@@ -150,7 +150,7 @@ func TestShouldClearStickySession(t *testing.T) {
 				},
 			},
 			requestedModel: "claude-sonnet-4-5",
-			want:           false, // 兼容老状态：只有 model_rate_limits 时也应允许继续尝试 credits
+			want:           true, // 只有开启开关但未进入超量状态时，仍应按普通限流处理
 		},
 		{
 			name: "antigravity persisted exhausted still clears sticky session",
