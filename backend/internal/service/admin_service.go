@@ -1625,11 +1625,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 
-	// Antigravity 账号开启超量请求时，清除已有的模型限流和账号限流状态，
-	// 使配额耗尽的模型能立即通过 AI Credits 继续请求。
-	// 同时清除 credits 耗尽标记，允许重新尝试 credits。
+	// Antigravity 账号开启超量请求时：
+	// - 保留 model_rate_limits（预检查用它判断是否注入 enabledCreditTypes + 前端展示超量状态）
+	// - 清除账号级限流（让调度器继续选中此账号）
+	// - 清除 credits 耗尽标记（允许重新尝试 credits）
 	if account.Platform == PlatformAntigravity && account.IsOveragesEnabled() {
-		_ = s.accountRepo.ClearModelRateLimits(ctx, account.ID)
 		_ = s.accountRepo.ClearRateLimit(ctx, account.ID)
 		clearCreditsExhausted(account.ID)
 	}
