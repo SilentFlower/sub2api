@@ -64,6 +64,7 @@ type AccountRepository interface {
 	ClearTempUnschedulable(ctx context.Context, id int64) error
 	ClearRateLimit(ctx context.Context, id int64) error
 	ClearAntigravityQuotaScopes(ctx context.Context, id int64) error
+	ClearAntigravityOveragesState(ctx context.Context, id int64) error
 	ClearModelRateLimits(ctx context.Context, id int64) error
 	UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error

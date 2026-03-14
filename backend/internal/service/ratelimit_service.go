@@ -1097,6 +1097,9 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	if err := s.accountRepo.ClearAntigravityQuotaScopes(ctx, accountID); err != nil {
 		return err
 	}
+	if err := s.accountRepo.ClearAntigravityOveragesState(ctx, accountID); err != nil {
+		return err
+	}
 	if err := s.accountRepo.ClearModelRateLimits(ctx, accountID); err != nil {
 		return err
 	}

@@ -1079,6 +1079,38 @@ func (r *accountRepository) ClearAntigravityQuotaScopes(ctx context.Context, id 
 	return nil
 }
 
+func (r *accountRepository) ClearAntigravityOveragesState(ctx context.Context, id int64) error {
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(
+		ctx,
+		`UPDATE accounts AS a
+		SET extra = COALESCE((
+			SELECT jsonb_object_agg(key, value)
+			FROM jsonb_each(COALESCE(a.extra, '{}'::jsonb))
+			WHERE key <> 'antigravity_credits_exhausted_until'
+				AND key NOT LIKE 'antigravity_credit_overages_until__%'
+		), '{}'::jsonb), updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear antigravity overages failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return nil
+}
+
 func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(
@@ -1100,6 +1132,7 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear model rate limit failed: account=%d err=%v", id, err)
 	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
 }
 

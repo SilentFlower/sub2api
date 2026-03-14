@@ -2121,6 +2121,9 @@ func (r *stubAccountRepoForHandler) ClearRateLimit(context.Context, int64) error
 func (r *stubAccountRepoForHandler) ClearAntigravityQuotaScopes(context.Context, int64) error {
 	return nil
 }
+func (r *stubAccountRepoForHandler) ClearAntigravityOveragesState(context.Context, int64) error {
+	return nil
+}
 func (r *stubAccountRepoForHandler) ClearModelRateLimits(context.Context, int64) error { return nil }
 func (r *stubAccountRepoForHandler) UpdateSessionWindow(context.Context, int64, *time.Time, *time.Time, string) error {
 	return nil

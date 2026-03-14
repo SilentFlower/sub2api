@@ -174,6 +174,9 @@ func (m *mockAccountRepoForPlatform) ClearRateLimit(ctx context.Context, id int6
 func (m *mockAccountRepoForPlatform) ClearAntigravityQuotaScopes(ctx context.Context, id int64) error {
 	return nil
 }
+func (m *mockAccountRepoForPlatform) ClearAntigravityOveragesState(ctx context.Context, id int64) error {
+	return nil
+}
 func (m *mockAccountRepoForPlatform) ClearModelRateLimits(ctx context.Context, id int64) error {
 	return nil
 }

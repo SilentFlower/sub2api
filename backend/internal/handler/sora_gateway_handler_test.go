@@ -205,6 +205,9 @@ func (r *stubAccountRepo) ClearRateLimit(ctx context.Context, id int64) error   
 func (r *stubAccountRepo) ClearAntigravityQuotaScopes(ctx context.Context, id int64) error {
 	return nil
 }
+func (r *stubAccountRepo) ClearAntigravityOveragesState(ctx context.Context, id int64) error {
+	return nil
+}
 func (r *stubAccountRepo) ClearModelRateLimits(ctx context.Context, id int64) error { return nil }
 func (r *stubAccountRepo) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
 	return nil
