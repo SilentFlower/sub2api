@@ -120,6 +120,24 @@ func injectEnabledCreditTypes(body []byte) []byte {
 	return result
 }
 
+// resolveCreditsOveragesModelKey 解析 credits 成功后应写入的模型限流 key。
+// 优先使用上游 429 响应中的模型名；若上游未返回，则回退到本次请求的最终模型 key，
+// 确保“超量请求中”的状态能够稳定写回数据库并展示在后台状态列。
+func resolveCreditsOveragesModelKey(ctx context.Context, account *Account, upstreamModelName, requestedModel string) string {
+	modelKey := strings.TrimSpace(upstreamModelName)
+	if modelKey != "" {
+		return modelKey
+	}
+	if account == nil {
+		return ""
+	}
+	modelKey = resolveFinalAntigravityModelKey(ctx, account, requestedModel)
+	if strings.TrimSpace(modelKey) != "" {
+		return modelKey
+	}
+	return resolveAntigravityModelKey(requestedModel)
+}
+
 // canUseAntigravityCreditsOverages 判断当前请求是否可以通过 AI Credits 超量继续使用。
 // 命中模型限流时，只要 antigravity 账号开启了 allow_overages 且 credits 未耗尽，
 // 就不应在调度阶段被提前过滤，而应继续走请求前注入 enabledCreditTypes 的链路。
@@ -178,14 +196,15 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 	if creditsBody == nil {
 		return &creditsOveragesRetryResult{handled: false}
 	}
+	modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, modelName, p.requestedModel)
 
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
-		p.prefix, modelName, p.account.ID)
+		p.prefix, modelKey, p.account.ID)
 
 	creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, creditsBody)
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d build_request_err=%v",
-			p.prefix, modelName, p.account.ID, err)
+			p.prefix, modelKey, p.account.ID, err)
 		return &creditsOveragesRetryResult{handled: true}
 	}
 
@@ -194,22 +213,22 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 	// 成功
 	if err == nil && creditsResp != nil && creditsResp.StatusCode < 400 {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
-			p.prefix, creditsResp.StatusCode, modelName, p.account.ID)
+			p.prefix, creditsResp.StatusCode, modelKey, p.account.ID)
 
 		clearCreditsExhausted(p.account.ID)
 
 		// 设置模型限流标记，后续请求在预检查中直接注入 enabledCreditTypes，
 		// 避免每次都先 429 再降级。配额重置后限流自然过期。
 		resetAt := s.resolveCreditsRateLimitResetAt(waitDuration)
-		if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, originalStatusCode, resetAt, false) {
-			s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
+		if setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelKey, p.prefix, originalStatusCode, resetAt, false) {
+			s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelKey, resetAt)
 		}
 
 		return &creditsOveragesRetryResult{handled: true, resp: creditsResp}
 	}
 
 	// 失败：读取响应体并判断是否应标记为 credits 耗尽
-	s.handleCreditsRetryFailure(p.prefix, modelName, p.account.ID, waitDuration, creditsResp, err)
+	s.handleCreditsRetryFailure(p.prefix, modelKey, p.account.ID, waitDuration, creditsResp, err)
 
 	return &creditsOveragesRetryResult{handled: true}
 }

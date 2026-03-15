@@ -1467,6 +1467,69 @@ func TestHandleSmartRetry_CreditOveragesExplicitCreditError_MarksCreditsExhauste
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
+// TestHandleSmartRetry_CreditOveragesSuccess_FallsBackToRequestedModel
+// 当上游 429 未返回 metadata.model 时，credits 成功后应回退到 requestedModel 写入状态。
+func TestHandleSmartRetry_CreditOveragesSuccess_FallsBackToRequestedModel(t *testing.T) {
+	successResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+	}
+	upstream := &mockSmartRetryUpstream{
+		responses: []*http.Response{successResp},
+		errors:    []error{nil},
+	}
+
+	repo := &stubAntigravityAccountRepo{}
+	account := &Account{
+		ID:       204,
+		Name:     "acc-204",
+		Type:     AccountTypeOAuth,
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			"allow_overages": true,
+		},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-opus-4-6": "claude-sonnet-4-5",
+			},
+		},
+	}
+
+	// 注意：此处 429 响应没有 ErrorInfo.metadata.model，也没有 RetryInfo。
+	// 这正是线上“请求成功但状态列没有回来”的场景。
+	respBody := []byte(`{"error":{"status":"RESOURCE_EXHAUSTED","message":"QUOTA_EXHAUSTED"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+	}
+
+	params := antigravityRetryLoopParams{
+		ctx:            context.Background(),
+		prefix:         "[test]",
+		account:        account,
+		accessToken:    "token",
+		action:         "generateContent",
+		body:           []byte(`{"input":"test"}`),
+		httpUpstream:   upstream,
+		accountRepo:    repo,
+		requestedModel: "claude-opus-4-6",
+		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
+			return nil
+		},
+	}
+
+	svc := &AntigravityGatewayService{}
+	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, []string{"https://ag-1.test"})
+
+	require.NotNil(t, result)
+	require.Equal(t, smartRetryActionBreakWithResp, result.action)
+	require.NotNil(t, result.resp)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].modelKey, "缺失上游模型名时应回退到请求模型映射后的最终 key")
+}
+
 // TestAntigravityRetryLoop_SmartRetryFailed_StickySession_SwitchErrorPropagates
 // 集成测试：antigravityRetryLoop → handleSmartRetry → switchError 传播
 // 验证 IsStickySession 正确传递到上层，且粘性绑定被清除
