@@ -129,6 +129,7 @@ vite.config.js
 docs/*
 .serena/
 .codex/
+.trellis/
 frontend/coverage/
 aicodex
 output/
