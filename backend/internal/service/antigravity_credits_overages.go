@@ -127,6 +127,11 @@ func canUseAntigravityCreditsOverages(ctx context.Context, account *Account, req
 	if account == nil || account.Platform != PlatformAntigravity {
 		return false
 	}
+	// 仅允许绕过模型级限流；账号级不可调度状态（error/disabled/过期/过载/账号级限流等）
+	// 仍应按原逻辑拦截，避免 overages 把不可用账号重新放回调度器。
+	if !account.IsSchedulable() {
+		return false
+	}
 	if !account.IsOveragesEnabled() || isCreditsExhausted(account.ID) {
 		return false
 	}

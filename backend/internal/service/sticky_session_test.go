@@ -132,6 +132,26 @@ func TestShouldClearStickySession(t *testing.T) {
 			want: true, // credits 已耗尽时仍应回退到原有限流清理逻辑
 		},
 		{
+			name: "antigravity overages with account rate limit still clears sticky session",
+			account: &Account{
+				ID:               103,
+				Platform:         PlatformAntigravity,
+				Status:           StatusActive,
+				Schedulable:      true,
+				RateLimitResetAt: &future,
+				Extra: map[string]any{
+					"allow_overages": true,
+					"model_rate_limits": map[string]any{
+						"claude-sonnet-4-5": map[string]any{
+							"rate_limit_reset_at": longRateLimitReset,
+						},
+					},
+				},
+			},
+			requestedModel: "claude-sonnet-4-5",
+			want:           true, // overages 只能绕过模型级限流，不能绕过账号级限流
+		},
+		{
 			name: "model rate limited different model",
 			account: &Account{
 				Status:      StatusActive,

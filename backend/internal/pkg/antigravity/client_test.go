@@ -190,7 +190,7 @@ func TestTierInfo_UnmarshalJSON_通过JSON嵌套结构(t *testing.T) {
 func TestGetTier_PaidTier优先(t *testing.T) {
 	resp := &LoadCodeAssistResponse{
 		CurrentTier: &TierInfo{ID: "free-tier"},
-		PaidTier:    &TierInfo{ID: "g1-pro-tier"},
+		PaidTier:    &PaidTierInfo{ID: "g1-pro-tier"},
 	}
 	if got := resp.GetTier(); got != "g1-pro-tier" {
 		t.Errorf("应返回 paidTier: got %s", got)
@@ -209,7 +209,7 @@ func TestGetTier_回退到CurrentTier(t *testing.T) {
 func TestGetTier_PaidTier为空ID(t *testing.T) {
 	resp := &LoadCodeAssistResponse{
 		CurrentTier: &TierInfo{ID: "free-tier"},
-		PaidTier:    &TierInfo{ID: ""},
+		PaidTier:    &PaidTierInfo{ID: ""},
 	}
 	// paidTier.ID 为空时应回退到 currentTier
 	if got := resp.GetTier(); got != "free-tier" {
