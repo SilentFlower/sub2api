@@ -18,7 +18,8 @@ jobs:
         id: check
         run: |
           MESSAGE="${{ github.event.head_commit.message }}"
-          if echo "$MESSAGE" | grep -qF '[build]'; then
+          BRANCH="${{ github.ref_name }}"
+          if [ "$BRANCH" = "build" ] || echo "$MESSAGE" | grep -qF '[build]'; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
