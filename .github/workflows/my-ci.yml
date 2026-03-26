@@ -57,7 +57,7 @@ jobs:
             # 分支名-latest (如: main-latest)
             type=raw,value={{branch}}-latest,enable=true
             # 仅 main/master 分支打 latest
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/build' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
