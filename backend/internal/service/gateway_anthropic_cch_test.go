@@ -157,7 +157,7 @@ func readRequestBodyForTest(t *testing.T, req *http.Request) []byte {
 	t.Helper()
 	body, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
-	req.Body.Close()
+	require.NoError(t, req.Body.Close())
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	return body
 }
