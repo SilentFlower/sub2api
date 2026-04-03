@@ -1198,6 +1198,74 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
 }
 
+// IsAnthropicCCHEnabled 检查是否启用 Anthropic billing header 的 CCH 强制重算
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+func (a *Account) IsAnthropicCCHEnabled() bool {
+	if !a.IsAnthropicOAuthOrSetupToken() {
+		return false
+	}
+	if a.Extra == nil {
+		return false
+	}
+	if v, ok := a.Extra["anthropic_cch_enabled"]; ok {
+		if enabled, ok := v.(bool); ok {
+			return enabled
+		}
+	}
+	return false
+}
+
+// GetAnthropicCCHMode 返回 Anthropic CCH 生成模式
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+// 支持值：fixed / user_agent，默认 fixed
+func (a *Account) GetAnthropicCCHMode() string {
+	if !a.IsAnthropicOAuthOrSetupToken() {
+		return ""
+	}
+	if a.Extra != nil {
+		if v, ok := a.Extra["anthropic_cch_mode"].(string); ok {
+			switch v {
+			case anthropicCCHModeFixed, anthropicCCHModeUserAgent:
+				return v
+			}
+		}
+	}
+	return anthropicCCHModeFixed
+}
+
+// GetAnthropicCCHFixedVersion 返回 Anthropic CCH 固定版本号
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+// 默认值为 2.1.90
+func (a *Account) GetAnthropicCCHFixedVersion() string {
+	if !a.IsAnthropicOAuthOrSetupToken() {
+		return ""
+	}
+	if version := strings.TrimSpace(a.GetExtraString("anthropic_cch_fixed_version")); version != "" {
+		return version
+	}
+	return anthropicCCHDefaultFixedVersion
+}
+
+// ShouldRewriteAnthropicCCHUserAgent 返回 fixed 模式下是否需要同步重写 User-Agent 版本
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+// 默认值为 true，确保固定版本模式下的 UA 与 cc_version 一致
+func (a *Account) ShouldRewriteAnthropicCCHUserAgent() bool {
+	if !a.IsAnthropicOAuthOrSetupToken() {
+		return false
+	}
+	if a.GetAnthropicCCHMode() != anthropicCCHModeFixed {
+		return false
+	}
+	if a.Extra != nil {
+		if v, ok := a.Extra["anthropic_cch_rewrite_user_agent"]; ok {
+			if enabled, ok := v.(bool); ok {
+				return enabled
+			}
+		}
+	}
+	return true
+}
+
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
 // 仅适用于 Anthropic OAuth/SetupToken 类型账号
 // 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征

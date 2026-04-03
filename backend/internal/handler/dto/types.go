@@ -206,6 +206,13 @@ type Account struct {
 	CustomBaseURLEnabled *bool   `json:"custom_base_url_enabled,omitempty"`
 	CustomBaseURL        *string `json:"custom_base_url,omitempty"`
 
+	// Anthropic CCH 强制重算配置（仅 Anthropic OAuth/SetupToken 账号有效）
+	// 启用后会强制覆盖 billing header，并按账号配置重算 cch
+	AnthropicCCHEnabled          *bool   `json:"anthropic_cch_enabled,omitempty"`
+	AnthropicCCHMode             *string `json:"anthropic_cch_mode,omitempty"`
+	AnthropicCCHFixedVersion     *string `json:"anthropic_cch_fixed_version,omitempty"`
+	AnthropicCCHRewriteUserAgent *bool   `json:"anthropic_cch_rewrite_user_agent,omitempty"`
+
 	// API Key 账号配额限制
 	QuotaLimit       *float64 `json:"quota_limit,omitempty"`
 	QuotaUsed        *float64 `json:"quota_used,omitempty"`

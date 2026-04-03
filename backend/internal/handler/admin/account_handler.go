@@ -95,58 +95,70 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
-	Name                    string         `json:"name" binding:"required"`
-	Notes                   *string        `json:"notes"`
-	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock"`
-	Credentials             map[string]any `json:"credentials" binding:"required"`
-	Extra                   map[string]any `json:"extra"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             int            `json:"concurrency"`
-	Priority                int            `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	GroupIDs                []int64        `json:"group_ids"`
-	ExpiresAt               *int64         `json:"expires_at"`
-	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	Name                         string         `json:"name" binding:"required"`
+	Notes                        *string        `json:"notes"`
+	Platform                     string         `json:"platform" binding:"required"`
+	Type                         string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock"`
+	Credentials                  map[string]any `json:"credentials" binding:"required"`
+	Extra                        map[string]any `json:"extra"`
+	ProxyID                      *int64         `json:"proxy_id"`
+	Concurrency                  int            `json:"concurrency"`
+	Priority                     int            `json:"priority"`
+	RateMultiplier               *float64       `json:"rate_multiplier"`
+	LoadFactor                   *int           `json:"load_factor"`
+	GroupIDs                     []int64        `json:"group_ids"`
+	ExpiresAt                    *int64         `json:"expires_at"`
+	AutoPauseOnExpired           *bool          `json:"auto_pause_on_expired"`
+	AnthropicCCHEnabled          *bool          `json:"anthropic_cch_enabled,omitempty"`
+	AnthropicCCHMode             *string        `json:"anthropic_cch_mode,omitempty"`
+	AnthropicCCHFixedVersion     *string        `json:"anthropic_cch_fixed_version,omitempty"`
+	AnthropicCCHRewriteUserAgent *bool          `json:"anthropic_cch_rewrite_user_agent,omitempty"`
+	ConfirmMixedChannelRisk      *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // UpdateAccountRequest represents update account request
 // 使用指针类型来区分"未提供"和"设置为0"
 type UpdateAccountRequest struct {
-	Name                    string         `json:"name"`
-	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             *int           `json:"concurrency"`
-	Priority                *int           `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
-	GroupIDs                *[]int64       `json:"group_ids"`
-	ExpiresAt               *int64         `json:"expires_at"`
-	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	Name                         string         `json:"name"`
+	Notes                        *string        `json:"notes"`
+	Type                         string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock"`
+	Credentials                  map[string]any `json:"credentials"`
+	Extra                        map[string]any `json:"extra"`
+	ProxyID                      *int64         `json:"proxy_id"`
+	Concurrency                  *int           `json:"concurrency"`
+	Priority                     *int           `json:"priority"`
+	RateMultiplier               *float64       `json:"rate_multiplier"`
+	LoadFactor                   *int           `json:"load_factor"`
+	Status                       string         `json:"status" binding:"omitempty,oneof=active inactive error"`
+	GroupIDs                     *[]int64       `json:"group_ids"`
+	ExpiresAt                    *int64         `json:"expires_at"`
+	AutoPauseOnExpired           *bool          `json:"auto_pause_on_expired"`
+	AnthropicCCHEnabled          *bool          `json:"anthropic_cch_enabled,omitempty"`
+	AnthropicCCHMode             *string        `json:"anthropic_cch_mode,omitempty"`
+	AnthropicCCHFixedVersion     *string        `json:"anthropic_cch_fixed_version,omitempty"`
+	AnthropicCCHRewriteUserAgent *bool          `json:"anthropic_cch_rewrite_user_agent,omitempty"`
+	ConfirmMixedChannelRisk      *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
-	AccountIDs              []int64        `json:"account_ids" binding:"required,min=1"`
-	Name                    string         `json:"name"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             *int           `json:"concurrency"`
-	Priority                *int           `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
-	Schedulable             *bool          `json:"schedulable"`
-	GroupIDs                *[]int64       `json:"group_ids"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	AccountIDs                   []int64        `json:"account_ids" binding:"required,min=1"`
+	Name                         string         `json:"name"`
+	ProxyID                      *int64         `json:"proxy_id"`
+	Concurrency                  *int           `json:"concurrency"`
+	Priority                     *int           `json:"priority"`
+	RateMultiplier               *float64       `json:"rate_multiplier"`
+	LoadFactor                   *int           `json:"load_factor"`
+	Status                       string         `json:"status" binding:"omitempty,oneof=active inactive error"`
+	Schedulable                  *bool          `json:"schedulable"`
+	GroupIDs                     *[]int64       `json:"group_ids"`
+	Credentials                  map[string]any `json:"credentials"`
+	Extra                        map[string]any `json:"extra"`
+	AnthropicCCHEnabled          *bool          `json:"anthropic_cch_enabled,omitempty"`
+	AnthropicCCHMode             *string        `json:"anthropic_cch_mode,omitempty"`
+	AnthropicCCHFixedVersion     *string        `json:"anthropic_cch_fixed_version,omitempty"`
+	AnthropicCCHRewriteUserAgent *bool          `json:"anthropic_cch_rewrite_user_agent,omitempty"`
+	ConfirmMixedChannelRisk      *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -510,6 +522,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
+	req.Extra = mergeAnthropicCCHExtra(req.Extra, req.AnthropicCCHEnabled, req.AnthropicCCHMode, req.AnthropicCCHFixedVersion, req.AnthropicCCHRewriteUserAgent)
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
@@ -586,6 +599,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
+	req.Extra = mergeAnthropicCCHExtra(req.Extra, req.AnthropicCCHEnabled, req.AnthropicCCHMode, req.AnthropicCCHFixedVersion, req.AnthropicCCHRewriteUserAgent)
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
@@ -1179,6 +1193,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				continue
 			}
 
+			item.Extra = mergeAnthropicCCHExtra(item.Extra, item.AnthropicCCHEnabled, item.AnthropicCCHMode, item.AnthropicCCHFixedVersion, item.AnthropicCCHRewriteUserAgent)
 			// base_rpm 输入校验：负值归零，超过 10000 截断
 			sanitizeExtraBaseRPM(item.Extra)
 
@@ -1366,6 +1381,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
+	req.Extra = mergeAnthropicCCHExtra(req.Extra, req.AnthropicCCHEnabled, req.AnthropicCCHMode, req.AnthropicCCHFixedVersion, req.AnthropicCCHRewriteUserAgent)
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
@@ -1382,7 +1398,11 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		req.Schedulable != nil ||
 		req.GroupIDs != nil ||
 		len(req.Credentials) > 0 ||
-		len(req.Extra) > 0
+		len(req.Extra) > 0 ||
+		req.AnthropicCCHEnabled != nil ||
+		req.AnthropicCCHMode != nil ||
+		req.AnthropicCCHFixedVersion != nil ||
+		req.AnthropicCCHRewriteUserAgent != nil
 
 	if !hasUpdates {
 		response.BadRequest(c, "No updates provided")
@@ -2151,4 +2171,28 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 		v = 10000
 	}
 	extra["base_rpm"] = v
+}
+
+// mergeAnthropicCCHExtra 将账号级 Anthropic CCH 顶层字段写回 extra，方便前端独立表单直接提交。
+// 仅在字段显式提供时写入；未提供时保持 extra 原值不变。
+func mergeAnthropicCCHExtra(extra map[string]any, enabled *bool, mode, fixedVersion *string, rewriteUserAgent *bool) map[string]any {
+	if enabled == nil && mode == nil && fixedVersion == nil && rewriteUserAgent == nil {
+		return extra
+	}
+	if extra == nil {
+		extra = make(map[string]any)
+	}
+	if enabled != nil {
+		extra["anthropic_cch_enabled"] = *enabled
+	}
+	if mode != nil {
+		extra["anthropic_cch_mode"] = strings.TrimSpace(*mode)
+	}
+	if fixedVersion != nil {
+		extra["anthropic_cch_fixed_version"] = strings.TrimSpace(*fixedVersion)
+	}
+	if rewriteUserAgent != nil {
+		extra["anthropic_cch_rewrite_user_agent"] = *rewriteUserAgent
+	}
+	return extra
 }

@@ -5830,6 +5830,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
+	// 账号级 Anthropic CCH 覆盖：在所有 body/header 归一化完成后，基于最终出站 body 重算 cch
+	if nextBody, applied := applyAnthropicCCHOverride(req, body, account); applied {
+		body = nextBody
+	}
+
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
 		"url":                 req.URL.String(),
