@@ -278,6 +278,17 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 				out.CustomBaseURL = &customURL
 			}
 		}
+		// Anthropic CCH 强制重算配置
+		cchEnabled := a.IsAnthropicCCHEnabled()
+		out.AnthropicCCHEnabled = &cchEnabled
+		if mode := a.GetAnthropicCCHMode(); mode != "" {
+			out.AnthropicCCHMode = &mode
+		}
+		if version := a.GetAnthropicCCHFixedVersion(); version != "" {
+			out.AnthropicCCHFixedVersion = &version
+		}
+		rewriteUserAgent := a.ShouldRewriteAnthropicCCHUserAgent()
+		out.AnthropicCCHRewriteUserAgent = &rewriteUserAgent
 	}
 
 	// 提取账号配额限制（apikey / bedrock 类型有效）
