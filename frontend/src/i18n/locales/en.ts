@@ -2324,6 +2324,19 @@ export default {
           hint: 'Forward requests to a custom relay service. Proxy URL will be passed as a query parameter.',
           urlHint: 'Relay service URL (e.g., https://relay.example.com)',
         },
+        anthropicCch: {
+          label: 'CCH Override',
+          hint: 'Force billing-header rewriting and recompute cch using the configured strategy. Applies only to Anthropic OAuth/SetupToken accounts.',
+          mode: 'Version Source',
+          modeHint: 'Fixed mode uses the configured version. Auto mode extracts the version from the final outbound User-Agent.',
+          modeFixed: 'Fixed Version',
+          modeUserAgent: 'From User-Agent',
+          fixedVersion: 'Fixed Version',
+          fixedVersionHint: 'For example, 2.1.90. In fixed mode, this version is used for cc_version.',
+          fallbackVersionHint: 'Used as a fallback when no version can be extracted from User-Agent.',
+          rewriteUserAgent: 'Rewrite User-Agent Too',
+          rewriteUserAgentHint: 'In fixed mode, also replace the Claude CLI version in the outbound User-Agent.'
+        },
         clientAffinity: {
           label: 'Client Affinity Scheduling',
           hint: 'When enabled, new sessions prefer accounts previously used by this client to reduce account switching'

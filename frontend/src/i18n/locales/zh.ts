@@ -2468,6 +2468,19 @@ export default {
           hint: '启用后将请求转发到自定义中继服务，代理地址将作为 URL 参数传递给中继服务',
           urlHint: '中继服务地址（如 https://relay.example.com）',
         },
+        anthropicCch: {
+          label: 'CCH 覆盖',
+          hint: '强制重写 billing header，并按配置重新计算 cch。仅对 Anthropic OAuth/SetupToken 生效。',
+          mode: '版本来源',
+          modeHint: '固定模式使用指定版本；自动模式从最终出站 User-Agent 提取版本。',
+          modeFixed: '固定版本',
+          modeUserAgent: '按 User-Agent',
+          fixedVersion: '固定版本号',
+          fixedVersionHint: '例如 2.1.90。固定模式下将用此版本生成 cc_version。',
+          fallbackVersionHint: '当 User-Agent 中无法提取版本时，回退到此版本。',
+          rewriteUserAgent: '同步重写 User-Agent',
+          rewriteUserAgentHint: '固定模式下将出站 User-Agent 的 Claude CLI 版本同步替换为固定版本。'
+        },
         clientAffinity: {
           label: '客户端亲和调度',
           hint: '启用后，新会话会优先调度到该客户端之前使用过的账号，避免频繁切换账号'

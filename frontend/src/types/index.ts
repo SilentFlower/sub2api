@@ -744,6 +744,12 @@ export interface Account {
   custom_base_url_enabled?: boolean | null
   custom_base_url?: string | null
 
+  // Anthropic CCH 强制重算（仅 Anthropic OAuth/SetupToken 账号有效）
+  anthropic_cch_enabled?: boolean | null
+  anthropic_cch_mode?: 'fixed' | 'user_agent' | null
+  anthropic_cch_fixed_version?: string | null
+  anthropic_cch_rewrite_user_agent?: boolean | null
+
   // 客户端亲和调度（仅 Anthropic/Antigravity 平台有效）
   // 启用后新会话会优先调度到客户端之前使用过的账号
   client_affinity_enabled?: boolean | null

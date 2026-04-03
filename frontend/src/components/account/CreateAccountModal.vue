@@ -2280,6 +2280,111 @@
             />
           </div>
         </div>
+
+        <!-- Anthropic CCH Override -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.anthropicCch.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.anthropicCch.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="anthropicCCHEnabled = !anthropicCCHEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                anthropicCCHEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  anthropicCCHEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="anthropicCCHEnabled" class="mt-3 space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.anthropicCch.mode') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.anthropicCch.modeHint') }}
+              </p>
+              <div class="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  @click="anthropicCCHMode = 'fixed'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    anthropicCCHMode === 'fixed'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.anthropicCch.modeFixed') }}
+                </button>
+                <button
+                  type="button"
+                  @click="anthropicCCHMode = 'user_agent'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    anthropicCCHMode === 'user_agent'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.anthropicCch.modeUserAgent') }}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.anthropicCch.fixedVersion') }}</label>
+              <input
+                v-model="anthropicCCHFixedVersion"
+                type="text"
+                class="input font-mono"
+                placeholder="2.1.90"
+              />
+              <p class="input-hint">
+                {{
+                  anthropicCCHMode === 'fixed'
+                    ? t('admin.accounts.quotaControl.anthropicCch.fixedVersionHint')
+                    : t('admin.accounts.quotaControl.anthropicCch.fallbackVersionHint')
+                }}
+              </p>
+            </div>
+
+            <div
+              v-if="anthropicCCHMode === 'fixed'"
+              class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-dark-700/50"
+            >
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.anthropicCch.rewriteUserAgent') }}</label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.quotaControl.anthropicCch.rewriteUserAgentHint') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="anthropicCCHRewriteUserAgent = !anthropicCCHRewriteUserAgent"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                  anthropicCCHRewriteUserAgent ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    anthropicCCHRewriteUserAgent ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -2714,7 +2819,6 @@
             </div>
           </div>
         </div>
-      </div>
 
       <!-- Quota Policy Section -->
       <div class="border-t border-gray-200 pt-6 dark:border-dark-600">
@@ -3132,6 +3236,10 @@ const cacheTTLOverrideEnabled = ref(false)
 const cacheTTLOverrideTarget = ref<string>('5m')
 const customBaseUrlEnabled = ref(false)
 const customBaseUrl = ref('')
+const anthropicCCHEnabled = ref(false)
+const anthropicCCHMode = ref<'fixed' | 'user_agent'>('fixed')
+const anthropicCCHFixedVersion = ref('2.1.90')
+const anthropicCCHRewriteUserAgent = ref(true)
 
 // Gemini tier selection (used as fallback when auto-detection is unavailable/fails)
 const geminiTierGoogleOne = ref<'google_one_free' | 'google_ai_pro' | 'google_ai_ultra'>('google_one_free')
@@ -3804,6 +3912,10 @@ const resetForm = () => {
   cacheTTLOverrideTarget.value = '5m'
   customBaseUrlEnabled.value = false
   customBaseUrl.value = ''
+  anthropicCCHEnabled.value = false
+  anthropicCCHMode.value = 'fixed'
+  anthropicCCHFixedVersion.value = '2.1.90'
+  anthropicCCHRewriteUserAgent.value = true
   allowOverages.value = false
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
@@ -4901,6 +5013,18 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.custom_base_url = customBaseUrl.value.trim()
     }
 
+    // Add Anthropic CCH override settings
+    if (anthropicCCHEnabled.value) {
+      extra.anthropic_cch_enabled = true
+      extra.anthropic_cch_mode = anthropicCCHMode.value
+      if (anthropicCCHFixedVersion.value.trim()) {
+        extra.anthropic_cch_fixed_version = anthropicCCHFixedVersion.value.trim()
+      }
+      if (anthropicCCHMode.value === 'fixed') {
+        extra.anthropic_cch_rewrite_user_agent = anthropicCCHRewriteUserAgent.value
+      }
+    }
+
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
@@ -5023,6 +5147,18 @@ const handleCookieAuth = async (sessionKey: string) => {
         if (customBaseUrlEnabled.value && customBaseUrl.value.trim()) {
           extra.custom_base_url_enabled = true
           extra.custom_base_url = customBaseUrl.value.trim()
+        }
+
+        // Add Anthropic CCH override settings
+        if (anthropicCCHEnabled.value) {
+          extra.anthropic_cch_enabled = true
+          extra.anthropic_cch_mode = anthropicCCHMode.value
+          if (anthropicCCHFixedVersion.value.trim()) {
+            extra.anthropic_cch_fixed_version = anthropicCCHFixedVersion.value.trim()
+          }
+          if (anthropicCCHMode.value === 'fixed') {
+            extra.anthropic_cch_rewrite_user_agent = anthropicCCHRewriteUserAgent.value
+          }
         }
 
         const accountName = keys.length > 1 ? `${form.name} #${i + 1}` : form.name
