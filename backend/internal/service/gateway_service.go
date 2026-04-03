@@ -8896,9 +8896,9 @@ func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header
 		if len(body) == 0 {
 			fmt.Fprint(&buf, "(empty)\n")
 		} else {
-			buf.Write(body)
+			_, _ = buf.Write(body)
 			if body[len(body)-1] != '\n' {
-				buf.WriteByte('\n')
+				_ = buf.WriteByte('\n')
 			}
 		}
 

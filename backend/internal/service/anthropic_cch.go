@@ -151,9 +151,9 @@ func computeAnthropicVersionFingerprint(messageText, version string) string {
 	builder.Grow(len(indices))
 	for _, idx := range indices {
 		if idx >= 0 && idx < len(messageText) {
-			builder.WriteByte(messageText[idx])
+			_ = builder.WriteByte(messageText[idx])
 		} else {
-			builder.WriteByte('0')
+			_ = builder.WriteByte('0')
 		}
 	}
 	sum := sha256.Sum256([]byte(anthropicCCVersionFingerprintSalt + builder.String() + version))
