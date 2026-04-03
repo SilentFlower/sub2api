@@ -114,12 +114,16 @@ RUN addgroup -g 1000 sub2api && \
 # Set working directory
 WORKDIR /app
 
+# Docker 部署默认开启网关原始请求快照日志，便于核对最终 header/body。
+# 如需关闭，可在运行时将 SUB2API_DEBUG_GATEWAY_RAW 置空覆盖。
+ENV SUB2API_DEBUG_GATEWAY_RAW=/app/data/logs/gateway_raw.log
+
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
 COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
 # Create data directory
-RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
+RUN mkdir -p /app/data/logs && chown -R sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh

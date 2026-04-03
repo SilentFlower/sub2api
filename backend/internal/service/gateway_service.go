@@ -54,6 +54,7 @@ const (
 	defaultModelsListCacheTTL    = 15 * time.Second
 	postUsageBillingTimeout      = 15 * time.Second
 	debugGatewayBodyEnv          = "SUB2API_DEBUG_GATEWAY_BODY"
+	debugGatewayRawEnv           = "SUB2API_DEBUG_GATEWAY_RAW"
 )
 
 const (
@@ -569,6 +570,7 @@ type GatewayService struct {
 	debugModelRouting     atomic.Bool
 	debugClaudeMimic      atomic.Bool
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
+	debugGatewayRawFile   atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_RAW is set
 	tlsFPProfileService   *TLSFingerprintProfileService
 }
 
@@ -641,6 +643,9 @@ func NewGatewayService(
 	svc.debugClaudeMimic.Store(parseDebugEnvBool(os.Getenv("SUB2API_DEBUG_CLAUDE_MIMIC")))
 	if path := strings.TrimSpace(os.Getenv(debugGatewayBodyEnv)); path != "" {
 		svc.initDebugGatewayBodyFile(path)
+	}
+	if path := strings.TrimSpace(os.Getenv(debugGatewayRawEnv)); path != "" {
+		svc.initDebugGatewayRawFile(path)
 	}
 	return svc
 }
@@ -8742,6 +8747,7 @@ func reconcileCachedTokens(usage map[string]any) bool {
 }
 
 const debugGatewayBodyDefaultFilename = "gateway_debug.log"
+const debugGatewayRawDefaultFilename = "gateway_raw.log"
 
 // initDebugGatewayBodyFile 初始化网关调试日志文件。
 //
@@ -8775,6 +8781,36 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 	slog.Info("gateway debug logging enabled", "path", path)
 }
 
+// initDebugGatewayRawFile 初始化网关原始快照日志文件。
+//
+//   - "1"/"true" 等布尔值 → 当前目录下 gateway_raw.log
+//   - 已有目录路径        → 该目录下 gateway_raw.log
+//   - 其他               → 视为完整文件路径
+func (s *GatewayService) initDebugGatewayRawFile(path string) {
+	if parseDebugEnvBool(path) {
+		path = debugGatewayRawDefaultFilename
+	}
+
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		path = filepath.Join(path, debugGatewayRawDefaultFilename)
+	}
+
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			slog.Error("failed to create gateway raw debug log directory", "dir", dir, "error", err)
+			return
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		slog.Error("failed to open gateway raw debug log file", "path", path, "error", err)
+		return
+	}
+	s.debugGatewayRawFile.Store(f)
+	slog.Info("gateway raw debug logging enabled", "path", path)
+}
+
 // debugLogGatewaySnapshot 将网关请求的完整快照（headers + body）写入独立的调试日志文件，
 // 用于对比客户端原始请求和上游转发请求。
 //
@@ -8786,49 +8822,86 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 // tag: "CLIENT_ORIGINAL" 或 "UPSTREAM_FORWARD"
 func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header, body []byte, extra map[string]string) {
 	f := s.debugGatewayBodyFile.Load()
-	if f == nil {
+	rawFile := s.debugGatewayRawFile.Load()
+	if f == nil && rawFile == nil {
 		return
 	}
-
-	var buf strings.Builder
 	ts := time.Now().Format("2006-01-02 15:04:05.000")
-	fmt.Fprintf(&buf, "\n========== [%s] %s ==========\n", ts, tag)
 
-	// 1. context
-	if len(extra) > 0 {
-		fmt.Fprint(&buf, "--- context ---\n")
-		extraKeys := make([]string, 0, len(extra))
-		for k := range extra {
-			extraKeys = append(extraKeys, k)
-		}
-		sort.Strings(extraKeys)
-		for _, k := range extraKeys {
-			fmt.Fprintf(&buf, "  %s: %s\n", k, extra[k])
-		}
-	}
+	if f != nil {
+		var buf strings.Builder
+		fmt.Fprintf(&buf, "\n========== [%s] %s ==========\n", ts, tag)
 
-	// 2. headers（按真实 Claude CLI wire 顺序排列，便于与抓包对比；auth 脱敏）
-	fmt.Fprint(&buf, "--- headers ---\n")
-	for _, k := range sortHeadersByWireOrder(headers) {
-		for _, v := range headers[k] {
-			fmt.Fprintf(&buf, "  %s: %s\n", k, safeHeaderValueForLog(k, v))
+		// 1. context
+		if len(extra) > 0 {
+			fmt.Fprint(&buf, "--- context ---\n")
+			extraKeys := make([]string, 0, len(extra))
+			for k := range extra {
+				extraKeys = append(extraKeys, k)
+			}
+			sort.Strings(extraKeys)
+			for _, k := range extraKeys {
+				fmt.Fprintf(&buf, "  %s: %s\n", k, extra[k])
+			}
 		}
-	}
 
-	// 3. body（完整输出，格式化 JSON 便于 diff）
-	fmt.Fprint(&buf, "--- body ---\n")
-	if len(body) == 0 {
-		fmt.Fprint(&buf, "  (empty)\n")
-	} else {
-		var pretty bytes.Buffer
-		if json.Indent(&pretty, body, "  ", "  ") == nil {
-			fmt.Fprintf(&buf, "  %s\n", pretty.Bytes())
+		// 2. headers（按真实 Claude CLI wire 顺序排列，便于与抓包对比；auth 脱敏）
+		fmt.Fprint(&buf, "--- headers ---\n")
+		for _, k := range sortHeadersByWireOrder(headers) {
+			for _, v := range headers[k] {
+				fmt.Fprintf(&buf, "  %s: %s\n", k, safeHeaderValueForLog(k, v))
+			}
+		}
+
+		// 3. body（完整输出，格式化 JSON 便于 diff）
+		fmt.Fprint(&buf, "--- body ---\n")
+		if len(body) == 0 {
+			fmt.Fprint(&buf, "  (empty)\n")
 		} else {
-			// JSON 格式化失败时原样输出
-			fmt.Fprintf(&buf, "  %s\n", body)
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, body, "  ", "  ") == nil {
+				fmt.Fprintf(&buf, "  %s\n", pretty.Bytes())
+			} else {
+				fmt.Fprintf(&buf, "  %s\n", body)
+			}
 		}
+
+		_, _ = f.WriteString(buf.String())
 	}
 
-	// 写入文件（调试用，并发写入可能交错但不影响可读性）
-	_, _ = f.WriteString(buf.String())
+	if rawFile != nil {
+		var buf strings.Builder
+		fmt.Fprintf(&buf, "\n========== [%s] %s RAW ==========\n", ts, tag)
+
+		if len(extra) > 0 {
+			fmt.Fprint(&buf, "--- context ---\n")
+			extraKeys := make([]string, 0, len(extra))
+			for k := range extra {
+				extraKeys = append(extraKeys, k)
+			}
+			sort.Strings(extraKeys)
+			for _, k := range extraKeys {
+				fmt.Fprintf(&buf, "%s: %s\n", k, extra[k])
+			}
+		}
+
+		fmt.Fprint(&buf, "--- headers ---\n")
+		for _, k := range sortHeadersByWireOrder(headers) {
+			for _, v := range headers[k] {
+				fmt.Fprintf(&buf, "%s: %s\n", k, strings.TrimSpace(v))
+			}
+		}
+
+		fmt.Fprint(&buf, "--- body-raw ---\n")
+		if len(body) == 0 {
+			fmt.Fprint(&buf, "(empty)\n")
+		} else {
+			buf.Write(body)
+			if body[len(body)-1] != '\n' {
+				buf.WriteByte('\n')
+			}
+		}
+
+		_, _ = rawFile.WriteString(buf.String())
+	}
 }

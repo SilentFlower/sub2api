@@ -44,6 +44,8 @@ services:
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
       - RUN_MODE=${RUN_MODE:-standard}
+      # 默认开启原始网关请求快照（完整 header/body，包含敏感信息）
+      - SUB2API_DEBUG_GATEWAY_RAW=${SUB2API_DEBUG_GATEWAY_RAW:-/app/data/logs/gateway_raw.log}
 
       # =======================================================================
       # Database Configuration (PostgreSQL)

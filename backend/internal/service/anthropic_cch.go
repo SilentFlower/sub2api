@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,12 +14,13 @@ import (
 )
 
 const (
-	anthropicCCHModeFixed           = "fixed"
-	anthropicCCHModeUserAgent       = "user_agent"
-	anthropicCCHDefaultFixedVersion = "2.1.90"
-	anthropicCCHPlaceholder         = "00000"
-	anthropicCCHSeed                = uint64(0x6E52736AC806831E)
-	anthropicCCHMask                = uint64(0xFFFFF)
+	anthropicCCHModeFixed             = "fixed"
+	anthropicCCHModeUserAgent         = "user_agent"
+	anthropicCCHDefaultFixedVersion   = "2.1.90"
+	anthropicCCHPlaceholder           = "00000"
+	anthropicCCHSeed                  = uint64(0x6E52736AC806831E)
+	anthropicCCHMask                  = uint64(0xFFFFF)
+	anthropicCCVersionFingerprintSalt = "59cf53e54c78"
 )
 
 // applyAnthropicCCHOverride 按账号配置强制覆盖 billing header，并基于最终出站 body 重算 cch。
@@ -35,7 +37,8 @@ func applyAnthropicCCHOverride(req *http.Request, body []byte, account *Account)
 		}
 	}
 
-	version := resolveAnthropicCCHVersion(req, account)
+	baseVersion := resolveAnthropicCCHVersion(req, account)
+	version := buildAnthropicBillingVersion(body, baseVersion)
 	placeholderBody, ok := overwriteAnthropicBillingHeaderInBody(body, version, anthropicCCHPlaceholder)
 	if !ok {
 		return body, false
@@ -67,6 +70,94 @@ func resolveAnthropicCCHVersion(req *http.Request, account *Account) string {
 		}
 	}
 	return account.GetAnthropicCCHFixedVersion()
+}
+
+// buildAnthropicBillingVersion 生成 billing header 使用的 cc_version。
+// 格式遵循 Claude Code 的前端逻辑：<baseVersion>.<fingerprint>，
+// 其中 fingerprint 为 3 位十六进制后缀。
+func buildAnthropicBillingVersion(body []byte, baseVersion string) string {
+	normalizedVersion := normalizeAnthropicBaseVersion(baseVersion)
+	if normalizedVersion == "" {
+		normalizedVersion = anthropicCCHDefaultFixedVersion
+	}
+	fingerprint := computeAnthropicVersionFingerprint(
+		extractFirstAnthropicUserMessageText(body),
+		normalizedVersion,
+	)
+	return normalizedVersion + "." + fingerprint
+}
+
+func normalizeAnthropicBaseVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
+	}
+	parts := strings.Split(version, ".")
+	if len(parts) >= 4 && len(parts[len(parts)-1]) == 3 {
+		suffix := strings.ToLower(parts[len(parts)-1])
+		isHexSuffix := true
+		for _, ch := range suffix {
+			if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+				isHexSuffix = false
+				break
+			}
+		}
+		if isHexSuffix {
+			return strings.Join(parts[:len(parts)-1], ".")
+		}
+	}
+	return version
+}
+
+func extractFirstAnthropicUserMessageText(body []byte) string {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return ""
+	}
+
+	firstText := ""
+	messages.ForEach(func(_, message gjson.Result) bool {
+		if message.Get("role").String() != "user" {
+			return true
+		}
+
+		content := message.Get("content")
+		switch {
+		case content.Type == gjson.String:
+			firstText = content.String()
+			return false
+		case content.IsArray():
+			content.ForEach(func(_, block gjson.Result) bool {
+				if block.Get("type").String() == "text" {
+					text := block.Get("text")
+					if text.Type == gjson.String {
+						firstText = text.String()
+						return false
+					}
+				}
+				return true
+			})
+		}
+
+		return firstText == ""
+	})
+
+	return firstText
+}
+
+func computeAnthropicVersionFingerprint(messageText, version string) string {
+	indices := []int{4, 7, 20}
+	var builder strings.Builder
+	builder.Grow(len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < len(messageText) {
+			builder.WriteByte(messageText[idx])
+		} else {
+			builder.WriteByte('0')
+		}
+	}
+	sum := sha256.Sum256([]byte(anthropicCCVersionFingerprintSalt + builder.String() + version))
+	return fmt.Sprintf("%x", sum)[:3]
 }
 
 func rewriteAnthropicCCHUserAgent(userAgent, version string) string {

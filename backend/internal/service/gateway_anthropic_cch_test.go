@@ -55,13 +55,14 @@ func TestGatewayService_BuildUpstreamRequest_AppliesAnthropicCCHFixedMode(t *tes
 
 	upstreamBody := readRequestBodyForTest(t, req)
 	systemText := gjson.GetBytes(upstreamBody, "system.0.text").String()
+	expectedVersion := buildAnthropicBillingVersion(body, "2.1.90")
 	require.Equal(t, "claude-cli/2.1.90 (external, cli)", getHeaderRaw(req.Header, "User-Agent"))
 	require.Equal(t, getHeaderRaw(req.Header, "x-anthropic-billing-header"), strings.TrimPrefix(systemText, "x-anthropic-billing-header: "))
-	require.Contains(t, systemText, "cc_version=2.1.90;")
+	require.Contains(t, systemText, "cc_version="+expectedVersion+";")
 	require.Contains(t, gjson.GetBytes(upstreamBody, "system.1.text").String(), "Original system")
 	require.Len(t, gjson.GetBytes(upstreamBody, "system").Array(), 2)
 
-	placeholderBody, ok := overwriteAnthropicBillingHeaderInBody(upstreamBody, "2.1.90", anthropicCCHPlaceholder)
+	placeholderBody, ok := overwriteAnthropicBillingHeaderInBody(upstreamBody, expectedVersion, anthropicCCHPlaceholder)
 	require.True(t, ok)
 	require.Equal(t, computeAnthropicCCH(placeholderBody), extractCCHFromSystemText(systemText))
 }
@@ -104,11 +105,12 @@ func TestGatewayService_BuildUpstreamRequest_AppliesAnthropicCCHUserAgentMode(t 
 	require.NoError(t, err)
 
 	upstreamBody := readRequestBodyForTest(t, req)
+	expectedVersion := buildAnthropicBillingVersion(body, "2.8.6")
 	require.Equal(t, "claude-cli/2.8.6 (external, cli)", getHeaderRaw(req.Header, "User-Agent"))
 	require.Equal(t, gjson.String, gjson.GetBytes(upstreamBody, "system").Type)
-	require.Contains(t, gjson.GetBytes(upstreamBody, "system").String(), "cc_version=2.8.6;")
+	require.Contains(t, gjson.GetBytes(upstreamBody, "system").String(), "cc_version="+expectedVersion+";")
 	require.Contains(t, gjson.GetBytes(upstreamBody, "system").String(), "Keep this system")
-	require.Equal(t, "cc_version=2.8.6; cc_entrypoint=cli; cch="+extractCCHFromSystemText(gjson.GetBytes(upstreamBody, "system").String())+";", getHeaderRaw(req.Header, "x-anthropic-billing-header"))
+	require.Equal(t, "cc_version="+expectedVersion+"; cc_entrypoint=cli; cch="+extractCCHFromSystemText(gjson.GetBytes(upstreamBody, "system").String())+";", getHeaderRaw(req.Header, "x-anthropic-billing-header"))
 }
 
 func TestGatewayService_BuildUpstreamRequest_AppliesAnthropicCCHWhenSystemMissing(t *testing.T) {
@@ -151,6 +153,13 @@ func TestGatewayService_BuildUpstreamRequest_AppliesAnthropicCCHWhenSystemMissin
 	require.True(t, gjson.GetBytes(upstreamBody, "system").IsArray())
 	require.Len(t, gjson.GetBytes(upstreamBody, "system").Array(), 1)
 	require.Contains(t, gjson.GetBytes(upstreamBody, "system.0.text").String(), "x-anthropic-billing-header:")
+	require.Contains(t, gjson.GetBytes(upstreamBody, "system.0.text").String(), "cc_version="+buildAnthropicBillingVersion(body, "2.1.90")+";")
+}
+
+func TestBuildAnthropicBillingVersion_AppendsFingerprintSuffix(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	require.Equal(t, "2.1.90.6cf", buildAnthropicBillingVersion(body, "2.1.90"))
+	require.Equal(t, "2.1.90.6cf", buildAnthropicBillingVersion(body, "2.1.90.6cf"))
 }
 
 func readRequestBodyForTest(t *testing.T, req *http.Request) []byte {
