@@ -5218,4 +5218,6 @@ const handleCookieAuth = async (sessionKey: string) => {
     oauth.loading.value = false
   }
 }
+
+void handleCookieAuth
 </script>
