@@ -22,5 +22,22 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-06-16T19:01:55.634090Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "416943fe"
+    },
+    "completed_steps": [
+      "确认本期只支持自定义 UA 前缀/通配符规则",
+      "后端 matcher / getter / detector / 403 UA 响应已实现",
+      "创建、编辑、批量编辑 UI 已实现",
+      "中英文 i18n 已更新",
+      "后端、前端测试和 check-all 已通过"
+    ],
+    "partial_step": "",
+    "next_step": "Phase 3.5 wrap-up / finish-work（用户明确要求后执行）",
+    "notes": "已完成 check-all；后端 golangci-lint 当前环境未安装，未运行。业务提交已推送到 origin/build。"
+  }
 }
