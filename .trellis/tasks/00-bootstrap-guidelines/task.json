@@ -25,5 +25,20 @@
     ".trellis/spec/frontend/"
   ],
   "notes": "First-time setup task created by trellis init (fullstack project)",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-06-16T09:12:37.206402Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "c5d7a124"
+    },
+    "completed_steps": [
+      "Fill backend guidelines",
+      "Fill frontend guidelines",
+      "Add code examples",
+      "Quality check passed"
+    ],
+    "next_step": "Phase 3.5 finish-work / archive bootstrap task（需用户显式要求）",
+    "notes": "已完成 00 bootstrap guidelines：backend/frontend spec 以中文填充，标题保留英文；文档占位检查和 task.py validate 通过；Trellis 初始化文件一并纳入提交。"
+  }
 }
