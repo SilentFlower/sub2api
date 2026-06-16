@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -125,9 +126,48 @@ func (c *openAICodexResetClient) requestJSON(ctx context.Context, account servic
 		return infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", "ChatGPT backend 请求失败")
 	}
 	if !resp.IsSuccessState() {
-		return infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", "ChatGPT backend 请求失败：状态码 %d", resp.StatusCode)
+		message := fmt.Sprintf("ChatGPT backend 请求失败：状态码 %d", resp.StatusCode)
+		if reason := openAICodexResetUpstreamErrorReason(resp.Bytes()); reason != "" {
+			message = fmt.Sprintf("%s，原因：%s", message, reason)
+		}
+		return infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", message)
 	}
 	return nil
+}
+
+func openAICodexResetUpstreamErrorReason(body []byte) string {
+	var payload map[string]any
+	if len(body) == 0 || json.Unmarshal(body, &payload) != nil {
+		return ""
+	}
+	for _, path := range [][]string{
+		{"detail"},
+		{"message"},
+		{"error", "message"},
+		{"error", "code"},
+		{"error"},
+	} {
+		if value := openAICodexResetStringAt(payload, path...); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func openAICodexResetStringAt(payload map[string]any, path ...string) string {
+	var current any = payload
+	for _, key := range path {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = obj[key]
+	}
+	value, ok := current.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func openAICodexResetHeaders(account service.OpenAICodexResetClientAccount) map[string]string {

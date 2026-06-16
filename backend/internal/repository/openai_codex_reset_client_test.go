@@ -133,7 +133,7 @@ func TestOpenAICodexResetClient_UpstreamErrorDoesNotExposeBody(t *testing.T) {
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = io.WriteString(w, `{"error":"contains-token-secret"}`)
+		_, _ = io.WriteString(w, `{"detail":"invite quota exhausted","debug":"contains-token-secret"}`)
 	}))
 	defer srv.Close()
 
@@ -143,5 +143,25 @@ func TestOpenAICodexResetClient_UpstreamErrorDoesNotExposeBody(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
 	require.Contains(t, infraerrors.Message(err), "状态码 502")
+	require.Contains(t, infraerrors.Message(err), "invite quota exhausted")
 	require.NotContains(t, infraerrors.Message(err), "contains-token-secret")
+}
+
+func TestOpenAICodexResetClient_UpstreamErrorReasonFromNestedError(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":{"message":"recipient is not eligible","code":"recipient_blocked"},"access_token":"token-secret"}`)
+	}))
+	defer srv.Close()
+
+	client := newOpenAICodexResetClientWithBaseURL(srv.URL)
+	_, err := client.SendInvites(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: "token-secret"}, "codex_referral_persistent_invite", []string{"a@example.com"})
+
+	require.Error(t, err)
+	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
+	require.Contains(t, infraerrors.Message(err), "状态码 403")
+	require.Contains(t, infraerrors.Message(err), "recipient is not eligible")
+	require.NotContains(t, infraerrors.Message(err), "token-secret")
 }
