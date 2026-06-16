@@ -22,5 +22,21 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-06-16T15:33:35.745929Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "e1a089e4"
+    },
+    "completed_steps": [
+      "后端 service/client/DI/routes 已完成",
+      "前端 API/UI/i18n 已完成",
+      "后端与前端测试验证已完成",
+      "业务提交已推送到 origin/build"
+    ],
+    "partial_step": "Phase 3.4 trellis-push：任务快照提交中",
+    "next_step": "按需执行 finish-work / 归档任务",
+    "notes": "默认 push 到 origin/build，未配置 merge_target，未执行 merge。"
+  }
 }
