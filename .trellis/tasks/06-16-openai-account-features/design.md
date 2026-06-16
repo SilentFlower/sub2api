@@ -124,7 +124,7 @@ type OpenAICodexInviteResult struct {
 ## Security
 
 - 不向前端返回 `access_token`、`refresh_token`、`id_token`、`chatgpt_account_id` 或完整 Authorization header。
-- 错误 message 不包含 token，不透传完整上游响应体；最多保留可读摘要。
+- Codex reset / invite 上游失败时，错误 message 可返回脱敏并截断后的上游响应体，用于管理员排查 ChatGPT backend 拒绝原因；不得返回未脱敏 token、cookie、完整 Authorization header 或账号内部凭证。
 - 日志只记录账号 ID、HTTP status、操作类型、错误分类。
 - 本任务不落库保存上游原始 eligibility/rules；仅当次返回给管理员查看。
 

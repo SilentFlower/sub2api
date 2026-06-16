@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+const openAICodexResetTestToken = "token-secret"
 
 func TestOpenAICodexResetClient_CreditsAndConsume(t *testing.T) {
 	t.Parallel()
@@ -128,23 +131,26 @@ func TestOpenAICodexResetClient_EligibilityRulesAndInvite(t *testing.T) {
 	require.Equal(t, "partial", result.Message)
 }
 
-func TestOpenAICodexResetClient_UpstreamErrorDoesNotExposeBody(t *testing.T) {
+func TestOpenAICodexResetClient_UpstreamErrorReturnsRedactedBody(t *testing.T) {
 	t.Parallel()
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = io.WriteString(w, `{"detail":"invite quota exhausted","debug":"contains-token-secret"}`)
+		_, _ = io.WriteString(w, `{"detail":"invite quota exhausted","debug":"contains-debug-detail","access_token":"token-secret"}`)
 	}))
 	defer srv.Close()
 
 	client := newOpenAICodexResetClientWithBaseURL(srv.URL)
-	_, err := client.GetCredits(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: "token-secret"})
+	_, err := client.GetCredits(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: openAICodexResetTestToken})
 
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
 	require.Contains(t, infraerrors.Message(err), "状态码 502")
+	require.Contains(t, infraerrors.Message(err), "上游响应：")
 	require.Contains(t, infraerrors.Message(err), "invite quota exhausted")
-	require.NotContains(t, infraerrors.Message(err), "contains-token-secret")
+	require.Contains(t, infraerrors.Message(err), "contains-debug-detail")
+	require.Contains(t, infraerrors.Message(err), `"access_token":"***"`)
+	require.NotContains(t, infraerrors.Message(err), openAICodexResetTestToken)
 }
 
 func TestOpenAICodexResetClient_UpstreamErrorReasonFromNestedError(t *testing.T) {
@@ -157,11 +163,52 @@ func TestOpenAICodexResetClient_UpstreamErrorReasonFromNestedError(t *testing.T)
 	defer srv.Close()
 
 	client := newOpenAICodexResetClientWithBaseURL(srv.URL)
-	_, err := client.SendInvites(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: "token-secret"}, "codex_referral_persistent_invite", []string{"a@example.com"})
+	_, err := client.SendInvites(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: openAICodexResetTestToken}, "codex_referral_persistent_invite", []string{"a@example.com"})
 
 	require.Error(t, err)
 	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
 	require.Contains(t, infraerrors.Message(err), "状态码 403")
 	require.Contains(t, infraerrors.Message(err), "recipient is not eligible")
-	require.NotContains(t, infraerrors.Message(err), "token-secret")
+	require.Contains(t, infraerrors.Message(err), "recipient_blocked")
+	require.Contains(t, infraerrors.Message(err), `"access_token":"***"`)
+	require.NotContains(t, infraerrors.Message(err), openAICodexResetTestToken)
+}
+
+func TestOpenAICodexResetClient_UpstreamTextErrorReturnsRedactedBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "forbidden: authorization=Bearer token-secret; retry later")
+	}))
+	defer srv.Close()
+
+	client := newOpenAICodexResetClientWithBaseURL(srv.URL)
+	_, err := client.GetCredits(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: openAICodexResetTestToken})
+
+	require.Error(t, err)
+	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
+	require.Contains(t, infraerrors.Message(err), "状态码 403")
+	require.Contains(t, infraerrors.Message(err), "上游响应：forbidden: authorization=***")
+	require.Contains(t, infraerrors.Message(err), "retry later")
+	require.NotContains(t, infraerrors.Message(err), openAICodexResetTestToken)
+}
+
+func TestOpenAICodexResetClient_UpstreamErrorBodyIsTruncated(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, strings.Repeat("错误", openAICodexResetUpstreamErrorBodyMaxBytes))
+	}))
+	defer srv.Close()
+
+	client := newOpenAICodexResetClientWithBaseURL(srv.URL)
+	_, err := client.GetCredits(context.Background(), service.OpenAICodexResetClientAccount{AccessToken: openAICodexResetTestToken})
+
+	require.Error(t, err)
+	require.Equal(t, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", infraerrors.Reason(err))
+	require.Contains(t, infraerrors.Message(err), "...(已截断)")
+	require.LessOrEqual(t, len([]byte(infraerrors.Message(err))), openAICodexResetUpstreamErrorBodyMaxBytes+128)
 }

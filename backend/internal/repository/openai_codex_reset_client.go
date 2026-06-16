@@ -8,13 +8,17 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/imroc/req/v3"
 )
 
 const openAICodexResetBackendBaseURL = "https://chatgpt.com/backend-api"
+
+const openAICodexResetUpstreamErrorBodyMaxBytes = 8 * 1024
 
 type openAICodexResetClient struct {
 	baseURL string
@@ -126,13 +130,129 @@ func (c *openAICodexResetClient) requestJSON(ctx context.Context, account servic
 		return infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", "ChatGPT backend 请求失败")
 	}
 	if !resp.IsSuccessState() {
-		message := fmt.Sprintf("ChatGPT backend 请求失败：状态码 %d", resp.StatusCode)
-		if reason := openAICodexResetUpstreamErrorReason(resp.Bytes()); reason != "" {
-			message = fmt.Sprintf("%s，原因：%s", message, reason)
-		}
-		return infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", message)
+		return infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_RESET_UPSTREAM_FAILED", openAICodexResetUpstreamErrorMessage(resp.StatusCode, resp.Bytes(), account))
 	}
 	return nil
+}
+
+func openAICodexResetUpstreamErrorMessage(statusCode int, body []byte, account service.OpenAICodexResetClientAccount) string {
+	message := fmt.Sprintf("ChatGPT backend 请求失败：状态码 %d", statusCode)
+	if upstreamBody := openAICodexResetSafeUpstreamErrorBody(body, account); upstreamBody != "" {
+		return fmt.Sprintf("%s，上游响应：%s", message, upstreamBody)
+	}
+	if reason := openAICodexResetUpstreamErrorReason(body); reason != "" {
+		return fmt.Sprintf("%s，原因：%s", message, reason)
+	}
+	return message
+}
+
+func openAICodexResetSafeUpstreamErrorBody(body []byte, account service.OpenAICodexResetClientAccount) string {
+	if len(body) == 0 {
+		return ""
+	}
+	upstreamBody := openAICodexResetRedactUpstreamErrorBody(body)
+	for _, secret := range []string{
+		account.AccessToken,
+		account.ChatGPTAccountID,
+	} {
+		upstreamBody = openAICodexResetRedactLiteralSecret(upstreamBody, secret)
+	}
+	upstreamBody = strings.TrimSpace(strings.ToValidUTF8(upstreamBody, ""))
+	if upstreamBody == "" {
+		return ""
+	}
+	return openAICodexResetTruncateUpstreamErrorBody(upstreamBody)
+}
+
+func openAICodexResetRedactUpstreamErrorBody(body []byte) string {
+	var payload any
+	if json.Unmarshal(body, &payload) == nil {
+		encoded, err := json.Marshal(openAICodexResetRedactUpstreamErrorValue(payload))
+		if err == nil {
+			return string(encoded)
+		}
+	}
+	return logredact.RedactText(string(body),
+		"authorization",
+		"cookie",
+		"set-cookie",
+		"chatgpt_account_id",
+		"chatgpt-account-id",
+	)
+}
+
+func openAICodexResetRedactUpstreamErrorValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, val := range typed {
+			if openAICodexResetUpstreamErrorSensitiveKey(key) {
+				out[key] = "***"
+				continue
+			}
+			out[key] = openAICodexResetRedactUpstreamErrorValue(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = openAICodexResetRedactUpstreamErrorValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func openAICodexResetUpstreamErrorSensitiveKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "authorization",
+		"authorization_code",
+		"code_verifier",
+		"access_token",
+		"refresh_token",
+		"id_token",
+		"client_secret",
+		"password",
+		"cookie",
+		"set-cookie",
+		"chatgpt_account_id",
+		"chatgpt-account-id":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAICodexResetRedactLiteralSecret(input, secret string) string {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return input
+	}
+	return strings.ReplaceAll(input, secret, "***")
+}
+
+func openAICodexResetTruncateUpstreamErrorBody(input string) string {
+	if len(input) <= openAICodexResetUpstreamErrorBodyMaxBytes {
+		return input
+	}
+	suffix := "...(已截断)"
+	limit := openAICodexResetUpstreamErrorBodyMaxBytes - len(suffix)
+	if limit <= 0 {
+		return suffix
+	}
+	cut := 0
+	for idx, r := range input {
+		next := idx + utf8.RuneLen(r)
+		if next > limit {
+			break
+		}
+		cut = next
+	}
+	if cut == 0 {
+		return suffix
+	}
+	return strings.TrimSpace(input[:cut]) + suffix
 }
 
 func openAICodexResetUpstreamErrorReason(body []byte) string {
