@@ -24,19 +24,19 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-06-16T15:33:35.745929Z",
+    "snapshot_at": "2026-06-16T16:53:52.850284Z",
     "branch": "build",
     "pushed_commits": {
-      "root": "e1a089e4"
+      "root": "c084180c"
     },
     "completed_steps": [
-      "后端 service/client/DI/routes 已完成",
-      "前端 API/UI/i18n 已完成",
-      "后端与前端测试验证已完成",
-      "业务提交已推送到 origin/build"
+      "Codex reset 上游错误原因解析已完成",
+      "repository 目标测试已通过",
+      "后端相关包测试已通过",
+      "业务提交已推送到 origin/build 并触发 build"
     ],
-    "partial_step": "Phase 3.4 trellis-push：任务快照提交中",
+    "partial_step": "Phase 3.4 trellis-push：错误原因修复快照提交中",
     "next_step": "按需执行 finish-work / 归档任务",
-    "notes": "默认 push 到 origin/build，未配置 merge_target，未执行 merge。"
+    "notes": "默认 push 到 origin/build，commit message 包含 [build]，未配置 merge_target，未执行 merge。"
   }
 }
