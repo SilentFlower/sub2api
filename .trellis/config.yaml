@@ -108,3 +108,6 @@ channel:
 #
 # codex:
 #   dispatch_mode: inline  # or "sub-agent" to dispatch trellis-* sub-agents
+
+codex:
+  dispatch_mode: sub-agent
