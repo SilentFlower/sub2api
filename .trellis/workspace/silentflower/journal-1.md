@@ -72,3 +72,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: OpenAI OAuth Codex 自定义 UA 放行规则
+
+**Date**: 2026-06-17
+**Task**: OpenAI OAuth Codex 自定义 UA 放行规则
+**Branch**: `build`
+
+### Summary
+
+完成 OpenAI OAuth codex_cli_only 自定义 User-Agent 放行规则：后端 matcher/getter/detector、403 诊断响应、创建编辑批量编辑 UI、i18n 与测试；已通过后端测试、前端组件测试、typecheck、lint:check。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `416943fe` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
