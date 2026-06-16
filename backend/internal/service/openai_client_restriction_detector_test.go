@@ -259,3 +259,91 @@ func TestOpenAICodexClientRestrictionDetector_Detect_AllowedClients(t *testing.T
 		require.Equal(t, CodexClientRestrictionReasonMatchedAllowedClient, result.Reason)
 	})
 }
+
+func TestOpenAICodexClientRestrictionDetector_Detect_CustomUserAgentPrefixes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("自定义 UA 前缀命中时放行", func(t *testing.T) {
+		detector := NewOpenAICodexClientRestrictionDetector(nil)
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"codex_cli_only": true,
+				"codex_cli_only_custom_user_agent_prefixes": []any{"my-client/*"},
+			},
+		}
+
+		result := detector.Detect(newCodexDetectorTestContext("my-client/1.2.3", "my_client"), account, nil)
+		require.True(t, result.Enabled)
+		require.True(t, result.Matched)
+		require.Equal(t, CodexClientRestrictionReasonMatchedCustomUserAgent, result.Reason)
+	})
+
+	t.Run("自定义 UA 星号中段命中时放行", func(t *testing.T) {
+		detector := NewOpenAICodexClientRestrictionDetector(nil)
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"codex_cli_only": true,
+				"codex_cli_only_custom_user_agent_prefixes": []any{"my-client*terminal"},
+			},
+		}
+
+		result := detector.Detect(newCodexDetectorTestContext("my-client/1.2.3 terminal", ""), account, nil)
+		require.True(t, result.Enabled)
+		require.True(t, result.Matched)
+		require.Equal(t, CodexClientRestrictionReasonMatchedCustomUserAgent, result.Reason)
+	})
+
+	t.Run("未开启 codex_cli_only 时自定义 UA 不参与", func(t *testing.T) {
+		detector := NewOpenAICodexClientRestrictionDetector(nil)
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"codex_cli_only_custom_user_agent_prefixes": []any{"my-client/*"},
+			},
+		}
+
+		result := detector.Detect(newCodexDetectorTestContext("my-client/1.2.3", ""), account, nil)
+		require.False(t, result.Enabled)
+		require.False(t, result.Matched)
+		require.Equal(t, CodexClientRestrictionReasonDisabled, result.Reason)
+	})
+
+	t.Run("空规则不放行", func(t *testing.T) {
+		detector := NewOpenAICodexClientRestrictionDetector(nil)
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"codex_cli_only": true,
+				"codex_cli_only_custom_user_agent_prefixes": []any{"", "  "},
+			},
+		}
+
+		result := detector.Detect(newCodexDetectorTestContext("my-client/1.2.3", ""), account, nil)
+		require.True(t, result.Enabled)
+		require.False(t, result.Matched)
+		require.Equal(t, CodexClientRestrictionReasonNotMatchedUA, result.Reason)
+	})
+
+	t.Run("官方客户端优先于自定义 UA reason", func(t *testing.T) {
+		detector := NewOpenAICodexClientRestrictionDetector(nil)
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"codex_cli_only": true,
+				"codex_cli_only_custom_user_agent_prefixes": []any{"codex_cli_rs/*"},
+			},
+		}
+
+		result := detector.Detect(newCodexDetectorTestContext("codex_cli_rs/0.99.0", ""), account, nil)
+		require.True(t, result.Enabled)
+		require.True(t, result.Matched)
+		require.Equal(t, CodexClientRestrictionReasonMatchedUA, result.Reason)
+	})
+}

@@ -3483,6 +3483,14 @@ export default {
         codexCLIOnlyAllowClaudeCode: "Also allow Claude Code's Codex plugin",
         codexCLIOnlyAllowClaudeCodeDesc:
           'Only takes effect when the switch above is on. Additionally allows requests from the Claude Code Codex plugin (exact match on originator=Claude Code) without weakening blocking of other non-official clients.',
+        codexCLIOnlyCustomUA: 'Custom allowed UA prefixes',
+        codexCLIOnlyCustomUADesc:
+          'Only takes effect when the switch above is on. Enter one User-Agent pattern per line; * is supported, and any matching line is allowed.',
+        codexCLIOnlyCustomUABulkDesc:
+          'Bulk overwrite custom User-Agent allow rules for the selected OpenAI OAuth accounts.',
+        codexCLIOnlyCustomUABulkHint:
+          'When checked, one pattern per line is submitted. Empty content clears custom UA rules on the selected accounts.',
+        codexCLIOnlyCustomUAPlaceholder: 'my-client/*\ncustom-codex-wrapper/*',
         codexImageGenerationBridge: 'Codex image-generation bridge',
         codexImageGenerationBridgeDesc:
           'Account policy takes precedence over channel and global settings. Only controls whether Codex requests through the /responses text endpoint receive the image_generation tool; standalone image-generation endpoints are unaffected.',

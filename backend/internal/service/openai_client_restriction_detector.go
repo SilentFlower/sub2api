@@ -17,6 +17,8 @@ const (
 	CodexClientRestrictionReasonMatchedAllowedClient = "allowed_client_matched"
 	// CodexClientRestrictionReasonMatchedGlobalAllowedClient 表示请求命中全局额外放行的命名客户端预设。
 	CodexClientRestrictionReasonMatchedGlobalAllowedClient = "global_allowed_client_matched"
+	// CodexClientRestrictionReasonMatchedCustomUserAgent 表示请求命中账号级自定义 User-Agent 规则。
+	CodexClientRestrictionReasonMatchedCustomUserAgent = "custom_user_agent_matched"
 	// CodexClientRestrictionReasonNotMatchedUA 表示请求未命中官方客户端 UA 白名单。
 	CodexClientRestrictionReasonNotMatchedUA = "official_client_user_agent_not_matched"
 	// CodexClientRestrictionReasonForceCodexCLI 表示通过 ForceCodexCLI 配置兜底放行。
@@ -99,6 +101,15 @@ func (d *OpenAICodexClientRestrictionDetector) Detect(c *gin.Context, account *A
 			Enabled: true,
 			Matched: true,
 			Reason:  CodexClientRestrictionReasonMatchedGlobalAllowedClient,
+		}
+	}
+
+	if patterns := account.GetCodexCLIOnlyCustomUserAgentPrefixes(); len(patterns) > 0 &&
+		openai.MatchCustomUserAgentPrefixes(userAgent, patterns) {
+		return CodexClientRestrictionDetectionResult{
+			Enabled: true,
+			Matched: true,
+			Reason:  CodexClientRestrictionReasonMatchedCustomUserAgent,
 		}
 	}
 

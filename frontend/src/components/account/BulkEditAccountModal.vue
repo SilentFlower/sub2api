@@ -786,6 +786,42 @@
         </div>
       </div>
 
+      <!-- OpenAI OAuth: 自定义 Codex UA 放行规则 -->
+      <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <div class="flex-1 pr-4">
+            <label
+              id="bulk-edit-openai-codex-custom-ua-label"
+              class="input-label mb-0"
+              for="bulk-edit-openai-codex-custom-ua-enabled"
+            >
+              {{ t('admin.accounts.openai.codexCLIOnlyCustomUA') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.codexCLIOnlyCustomUABulkDesc') }}
+            </p>
+          </div>
+          <input
+            v-model="enableCodexCLIOnlyCustomUA"
+            id="bulk-edit-openai-codex-custom-ua-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-codex-custom-ua"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <textarea
+          id="bulk-edit-openai-codex-custom-ua"
+          v-model="codexCLIOnlyCustomUserAgentInput"
+          rows="3"
+          class="input font-mono text-xs"
+          :class="!enableCodexCLIOnlyCustomUA && 'cursor-not-allowed opacity-50'"
+          :disabled="!enableCodexCLIOnlyCustomUA"
+          :placeholder="t('admin.accounts.openai.codexCLIOnlyCustomUAPlaceholder')"
+          data-testid="bulk-edit-openai-codex-custom-ua"
+        ></textarea>
+        <p class="input-hint">{{ t('admin.accounts.openai.codexCLIOnlyCustomUABulkHint') }}</p>
+      </div>
+
       <!-- OpenAI API Key WS mode -->
       <div v-if="allOpenAIAPIKey" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1145,6 +1181,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { writeCodexCustomUserAgentPatternsForBulkEdit } from './codexClientAllowlist'
 import {
   buildModelMappingObject as buildModelMappingPayload,
   getPresetMappingsByPlatform
@@ -1264,6 +1301,7 @@ const enableOpenAIWSMode = ref(false)
 const enableOpenAIAPIKeyWSMode = ref(false)
 const enableCodexCLIOnly = ref(false)
 const enableCodexCLIOnlyAllowClaudeCode = ref(false)
+const enableCodexCLIOnlyCustomUA = ref(false)
 const enableOpenAICompactMode = ref(false)
 const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
@@ -1292,6 +1330,7 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const codexCLIOnlyCustomUserAgentInput = ref('')
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const rpmLimitEnabled = ref(false)
@@ -1547,6 +1586,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     extra.codex_cli_only_allowed_clients = codexCLIOnlyAllowClaudeCodeEnabled.value ? ['claude_code'] : []
   }
 
+  if (enableCodexCLIOnlyCustomUA.value) {
+    const extra = ensureExtra()
+    writeCodexCustomUserAgentPatternsForBulkEdit(extra, codexCLIOnlyCustomUserAgentInput.value)
+  }
+
   if (enableOpenAICompactMode.value) {
     const extra = ensureExtra()
     extra.openai_compact_mode = openAICompactMode.value
@@ -1654,6 +1698,7 @@ const handleSubmit = async () => {
     enableOpenAIAPIKeyWSMode.value ||
     enableCodexCLIOnly.value ||
     enableCodexCLIOnlyAllowClaudeCode.value ||
+    enableCodexCLIOnlyCustomUA.value ||
     enableOpenAICompactMode.value ||
     enableOpenAICompactModelMapping.value ||
     enableRpmLimit.value ||
@@ -1757,6 +1802,7 @@ watch(
       enableOpenAIAPIKeyWSMode.value = false
       enableCodexCLIOnly.value = false
       enableCodexCLIOnlyAllowClaudeCode.value = false
+      enableCodexCLIOnlyCustomUA.value = false
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
@@ -1764,6 +1810,7 @@ watch(
       // Reset all values
       baseUrl.value = ''
       openaiPassthroughEnabled.value = false
+      codexCLIOnlyCustomUserAgentInput.value = ''
       modelRestrictionMode.value = 'whitelist'
       allowedModels.value = []
       modelMappings.value = []

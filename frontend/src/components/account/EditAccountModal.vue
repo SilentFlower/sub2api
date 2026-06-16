@@ -1659,6 +1659,7 @@
           </div>
           <button
             type="button"
+            data-testid="edit-openai-codex-cli-only-toggle"
             @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -1698,6 +1699,23 @@
               ]"
             />
           </button>
+        </div>
+        <div
+          v-if="codexCLIOnlyEnabled"
+          class="mt-4 border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+        >
+          <label class="input-label mb-1 block" for="edit-openai-codex-custom-ua">
+            {{ t('admin.accounts.openai.codexCLIOnlyCustomUA') }}
+          </label>
+          <textarea
+            id="edit-openai-codex-custom-ua"
+            v-model="codexCLIOnlyCustomUserAgentInput"
+            rows="3"
+            class="input font-mono text-xs"
+            :placeholder="t('admin.accounts.openai.codexCLIOnlyCustomUAPlaceholder')"
+            data-testid="edit-openai-codex-custom-ua"
+          ></textarea>
+          <p class="input-hint">{{ t('admin.accounts.openai.codexCLIOnlyCustomUADesc') }}</p>
         </div>
       </div>
 
@@ -2399,6 +2417,10 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import {
+  formatCodexCustomUserAgentPatterns,
+  writeCodexCustomUserAgentPatterns
+} from './codexClientAllowlist'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -2585,6 +2607,7 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const codexCLIOnlyCustomUserAgentInput = ref('')
 type CodexImageGenerationBridgeMode = 'inherit' | 'enabled' | 'disabled'
 const codexImageGenerationBridgeMode = ref<CodexImageGenerationBridgeMode>('inherit')
 const anthropicPassthroughEnabled = ref(false)
@@ -2962,6 +2985,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAllowClaudeCodeEnabled.value = false
+  codexCLIOnlyCustomUserAgentInput.value = ''
   codexImageGenerationBridgeMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
@@ -3002,6 +3026,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       codexCLIOnlyAllowClaudeCodeEnabled.value =
         Array.isArray(extra?.codex_cli_only_allowed_clients) &&
         (extra.codex_cli_only_allowed_clients as unknown[]).includes('claude_code')
+      codexCLIOnlyCustomUserAgentInput.value = formatCodexCustomUserAgentPatterns(
+        extra?.codex_cli_only_custom_user_agent_prefixes
+      )
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -4147,6 +4174,11 @@ const handleSubmit = async () => {
         } else {
           delete newExtra.codex_cli_only_allowed_clients
         }
+        writeCodexCustomUserAgentPatterns(
+          newExtra,
+          codexCLIOnlyEnabled.value,
+          codexCLIOnlyCustomUserAgentInput.value
+        )
       }
 
       updatePayload.extra = newExtra

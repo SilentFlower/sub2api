@@ -1,0 +1,7 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"本任务新增跨前端 extra、后端账号模型和网关检测的数据契约。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"本任务扩展现有 Codex 客户端限制逻辑，应复用已有匹配与 extra 解析模式。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"后端改动涉及 service 与 internal/pkg/openai 边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"网关拒绝响应和错误路径需保持现有外部协议与错误处理约定。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"访问限制日志不能暴露敏感请求头或 token。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"前端 modal 新增表单控件和 i18n 文案需遵循组件规范。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"新增 extra 字段读写和 unknown payload 收窄需保持 TS 类型安全。"}

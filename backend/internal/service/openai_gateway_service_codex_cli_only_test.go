@@ -8,10 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type stubCodexRestrictionDetector struct {
@@ -154,6 +156,98 @@ func TestLogCodexCLIOnlyDetection_RejectedIncludesRequestDetails(t *testing.T) {
 	require.True(t, logSink.ContainsFieldValue("request_headers", "openai-beta"))
 	require.True(t, logSink.ContainsField("request_body_size"))
 	require.False(t, logSink.ContainsField("request_body_preview"))
+}
+
+func TestOpenAIGatewayService_Forward_CodexCLIOnlyForbiddenIncludesRequestUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "my-codex-wrapper/1.2.3")
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		codexDetector: &stubCodexRestrictionDetector{result: CodexClientRestrictionDetectionResult{
+			Enabled: true,
+			Matched: false,
+			Reason:  CodexClientRestrictionReasonNotMatchedUA,
+		}},
+		httpUpstream: upstream,
+	}
+	account := &Account{ID: 1001}
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","stream":false}`))
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Len(t, upstream.requests, 0)
+	require.Equal(t, "forbidden_error", gjson.Get(rec.Body.String(), "error.type").String())
+	require.Equal(t, "This account only allows Codex official clients. Request User-Agent: my-codex-wrapper/1.2.3", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, "my-codex-wrapper/1.2.3", gjson.Get(rec.Body.String(), "error.request_user_agent").String())
+}
+
+func TestOpenAIGatewayService_Forward_CodexCLIOnlyForbiddenTrimsAndTruncatesRequestUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	rawUserAgent := "  " + strings.Repeat("中", codexCLIOnlyHeaderValueMaxBytes) + "tail  "
+	c.Request.Header.Set("User-Agent", rawUserAgent)
+
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		codexDetector: &stubCodexRestrictionDetector{result: CodexClientRestrictionDetectionResult{
+			Enabled: true,
+			Matched: false,
+			Reason:  CodexClientRestrictionReasonNotMatchedUA,
+		}},
+		httpUpstream: &httpUpstreamRecorder{},
+	}
+	account := &Account{ID: 1002}
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","stream":false}`))
+
+	userAgent := gjson.Get(rec.Body.String(), "error.request_user_agent").String()
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.True(t, len(userAgent) <= codexCLIOnlyHeaderValueMaxBytes)
+	require.True(t, strings.HasPrefix(strings.TrimSpace(rawUserAgent), userAgent))
+	require.NotContains(t, userAgent, "tail")
+	require.True(t, utf8.ValidString(userAgent))
+	require.Contains(t, gjson.Get(rec.Body.String(), "error.message").String(), "Request User-Agent: "+userAgent)
+}
+
+func TestOpenAIGatewayService_Forward_CodexCLIOnlyForbiddenOmitsEmptyRequestUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "   ")
+
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		codexDetector: &stubCodexRestrictionDetector{result: CodexClientRestrictionDetectionResult{
+			Enabled: true,
+			Matched: false,
+			Reason:  CodexClientRestrictionReasonNotMatchedUA,
+		}},
+		httpUpstream: &httpUpstreamRecorder{},
+	}
+	account := &Account{ID: 1003}
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","stream":false}`))
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "This account only allows Codex official clients", gjson.Get(rec.Body.String(), "error.message").String())
+	require.False(t, gjson.Get(rec.Body.String(), "error.request_user_agent").Exists())
 }
 
 func TestLogOpenAIInstructionsRequiredDebug_LogsRequestDetails(t *testing.T) {

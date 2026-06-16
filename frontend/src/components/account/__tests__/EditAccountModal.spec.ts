@@ -167,6 +167,34 @@ function buildVertexAccount() {
   } as any
 }
 
+function buildOpenAIOAuthAccount() {
+  return {
+    id: 3,
+    name: 'OpenAI OAuth',
+    notes: '',
+    platform: 'openai',
+    type: 'oauth',
+    credentials: {
+      model_mapping: {
+        'gpt-5.2': 'gpt-5.2'
+      }
+    },
+    extra: {
+      codex_cli_only: true,
+      codex_cli_only_allowed_clients: ['claude_code'],
+      codex_cli_only_custom_user_agent_prefixes: ['my-client/*', 'custom-wrapper/*']
+    },
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -460,6 +488,47 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_image_generation_bridge).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_image_generation_bridge_enabled')
+  })
+
+  it('回显并提交 OpenAI OAuth 自定义 Codex UA 放行规则', async () => {
+    const account = buildOpenAIOAuthAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    const textarea = wrapper.get<HTMLTextAreaElement>('[data-testid="edit-openai-codex-custom-ua"]')
+    expect(textarea.element.value).toBe('my-client/*\ncustom-wrapper/*')
+
+    await textarea.setValue('my-client/*\ncustom-wrapper/*\nmy-client/*\n')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_cli_only).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_cli_only_custom_user_agent_prefixes).toEqual([
+      'my-client/*',
+      'custom-wrapper/*'
+    ])
+  })
+
+  it('关闭 OpenAI OAuth Codex 限制时不保留自定义 UA 放行规则', async () => {
+    const account = buildOpenAIOAuthAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="edit-openai-codex-cli-only-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_cli_only).toBe(false)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_cli_only_allowed_clients')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_cli_only_custom_user_agent_prefixes')
   })
 
   it('allows saving apikey account when backend redacted api_key but credentials_status reports it exists', async () => {

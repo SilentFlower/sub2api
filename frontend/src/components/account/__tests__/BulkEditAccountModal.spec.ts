@@ -216,6 +216,45 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI OAuth 批量编辑应提交自定义 Codex UA 放行规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-custom-ua-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-edit-openai-codex-custom-ua"]').setValue(
+      'my-client/*\ncustom-wrapper/*\nmy-client/*'
+    )
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_cli_only_custom_user_agent_prefixes: ['my-client/*', 'custom-wrapper/*']
+      }
+    })
+  })
+
+  it('OpenAI OAuth 批量编辑勾选自定义 UA 但留空时提交空数组以清空旧规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-custom-ua-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_cli_only_custom_user_agent_prefixes: []
+      }
+    })
+  })
+
   it('OpenAI API Key 批量编辑应提交 API Key 专属 WS mode 字段', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

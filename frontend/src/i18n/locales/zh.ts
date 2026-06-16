@@ -3637,6 +3637,11 @@ export default {
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许 Codex 官方客户端家族访问；关闭后完全绕过并保持原逻辑。',
         codexCLIOnlyAllowClaudeCode: '额外放行 Claude Code 的 Codex 插件',
         codexCLIOnlyAllowClaudeCodeDesc: '仅在上方开关开启时生效。额外放行通过 Claude Code 的 Codex 插件发起的请求（精确匹配 originator=Claude Code），不影响对其他非官方客户端的拦截。',
+        codexCLIOnlyCustomUA: '自定义放行 UA 前缀',
+        codexCLIOnlyCustomUADesc: '仅在上方开关开启时生效。每行一个 User-Agent pattern，支持 * 通配符；命中任一行即放行。',
+        codexCLIOnlyCustomUABulkDesc: '批量覆盖所选 OpenAI OAuth 账号的自定义 User-Agent 放行规则。',
+        codexCLIOnlyCustomUABulkHint: '勾选后提交：每行一个 pattern，空内容会清空所选账号的自定义 UA 规则。',
+        codexCLIOnlyCustomUAPlaceholder: 'my-client/*\ncustom-codex-wrapper/*',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
         codexImageGenerationBridgeDesc:
           '账号级策略优先于渠道和全局配置。仅控制 Codex 走 /responses 文本端点时是否注入 image_generation 工具；不影响独立图片生成接口。',

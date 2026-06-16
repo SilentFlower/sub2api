@@ -2621,6 +2621,7 @@
           </div>
           <button
             type="button"
+            data-testid="create-openai-codex-cli-only-toggle"
             @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -2660,6 +2661,23 @@
               ]"
             />
           </button>
+        </div>
+        <div
+          v-if="codexCLIOnlyEnabled"
+          class="mt-4 border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+        >
+          <label class="input-label mb-1 block" for="create-openai-codex-custom-ua">
+            {{ t('admin.accounts.openai.codexCLIOnlyCustomUA') }}
+          </label>
+          <textarea
+            id="create-openai-codex-custom-ua"
+            v-model="codexCLIOnlyCustomUserAgentInput"
+            rows="3"
+            class="input font-mono text-xs"
+            :placeholder="t('admin.accounts.openai.codexCLIOnlyCustomUAPlaceholder')"
+            data-testid="create-openai-codex-custom-ua"
+          ></textarea>
+          <p class="input-hint">{{ t('admin.accounts.openai.codexCLIOnlyCustomUADesc') }}</p>
         </div>
       </div>
 
@@ -3239,6 +3257,7 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import { writeCodexCustomUserAgentPatterns } from './codexClientAllowlist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -3421,6 +3440,7 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const codexCLIOnlyCustomUserAgentInput = ref('')
 const anthropicPassthroughEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
@@ -3846,6 +3866,7 @@ watch(
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAllowClaudeCodeEnabled.value = false
+      codexCLIOnlyCustomUserAgentInput.value = ''
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
@@ -3867,6 +3888,7 @@ watch(
     if (platform === 'openai' && category !== 'oauth-based') {
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAllowClaudeCodeEnabled.value = false
+      codexCLIOnlyCustomUserAgentInput.value = ''
     }
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
@@ -4248,6 +4270,7 @@ const resetForm = () => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAllowClaudeCodeEnabled.value = false
+  codexCLIOnlyCustomUserAgentInput.value = ''
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
@@ -4335,6 +4358,11 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else {
     delete extra.codex_cli_only_allowed_clients
   }
+  writeCodexCustomUserAgentPatterns(
+    extra,
+    accountCategory.value === 'oauth-based' && codexCLIOnlyEnabled.value,
+    codexCLIOnlyCustomUserAgentInput.value
+  )
   if (openAICompactMode.value !== 'auto') {
     extra.openai_compact_mode = openAICompactMode.value
   } else {

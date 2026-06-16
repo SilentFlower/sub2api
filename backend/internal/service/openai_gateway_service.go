@@ -926,6 +926,26 @@ func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, acco
 	return s.getCodexClientRestrictionDetector().Detect(c, account, globalAllowedClients)
 }
 
+func codexCLIOnlyForbiddenErrorPayload(c *gin.Context) gin.H {
+	message := "This account only allows Codex official clients"
+	errorPayload := gin.H{
+		"type":    "forbidden_error",
+		"message": message,
+	}
+	if userAgent := requestUserAgentForCodexCLIOnlyForbiddenError(c); userAgent != "" {
+		errorPayload["message"] = fmt.Sprintf("%s. Request User-Agent: %s", message, userAgent)
+		errorPayload["request_user_agent"] = userAgent
+	}
+	return gin.H{"error": errorPayload}
+}
+
+func requestUserAgentForCodexCLIOnlyForbiddenError(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	return truncateString(strings.TrimSpace(c.GetHeader("User-Agent")), codexCLIOnlyHeaderValueMaxBytes)
+}
+
 func getAPIKeyIDFromContext(c *gin.Context) int64 {
 	if c == nil {
 		return 0
@@ -2376,12 +2396,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
 	if restrictionResult.Enabled && !restrictionResult.Matched {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": "This account only allows Codex official clients",
-			},
-		})
+		c.JSON(http.StatusForbidden, codexCLIOnlyForbiddenErrorPayload(c))
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
