@@ -267,6 +267,106 @@ export async function getUsage(id: number, source?: 'passive' | 'active', force?
 }
 
 /**
+ * OpenAI Codex reset 功能展示用账号摘要。
+ */
+export interface OpenAICodexResetAccountSummary {
+  id: number
+  name: string
+  email?: string
+}
+
+/**
+ * OpenAI Codex reset credit 的非敏感状态。
+ */
+export interface OpenAICodexResetCreditStatus {
+  id: string
+  status: string
+  title?: string
+  description?: string
+}
+
+/**
+ * OpenAI Codex reset 状态查询结果。
+ */
+export interface OpenAICodexResetStatus {
+  account: OpenAICodexResetAccountSummary
+  available_count: number
+  credit_count: number
+  available_credit_ids: string[]
+  credit_statuses: OpenAICodexResetCreditStatus[]
+  eligibility?: Record<string, unknown>
+  rules?: Record<string, unknown>
+}
+
+/**
+ * OpenAI Codex reset credit 消耗结果。
+ */
+export interface OpenAICodexResetConsumeResult {
+  account: OpenAICodexResetAccountSummary
+  credit_id: string
+  code?: string
+  available_count?: number
+  remaining_credit_count?: number
+}
+
+/**
+ * OpenAI Codex 邀请发送结果。
+ */
+export interface OpenAICodexInviteResult {
+  account: OpenAICodexResetAccountSummary
+  emails: string[]
+  invited_count?: number
+  failed_emails?: string[]
+  message?: string
+}
+
+/**
+ * 查询单个 OpenAI OAuth 账号的 Codex reset 状态。
+ * @param id - 账号 ID。
+ * @returns Codex reset 状态。
+ */
+export async function getOpenAICodexResetStatus(id: number): Promise<OpenAICodexResetStatus> {
+  const { data } = await apiClient.get<OpenAICodexResetStatus>(
+    `/admin/accounts/${id}/openai-codex-reset/status`
+  )
+  return data
+}
+
+/**
+ * 消耗单个 OpenAI OAuth 账号的 Codex reset credit。
+ * @param id - 账号 ID。
+ * @param creditId - 可选的 reset credit ID；为空时由后端选择第一个可用 credit。
+ * @returns reset credit 消耗结果。
+ */
+export async function consumeOpenAICodexResetCredit(
+  id: number,
+  creditId?: string
+): Promise<OpenAICodexResetConsumeResult> {
+  const { data } = await apiClient.post<OpenAICodexResetConsumeResult>(
+    `/admin/accounts/${id}/openai-codex-reset/consume`,
+    { credit_id: creditId ?? '' }
+  )
+  return data
+}
+
+/**
+ * 使用单个 OpenAI OAuth 账号发送 Codex 邀请。
+ * @param id - 账号 ID。
+ * @param payload - 邀请邮箱和收件人同意确认。
+ * @returns 邀请发送结果。
+ */
+export async function sendOpenAICodexInvites(
+  id: number,
+  payload: { emails: string[]; consent_confirmed: boolean }
+): Promise<OpenAICodexInviteResult> {
+  const { data } = await apiClient.post<OpenAICodexInviteResult>(
+    `/admin/accounts/${id}/openai-codex-reset/invite`,
+    payload
+  )
+  return data
+}
+
+/**
  * Clear account rate limit status
  * @param id - Account ID
  * @returns Updated account
@@ -720,6 +820,9 @@ export const accountsAPI = {
   getStats,
   clearError,
   getUsage,
+  getOpenAICodexResetStatus,
+  consumeOpenAICodexResetCredit,
+  sendOpenAICodexInvites,
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,

@@ -538,6 +538,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	NewAccountUsageService,
 	NewAccountTestService,
+	NewOpenAICodexResetService,
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
