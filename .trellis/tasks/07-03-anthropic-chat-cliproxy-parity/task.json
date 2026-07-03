@@ -24,21 +24,22 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-03T18:40:32+08:00",
+    "snapshot_at": "2026-07-03T19:12:00+08:00",
     "branch": "build",
     "pushed_commits": {
-      "root": "014d69de"
+      "root": "d6d3f1bf"
     },
     "push_mode": "push",
     "completed_steps": [
       "规划与任务 brief 已确认",
       "CLIProxyAPI 差异研究完成",
       "Anthropic Chat 桥接实现完成",
-      "单元测试和相关 service 测试通过",
+      "并行 tool_result 顺序稳定修复完成",
+      "单元测试、相关 service 测试和后端全量 unit 测试通过",
       "backend 协议适配 spec 已更新",
-      "业务提交已推送到 origin/build"
+      "追加业务提交已推送到 origin/build"
     ],
     "next_step": "运行 finish-work 归档任务并记录 journal",
-    "notes": "已按非 commit-only 模式推送；不执行 merge。"
+    "notes": "已按非 commit-only 模式推送；不执行 merge。追加修复按 assistant tool_calls 顺序稳定并行 tool_result，减少 Chat prefix cache 因工具完成时序漂移。"
   }
 }
