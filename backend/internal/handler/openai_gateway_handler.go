@@ -753,9 +753,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
-	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
-	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
+	sessionHash, promptCacheKey := resolveOpenAIMessagesSessionHash(h.gatewayService, c, reqModel, body)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -975,6 +973,22 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		)
 		return
 	}
+}
+
+func resolveOpenAIMessagesSessionHash(gatewayService *service.OpenAIGatewayService, c *gin.Context, reqModel string, body []byte) (string, string) {
+	if gatewayService == nil {
+		return resolveOpenAIMessagesMetadataSession("", "", reqModel, body)
+	}
+	// Anthropic metadata.user_id 是 Claude Code 会话内稳定的账号粘性信号。
+	// 只有显式 session_id/conversation_id/prompt_cache_key 可以覆盖它；内容
+	// fallback 放到最后，避免首条用户消息或工具定义变化导致同一会话漂到不同账号。
+	sessionHash := gatewayService.GenerateExplicitSessionHash(c, body)
+	promptCacheKey := gatewayService.ExtractSessionID(c, body)
+	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
+	if sessionHash == "" {
+		sessionHash = gatewayService.GenerateSessionHash(c, body)
+	}
+	return sessionHash, promptCacheKey
 }
 
 func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {

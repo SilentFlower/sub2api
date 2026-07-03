@@ -112,6 +112,45 @@ func TestResolveOpenAIMessagesMetadataSession_PreservesExplicitPromptCacheKey(t 
 	require.Equal(t, "explicit-cache", promptCacheKey)
 }
 
+func TestResolveOpenAIMessagesSessionHash_MetadataWinsOverContentFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	bodyA := []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":"claude-code-session"},"messages":[{"role":"user","content":"first task"}]}`)
+	bodyB := []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":"claude-code-session"},"messages":[{"role":"user","content":"different first task"}]}`)
+	svc := &service.OpenAIGatewayService{}
+
+	recA := httptest.NewRecorder()
+	cA, _ := gin.CreateTestContext(recA)
+	cA.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	hashA, promptCacheKeyA := resolveOpenAIMessagesSessionHash(svc, cA, "claude-sonnet-4-5", bodyA)
+
+	recB := httptest.NewRecorder()
+	cB, _ := gin.CreateTestContext(recB)
+	cB.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	hashB, promptCacheKeyB := resolveOpenAIMessagesSessionHash(svc, cB, "claude-sonnet-4-5", bodyB)
+
+	require.NotEmpty(t, hashA)
+	require.Equal(t, hashA, hashB, "同一 metadata.user_id 应稳定绑定同一个账号粘性键")
+	require.Equal(t, service.DeriveSessionHashFromSeed("claude-sonnet-4-5-claude-code-session"), hashA)
+	require.Empty(t, promptCacheKeyA)
+	require.Empty(t, promptCacheKeyB)
+}
+
+func TestResolveOpenAIMessagesSessionHash_ExplicitSessionWinsOverMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":"claude-code-session"},"messages":[{"role":"user","content":"hello"}]}`)
+	svc := &service.OpenAIGatewayService{}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("session_id", "explicit-session")
+	sessionHash, promptCacheKey := resolveOpenAIMessagesSessionHash(svc, c, "claude-sonnet-4-5", body)
+
+	require.NotEmpty(t, sessionHash)
+	require.NotEqual(t, service.DeriveSessionHashFromSeed("claude-sonnet-4-5-claude-code-session"), sessionHash)
+	require.Equal(t, "explicit-session", promptCacheKey)
+}
+
 func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
