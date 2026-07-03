@@ -24,10 +24,10 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-03T19:12:00+08:00",
+    "snapshot_at": "2026-07-03T19:35:19+08:00",
     "branch": "build",
     "pushed_commits": {
-      "root": "d6d3f1bf"
+      "root": "8f070522"
     },
     "push_mode": "push",
     "completed_steps": [
@@ -37,9 +37,11 @@
       "并行 tool_result 顺序稳定修复完成",
       "单元测试、相关 service 测试和后端全量 unit 测试通过",
       "backend 协议适配 spec 已更新",
-      "追加业务提交已推送到 origin/build"
+      "追加业务提交已推送到 origin/build",
+      "Anthropic messages metadata 账号粘性修复完成",
+      "handler/service/apicompat 单元测试通过"
     ],
     "next_step": "运行 finish-work 归档任务并记录 journal",
-    "notes": "已按非 commit-only 模式推送；不执行 merge。追加修复按 assistant tool_calls 顺序稳定并行 tool_result，减少 Chat prefix cache 因工具完成时序漂移。"
+    "notes": "已按非 commit-only 模式推送；不执行 merge。追加修复将 /v1/messages 账号粘性 key 优先级调整为显式 session / conversation / prompt_cache_key > metadata.user_id > content fallback，避免 Claude Code 同一会话在 4 个账号间漂移；metadata.user_id 只用于账号 sticky，不作为上游 prompt_cache_key。"
   }
 }
