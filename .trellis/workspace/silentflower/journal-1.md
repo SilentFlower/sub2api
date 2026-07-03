@@ -105,3 +105,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: OpenAI 生图设置可配置化
+
+**Date**: 2026-07-03
+**Task**: OpenAI 生图设置可配置化
+**Branch**: `build`
+
+### Summary
+
+完成 OpenAI OAuth 生图对话主模型与 reasoning.effort 的全局设置链路，包含后端 Setting/admin API/网关注入、前端设置页和测试，并已通过验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `524b9b7a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
