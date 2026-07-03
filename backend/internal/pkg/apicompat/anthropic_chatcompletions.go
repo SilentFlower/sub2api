@@ -43,6 +43,7 @@ func AnthropicToChatCompletions(req *AnthropicRequest) (*ChatCompletionsRequest,
 		}
 		messages = append(messages, msgs...)
 	}
+	messages = stabilizeChatToolResultOrder(messages)
 
 	out := &ChatCompletionsRequest{
 		Model:       req.Model,
@@ -183,6 +184,52 @@ func anthropicUserBlocksToChat(blocks []AnthropicContentBlock) []ChatMessage {
 		out = append(out, ChatMessage{Role: "user", Content: chatContentFromParts(parts)})
 	}
 	return out
+}
+
+func stabilizeChatToolResultOrder(messages []ChatMessage) []ChatMessage {
+	for i := 0; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Role != "assistant" || len(msg.ToolCalls) < 2 {
+			continue
+		}
+		toolOrder := make(map[string]int, len(msg.ToolCalls))
+		for idx, tc := range msg.ToolCalls {
+			if tc.ID != "" {
+				toolOrder[tc.ID] = idx
+			}
+		}
+		if len(toolOrder) == 0 {
+			continue
+		}
+
+		start := i + 1
+		end := start
+		for end < len(messages) && messages[end].Role == "tool" {
+			end++
+		}
+		if end-start < 2 {
+			continue
+		}
+
+		// 并行工具的 tool_result 到达顺序取决于实际执行耗时；按 assistant
+		// tool_calls 顺序恢复，可避免同一历史 replay 的 Chat 前缀随完成顺序漂移。
+		sort.SliceStable(messages[start:end], func(a, b int) bool {
+			ai, aok := toolOrder[messages[start+a].ToolCallID]
+			bi, bok := toolOrder[messages[start+b].ToolCallID]
+			switch {
+			case aok && bok:
+				return ai < bi
+			case aok:
+				return true
+			case bok:
+				return false
+			default:
+				return false
+			}
+		})
+		i = end - 1
+	}
+	return messages
 }
 
 func anthropicAssistantBlocksToChat(blocks []AnthropicContentBlock) []ChatMessage {

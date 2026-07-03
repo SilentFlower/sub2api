@@ -126,6 +126,73 @@ func TestAnthropicToChatCompletions_SystemAndToolResultOrdering(t *testing.T) {
 	assert.JSONEq(t, `[{"type":"text","text":"thanks"}]`, string(out.Messages[4].Content))
 }
 
+func TestAnthropicToChatCompletions_ParallelToolResultsFollowToolCallOrder(t *testing.T) {
+	req := &AnthropicRequest{
+		Model: "claude",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`"inspect"`)},
+			{Role: "assistant", Content: json.RawMessage(`[
+				{"type":"tool_use","id":"call_a","name":"Read","input":{"file_path":"a.go"}},
+				{"type":"tool_use","id":"call_b","name":"Read","input":{"file_path":"b.go"}}
+			]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_b","content":"b result"}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_a","content":"a result"}]`)},
+			{Role: "user", Content: json.RawMessage(`"after tools"`)},
+		},
+	}
+
+	out, err := AnthropicToChatCompletions(req)
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 5)
+
+	require.Equal(t, "assistant", out.Messages[1].Role)
+	require.Len(t, out.Messages[1].ToolCalls, 2)
+	assert.Equal(t, "call_a", out.Messages[1].ToolCalls[0].ID)
+	assert.Equal(t, "call_b", out.Messages[1].ToolCalls[1].ID)
+
+	assert.Equal(t, "tool", out.Messages[2].Role)
+	assert.Equal(t, "call_a", out.Messages[2].ToolCallID)
+	assert.JSONEq(t, `"a result"`, string(out.Messages[2].Content))
+	assert.Equal(t, "tool", out.Messages[3].Role)
+	assert.Equal(t, "call_b", out.Messages[3].ToolCallID)
+	assert.JSONEq(t, `"b result"`, string(out.Messages[3].Content))
+
+	assert.Equal(t, "user", out.Messages[4].Role)
+	assert.JSONEq(t, `[{"type":"text","text":"after tools"}]`, string(out.Messages[4].Content))
+}
+
+func TestStabilizeChatToolResultOrder_UnknownToolResultsStayAfterKnown(t *testing.T) {
+	messages := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ChatToolCall{{ID: "call_a"}, {ID: "call_b"}}},
+		{Role: "tool", ToolCallID: "unknown_1"},
+		{Role: "tool", ToolCallID: "call_b"},
+		{Role: "tool", ToolCallID: "unknown_2"},
+		{Role: "tool", ToolCallID: "call_a"},
+	}
+
+	out := stabilizeChatToolResultOrder(messages)
+
+	assert.Equal(t, "call_a", out[1].ToolCallID)
+	assert.Equal(t, "call_b", out[2].ToolCallID)
+	assert.Equal(t, "unknown_1", out[3].ToolCallID)
+	assert.Equal(t, "unknown_2", out[4].ToolCallID)
+}
+
+func TestStabilizeChatToolResultOrder_DoesNotCrossUserMessage(t *testing.T) {
+	messages := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ChatToolCall{{ID: "call_a"}, {ID: "call_b"}}},
+		{Role: "tool", ToolCallID: "call_b"},
+		{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"continue"}]`)},
+		{Role: "tool", ToolCallID: "call_a"},
+	}
+
+	out := stabilizeChatToolResultOrder(messages)
+
+	assert.Equal(t, "call_b", out[1].ToolCallID)
+	assert.Equal(t, "user", out[2].Role)
+	assert.Equal(t, "call_a", out[3].ToolCallID)
+}
+
 func TestAnthropicToChatCompletions_StableContentPartsAndAttribution(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:  "claude",

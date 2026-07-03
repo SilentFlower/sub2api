@@ -30,6 +30,7 @@
 - user/assistant 的 text 和 image content 应保持 typed part array，不因为单 text 场景压成 JSON string。
 - assistant 的 text/image 和 `tool_use` 必须合并为同一条 `role:"assistant"` message；`tool_use` 转为 Chat `tool_calls`。
 - Anthropic `tool_result` 没有独立 id，只有 `tool_use_id`。转 Chat 时输出 `role:"tool"`，并把 `tool_use_id` 写入 `tool_call_id`。同一 Anthropic user 轮次中的其它 text/image 必须放在后续 user message，以保持 Chat tool adjacency。
+- 多个并行工具的 `tool_result` 可能因实际执行耗时以不同顺序到达。转换到 Chat 后，紧跟上一条 assistant `tool_calls` 的连续 `role:"tool"` messages 必须按该 assistant `tool_calls` 的 id 顺序规范化；未知 id 保持相对顺序并排在已知 id 后面。不要跨过普通 user/text message 重排。
 - 历史 assistant `thinking` 默认不能当普通 text 注入 Chat prompt；当前直连桥接只保留请求级 `thinking:{"type":"disabled"}` 透传，并在该场景省略 `reasoning_effort`。
 - Chat 上游返回非空 `tool_call.id` 时，Anthropic `tool_use.id` 必须原样使用。
 - Chat 上游缺失 `tool_call.id` 时，不能使用随机 id。必须在 index/name/完整 arguments 可确定后生成 fallback：
@@ -46,6 +47,9 @@
 - message `content` 既不是字符串也不是可解析的 block array -> 返回 JSON 解析错误。
 - text 为空、全空白或为 attribution block -> 不输出该 content part；system 过滤后为空则不输出 system message。
 - `tool_result.content` 为空或无法提取 text -> Chat tool message content 使用 `"(empty)"`。
+- 连续 tool messages 跟在包含多个 `tool_calls` 的 assistant 后面，且 `tool_call_id` 可匹配 -> 按 assistant `tool_calls` 顺序重排。
+- 连续 tool messages 中存在未知 `tool_call_id` -> 已知 id 按 `tool_calls` 顺序排前，未知 id 保持原相对顺序排后。
+- tool messages 中间出现普通 user/text message -> 不跨 message 重排，避免改变用户轮次语义。
 - Chat tool delta 缺 id 但已有 name/args -> pending；finalize 时生成确定性 fallback id。
 - Chat tool delta 缺 name 到 finalize -> 无法构造合法 Anthropic `tool_use`，跳过该 pending tool call。
 - Chat usage cached tokens 大于 prompt tokens -> Anthropic `input_tokens` 归零，不产生负数。
@@ -55,11 +59,13 @@
 
 - Good: 同一 Anthropic 历史 replay 转出的 Chat messages 在单 text、多 text、多模态之间都保持 `content` array 形态。
 - Good: Claude Code 每轮变化的 `x-anthropic-billing-header:` 不进入上游 Chat payload。
+- Good: 并行工具结果即使按完成时间反序返回，Chat payload 中紧跟 assistant 的 tool messages 仍按上一条 `tool_calls` 顺序稳定输出。
 - Base: 上游稳定返回 `tool_call.id`，桥接直接复用该 id，客户端下一轮 `tool_result.tool_use_id` 可稳定引用。
 - Base: 上游不返回 `tool_call.id`，相同 index/name/arguments 多次请求生成相同 `toolu_` fallback。
 - Bad: 为缺 id 的 tool call 调用 `crypto/rand` 或拼接请求 id、时间戳、message id。
 - Bad: 先发送 fallback id，后续 chunk 又收到上游 id，导致同一次工具调用在客户端侧 id 漂移。
 - Bad: 把 `tool_result` 后面的用户文本排在 `role:"tool"` 之前，破坏 Chat Completions 的 tool adjacency。
+- Bad: 按并行工具完成时间直接输出多个 `role:"tool"` message，导致同一历史 replay 的 Chat 前缀随本地工具耗时漂移。
 
 ### 6. Tests Required
 
@@ -78,6 +84,7 @@
   - system/user/assistant text content 保持 typed part array。
   - assistant text + `tool_use` 合并为单条 assistant message。
   - `tool_result` 输出为 `role:"tool"`，且 `tool_call_id` 来自 `tool_use_id`。
+  - 多个并行 `tool_result` 反序到达时，输出顺序仍跟上一条 assistant `tool_calls` 一致。
   - 缺失上游 `tool_call.id` 时 fallback id 可重复。
   - 后续 chunk 才提供 `tool_call.id` 时，最终使用上游 id。
   - `thinking:{"type":"disabled"}` 透传，且不输出 `reasoning_effort`。
@@ -123,3 +130,27 @@ if tc.ID == "" || tc.Function.Name == "" {
 ```
 
 typed content part array 是该桥接路径的稳定输出形态。
+
+#### Wrong
+
+```json
+[
+  {"role":"assistant","tool_calls":[{"id":"call_a"},{"id":"call_b"}]},
+  {"role":"tool","tool_call_id":"call_b"},
+  {"role":"tool","tool_call_id":"call_a"}
+]
+```
+
+问题：并行工具完成顺序会进入 Chat payload。相同对话 replay 时，本地文件读取、Bash 或网络耗时变化会导致 prefix cache 边界漂移。
+
+#### Correct
+
+```json
+[
+  {"role":"assistant","tool_calls":[{"id":"call_a"},{"id":"call_b"}]},
+  {"role":"tool","tool_call_id":"call_a"},
+  {"role":"tool","tool_call_id":"call_b"}
+]
+```
+
+连续 tool messages 按上一条 assistant `tool_calls` 顺序规范化，只在紧邻 tool result 区间内排序，不跨过普通 user message。
