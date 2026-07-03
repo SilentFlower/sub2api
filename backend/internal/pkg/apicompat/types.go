@@ -436,12 +436,20 @@ type ChatCompletionsRequest struct {
 	Tools               []ChatTool         `json:"tools,omitempty"`
 	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
+	Thinking            *ChatThinking      `json:"thinking,omitempty"`         // GLM/DeepSeek/Qwen-style thinking toggle
 	ServiceTier         string             `json:"service_tier,omitempty"`
 	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
 
 	// Legacy function calling (deprecated but still supported)
 	Functions    []ChatFunction  `json:"functions,omitempty"`
 	FunctionCall json.RawMessage `json:"function_call,omitempty"`
+}
+
+// ChatThinking 控制遵循 Anthropic 风格 {"type":"enabled"|"disabled"} 形态的
+// chat 上游扩展 thinking（GLM、DeepSeek、Qwen、Kimi、MiniMax 等）。这里只携带
+// "type"，不携带 budget_tokens 等 Anthropic 专属字段，避免严格上游拒绝。
+type ChatThinking struct {
+	Type string `json:"type"`
 }
 
 // ChatStreamOptions configures streaming behavior.
