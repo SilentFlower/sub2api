@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -376,6 +377,7 @@ type OpenAIGatewayService struct {
 	openaiOAuth429WindowCount           atomic.Int64
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
+	debugGatewayBodyFile                atomic.Pointer[os.File]
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
@@ -446,6 +448,9 @@ func NewOpenAIGatewayService(
 	}
 	if openAITokenProvider != nil {
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
+	}
+	if path := strings.TrimSpace(os.Getenv(debugGatewayBodyEnv)); path != "" {
+		initDebugGatewayBodyFile(&svc.debugGatewayBodyFile, path)
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc

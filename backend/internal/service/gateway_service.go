@@ -10636,7 +10636,7 @@ const debugGatewayBodyDefaultFilename = "gateway_debug.log"
 //   - "1"/"true" 等布尔值 → 当前目录下 gateway_debug.log
 //   - 已有目录路径        → 该目录下 gateway_debug.log
 //   - 其他               → 视为完整文件路径
-func (s *GatewayService) initDebugGatewayBodyFile(path string) {
+func initDebugGatewayBodyFile(file *atomic.Pointer[os.File], path string) {
 	if parseDebugEnvBool(path) {
 		path = debugGatewayBodyDefaultFilename
 	}
@@ -10659,8 +10659,12 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 		slog.Error("failed to open gateway debug log file", "path", path, "error", err)
 		return
 	}
-	s.debugGatewayBodyFile.Store(f)
+	file.Store(f)
 	slog.Info("gateway debug logging enabled", "path", path)
+}
+
+func (s *GatewayService) initDebugGatewayBodyFile(path string) {
+	initDebugGatewayBodyFile(&s.debugGatewayBodyFile, path)
 }
 
 // debugLogGatewaySnapshot 将网关请求的完整快照（headers + body）写入独立的调试日志文件，
@@ -10673,7 +10677,11 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 //
 // tag: "CLIENT_ORIGINAL" 或 "UPSTREAM_FORWARD"
 func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header, body []byte, extra map[string]string) {
-	f := s.debugGatewayBodyFile.Load()
+	debugLogGatewaySnapshot(&s.debugGatewayBodyFile, tag, headers, body, extra)
+}
+
+func debugLogGatewaySnapshot(file *atomic.Pointer[os.File], tag string, headers http.Header, body []byte, extra map[string]string) {
+	f := file.Load()
 	if f == nil {
 		return
 	}

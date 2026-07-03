@@ -59,6 +59,12 @@ func (s *OpenAIGatewayService) forwardMessagesViaRawChatCompletions(
 	}
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	clientStream := anthropicReq.Stream
+	debugLogGatewaySnapshot(&s.debugGatewayBodyFile, "CLIENT_ORIGINAL_MESSAGES_RAW_CHAT", c.Request.Header, body, map[string]string{
+		"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
+		"account_type": string(account.Type),
+		"model":        originalModel,
+		"stream":       fmt.Sprintf("%t", clientStream),
+	})
 
 	chatReq, err := apicompat.AnthropicToChatCompletions(&anthropicReq)
 	if err != nil {
@@ -147,6 +153,22 @@ func (s *OpenAIGatewayService) forwardMessagesViaRawChatCompletions(
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		upstreamReq.Header.Set("user-agent", customUA)
 	}
+	upstreamDebug := map[string]string{
+		"account":        fmt.Sprintf("%d(%s)", account.ID, account.Name),
+		"account_type":   string(account.Type),
+		"billing_model":  billingModel,
+		"client_stream":  fmt.Sprintf("%t", clientStream),
+		"original_model": originalModel,
+		"upstream_model": upstreamModel,
+		"url":            targetURL,
+	}
+	if serviceTier != nil {
+		upstreamDebug["service_tier"] = *serviceTier
+	}
+	if reasoningEffort != nil {
+		upstreamDebug["reasoning_effort"] = *reasoningEffort
+	}
+	debugLogGatewaySnapshot(&s.debugGatewayBodyFile, "UPSTREAM_FORWARD_MESSAGES_RAW_CHAT", upstreamReq.Header, chatBody, upstreamDebug)
 
 	proxyURL := ""
 	if account.Proxy != nil {
