@@ -386,6 +386,8 @@ const baseSettingsResponse = {
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
+  openai_image_generation_main_model: "gpt-5.4-mini",
+  openai_image_generation_reasoning_effort: "medium",
   payment_enabled: true,
   payment_min_amount: 1,
   payment_max_amount: 10000,
@@ -698,6 +700,28 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         antigravity_user_agent_version: "1.23.2",
+      }),
+    );
+  });
+
+  it("submits OpenAI image generation gateway settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_image_generation_main_model: "gpt-5.4",
+      openai_image_generation_reasoning_effort: "xhigh",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openai_image_generation_main_model: "gpt-5.4",
+        openai_image_generation_reasoning_effort: "xhigh",
       }),
     );
   });

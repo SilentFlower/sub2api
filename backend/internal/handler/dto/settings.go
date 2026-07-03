@@ -189,6 +189,8 @@ type SystemSettings struct {
 	EnableClientDatelineNormalization      bool   `json:"enable_client_dateline_normalization"`
 	AntigravityUserAgentVersion            string `json:"antigravity_user_agent_version"`
 	OpenAICodexUserAgent                   string `json:"openai_codex_user_agent"`
+	OpenAIImageGenerationMainModel         string `json:"openai_image_generation_main_model"`
+	OpenAIImageGenerationReasoningEffort   string `json:"openai_image_generation_reasoning_effort"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`

@@ -818,7 +818,7 @@ func TestNormalizeOpenAIResponsesImageOnlyModel_BuildsImageToolRequest(t *testin
 		"output_format": "png",
 	}
 
-	modified := normalizeOpenAIResponsesImageOnlyModel(reqBody)
+	modified := normalizeOpenAIResponsesImageOnlyModel(reqBody, "")
 	require.True(t, modified)
 	require.Equal(t, openAIImagesResponsesMainModel, reqBody["model"])
 	require.Equal(t, "draw a cat", reqBody["input"])
@@ -855,7 +855,7 @@ func TestNormalizeOpenAIResponsesImageOnlyModel_PreservesExistingImageTool(t *te
 		"tool_choice": "auto",
 	}
 
-	modified := normalizeOpenAIResponsesImageOnlyModel(reqBody)
+	modified := normalizeOpenAIResponsesImageOnlyModel(reqBody, "")
 	require.True(t, modified)
 	require.Equal(t, openAIImagesResponsesMainModel, reqBody["model"])
 	require.Equal(t, "auto", reqBody["tool_choice"])
@@ -866,6 +866,18 @@ func TestNormalizeOpenAIResponsesImageOnlyModel_PreservesExistingImageTool(t *te
 	tool, ok := tools[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "gpt-image-1.5", tool["model"])
+}
+
+func TestNormalizeOpenAIResponsesImageOnlyModel_UsesConfiguredMainModel(t *testing.T) {
+	reqBody := map[string]any{
+		"model":  "gpt-image-2",
+		"prompt": "draw a cat",
+	}
+
+	modified := normalizeOpenAIResponsesImageOnlyModel(reqBody, " gpt-5.4 ")
+	require.True(t, modified)
+	require.Equal(t, "gpt-5.4", reqBody["model"])
+	require.Equal(t, "draw a cat", reqBody["input"])
 }
 
 func TestValidateOpenAIResponsesImageModel_RejectsImageOnlyModel(t *testing.T) {

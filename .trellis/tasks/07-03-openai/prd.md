@@ -20,6 +20,7 @@
 - **配置层级**：全局系统设置(Setting 表，键值对)，不做按账号/按组区分。
 - **存储形态**：单字符串字段(不做 JSON 容器)，先满足当前两个可调项，遵循 YAGNI。
 - **回退策略**：常量 `openAIImagesResponsesMainModel` 保留为默认值，配置为空时回落到常量；思考预算默认 `medium`。
+- **任务类型**：本任务横跨后端设置链路、OpenAI 网关热路径、前端系统设置页和测试，按复杂任务处理，需 `design.md` 与 `implement.md` 后再启动。
 
 ## Requirements
 
@@ -43,6 +44,7 @@
 ### R4 管理后台可配置
 - 在系统设置前端页面暴露这两个配置项(参考现有 OpenAI 相关设置项的 UI 范式)。
 - 中文 i18n 文案(项目约定所有面向用户文案为中文)。
+- `reasoning_effort` 使用枚举控件，选项为 `low/medium/high/xhigh`，避免管理员输入非法值。
 
 ### R5 不破坏现有行为与测试
 - 不配置时行为与现在完全一致(`gpt-5.4-mini` + `medium`)。
@@ -66,7 +68,9 @@
 - 不改 APIKey 路径(该路径主模型由 `account.GetMappedModel` 决定，已可配)。
 - 不改 Codex transform 路径的 `reasoning.effort`(透传即可，避免越界)。
 
-## Open Questions (留给 design.md)
+## Technical Notes
 
-- SettingService 读取如何注入到 `buildOpenAIImagesResponsesRequest`(当前签名无 ctx/无 service 依赖)——可能需要把 SettingService 透传进 `OpenAIGatewayService` 或在调用处预读后作为参数传入。设计阶段定。
-- 是否需要前端对 effort 做下拉枚举校验。
+- `OpenAIGatewayService` 已持有 `settingService`，OAuth Images 调用 `buildOpenAIImagesResponsesRequest` 前可从 `s.settingService` 读取主模型与 effort，并通过参数传入请求构造函数；构造函数不直接依赖 service，便于单元测试。
+- Codex transform 仍保持纯 map 变换，给 `codexOAuthTransformOptions` 或 `normalizeOpenAIResponsesImageOnlyModel` 增加主模型参数即可；未传时继续回退 `openAIImagesResponsesMainModel`。
+- 系统设置已有 key-value 默认值、`SystemSettings`、admin setting handler、前端 `SettingsView.vue`/`settings.ts` 类型链路；新增两个字符串字段沿现有 Gateway Forwarding 配置扩展，不需要数据库 migration。
+- effort 合法值限定在 `low/medium/high/xhigh`；非法值在服务层回退 `medium` 并记录 warn 日志。

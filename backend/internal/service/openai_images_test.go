@@ -666,6 +666,59 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "draw a cat 3", gjson.Get(rec.Body.String(), "data.2.revised_prompt").String())
 }
 
+func TestOpenAIGatewayServiceForwardImages_OAuthUsesConfiguredResponsesSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","response_format":"b64_json"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Set("api_key", &APIKey{ID: 42})
+
+	svc := &OpenAIGatewayService{}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": []string{"text/event-stream"},
+				"X-Request-Id": []string{"req_img_custom"},
+			},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":1,\"output_tokens\":2},\"tool_usage\":{\"image_gen\":{\"images\":1}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"aW1hZ2U=\",\"revised_prompt\":\"draw a cat\"}]}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		},
+	}
+	svc.httpUpstream = upstream
+	svc.settingService = NewSettingService(&settingValuesRepoStub{values: map[string]string{
+		SettingKeyOpenAIImageGenerationMainModel:       "gpt-5.4",
+		SettingKeyOpenAIImageGenerationReasoningEffort: "low",
+	}}, &config.Config{})
+
+	account := &Account{
+		ID:       1,
+		Name:     "openai-oauth",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":       "token-123",
+			"chatgpt_account_id": "acct-123",
+		},
+	}
+
+	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "low", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.lastBody, "tools.0.model").String())
+}
+
 func TestOpenAIGatewayServiceForwardImages_OAuthUpstreamHTTPErrorSurfacesRealError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","response_format":"b64_json"}`)
@@ -1503,6 +1556,37 @@ func TestBuildOpenAIImagesResponsesRequest_PassesThroughNForMultiImageModels(t *
 	require.Equal(t, int64(2), gjson.GetBytes(body, "tools.0.n").Int())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(body, "tools.0.model").String())
 	require.Equal(t, "draw a cat", gjson.GetBytes(body, "input.0.content.0.text").String())
+}
+
+func TestBuildOpenAIImagesResponsesRequest_UsesConfiguredMainModelAndReasoningEffort(t *testing.T) {
+	parsed := &OpenAIImagesRequest{
+		Endpoint: openAIImagesGenerationsEndpoint,
+		Model:    "gpt-image-2",
+		Prompt:   "draw a cat",
+	}
+
+	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2", openAIImagesResponsesRequestOptions{
+		MainModel:       " gpt-5.4 ",
+		ReasoningEffort: "xhigh",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.4", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "xhigh", gjson.GetBytes(body, "reasoning.effort").String())
+}
+
+func TestBuildOpenAIImagesResponsesRequest_InvalidReasoningEffortFallsBack(t *testing.T) {
+	parsed := &OpenAIImagesRequest{
+		Endpoint: openAIImagesGenerationsEndpoint,
+		Model:    "gpt-image-2",
+		Prompt:   "draw a cat",
+	}
+
+	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2", openAIImagesResponsesRequestOptions{
+		ReasoningEffort: "extreme",
+	})
+	require.NoError(t, err)
+	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(body, "model").String())
+	require.Equal(t, openAIImageGenerationReasoningEffortDefault, gjson.GetBytes(body, "reasoning.effort").String())
 }
 
 func TestBuildOpenAIImagesResponsesRequest_DoesNotPassNForDallE3(t *testing.T) {

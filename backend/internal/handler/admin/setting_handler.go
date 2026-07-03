@@ -262,6 +262,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnableClientDatelineNormalization:      settings.EnableClientDatelineNormalization,
 		AntigravityUserAgentVersion:            settings.AntigravityUserAgentVersion,
 		OpenAICodexUserAgent:                   settings.OpenAICodexUserAgent,
+		OpenAIImageGenerationMainModel:         settings.OpenAIImageGenerationMainModel,
+		OpenAIImageGenerationReasoningEffort:   settings.OpenAIImageGenerationReasoningEffort,
 		MinCodexVersion:                        settings.MinCodexVersion,
 		MaxCodexVersion:                        settings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                  settings.CodexCLIOnlyBlacklist,
@@ -602,6 +604,8 @@ type UpdateSettingsRequest struct {
 	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
 	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
 	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
+	OpenAIImageGenerationMainModel         *string `json:"openai_image_generation_main_model"`
+	OpenAIImageGenerationReasoningEffort   *string `json:"openai_image_generation_reasoning_effort"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -1479,6 +1483,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if req.OpenAIImageGenerationMainModel != nil {
+		normalized := strings.TrimSpace(*req.OpenAIImageGenerationMainModel)
+		req.OpenAIImageGenerationMainModel = &normalized
+	}
+	if req.OpenAIImageGenerationReasoningEffort != nil {
+		normalized := service.NormalizeOpenAIImageGenerationReasoningEffort(*req.OpenAIImageGenerationReasoningEffort)
+		req.OpenAIImageGenerationReasoningEffort = &normalized
+	}
 
 	// codex_cli_only 加固：最低/最高 Codex 版本（空=禁用，或合法 semver；max>=min）
 	if req.MinCodexVersion != "" && !semverPattern.MatchString(req.MinCodexVersion) {
@@ -1750,6 +1762,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAICodexUserAgent
 			}
 			return previousSettings.OpenAICodexUserAgent
+		}(),
+		OpenAIImageGenerationMainModel: func() string {
+			if req.OpenAIImageGenerationMainModel != nil {
+				return *req.OpenAIImageGenerationMainModel
+			}
+			return previousSettings.OpenAIImageGenerationMainModel
+		}(),
+		OpenAIImageGenerationReasoningEffort: func() string {
+			if req.OpenAIImageGenerationReasoningEffort != nil {
+				return *req.OpenAIImageGenerationReasoningEffort
+			}
+			return previousSettings.OpenAIImageGenerationReasoningEffort
 		}(),
 		MinCodexVersion:       strings.TrimSpace(req.MinCodexVersion),
 		MaxCodexVersion:       strings.TrimSpace(req.MaxCodexVersion),
@@ -2154,6 +2178,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableClientDatelineNormalization:      updatedSettings.EnableClientDatelineNormalization,
 		AntigravityUserAgentVersion:            updatedSettings.AntigravityUserAgentVersion,
 		OpenAICodexUserAgent:                   updatedSettings.OpenAICodexUserAgent,
+		OpenAIImageGenerationMainModel:         updatedSettings.OpenAIImageGenerationMainModel,
+		OpenAIImageGenerationReasoningEffort:   updatedSettings.OpenAIImageGenerationReasoningEffort,
 		MinCodexVersion:                        updatedSettings.MinCodexVersion,
 		MaxCodexVersion:                        updatedSettings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                  updatedSettings.CodexCLIOnlyBlacklist,
@@ -2661,6 +2687,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
+	}
+	if before.OpenAIImageGenerationMainModel != after.OpenAIImageGenerationMainModel {
+		changed = append(changed, "openai_image_generation_main_model")
+	}
+	if before.OpenAIImageGenerationReasoningEffort != after.OpenAIImageGenerationReasoningEffort {
+		changed = append(changed, "openai_image_generation_reasoning_effort")
 	}
 	if before.PaymentVisibleMethodAlipaySource != after.PaymentVisibleMethodAlipaySource {
 		changed = append(changed, "payment_visible_method_alipay_source")

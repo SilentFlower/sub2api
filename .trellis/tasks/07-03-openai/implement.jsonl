@@ -1,1 +1,11 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端实现入口规范索引，覆盖本任务涉及的 service、handler、测试落点。"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "确认 SettingService、OpenAI gateway service、admin handler 的分层边界与文件落点。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "确认系统设置使用现有 Setting 键值链路，本任务不新增表结构或 migration。"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "非法 reasoning effort 回退需要 warn 日志，需遵守结构化日志与敏感信息约定。"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端实现与测试质量基线，尤其是接口字段、测试和 forbidden patterns。"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端实现入口规范索引，覆盖 SettingsView、API 类型、i18n。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "系统设置页 UI 使用 Vue SFC、现有表单控件、i18n 与后台管理布局规范。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "新增 settings API 字段时需要保持后端 JSON tag、前端 API 类型和组件类型一致。"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端 typecheck、Vitest 和 SettingsView 测试要求。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨 Setting 存储、service、admin API、前端表单与 OpenAI 上游请求，需要明确数据流边界。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "新增配置读取和校验时应复用现有 SettingService 模式，避免重复硬编码。"}

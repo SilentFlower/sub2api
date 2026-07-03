@@ -4453,6 +4453,61 @@
                 </p>
               </div>
 
+              <!-- OpenAI 生图主模型 -->
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiImageMainModel",
+                    )
+                  }}
+                </label>
+                <input
+                  v-model="form.openai_image_generation_main_model"
+                  type="text"
+                  class="input max-w-xs font-mono text-sm"
+                  :placeholder="
+                    t(
+                      'admin.settings.gatewayForwarding.openaiImageMainModelPlaceholder',
+                    )
+                  "
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiImageMainModelHint",
+                    )
+                  }}
+                </p>
+              </div>
+
+              <!-- OpenAI 生图思考预算 -->
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiImageReasoningEffort",
+                    )
+                  }}
+                </label>
+                <Select
+                  v-model="form.openai_image_generation_reasoning_effort"
+                  :options="openAIImageGenerationReasoningEffortOptions"
+                  class="max-w-xs"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.openaiImageReasoningEffortHint",
+                    )
+                  }}
+                </p>
+              </div>
+
             </div>
           </div>
 
@@ -7768,6 +7823,29 @@ const claudeOAuthSystemPromptCacheTTLOptions = computed(() => [
   { value: "1h", label: t("admin.settings.gatewayForwarding.cacheTTL1h") },
 ]);
 
+const openAIImageGenerationReasoningEffortOptions = computed(() => [
+  {
+    value: "low",
+    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortLow"),
+  },
+  {
+    value: "medium",
+    label: t(
+      "admin.settings.gatewayForwarding.openaiImageReasoningEffortMedium",
+    ),
+  },
+  {
+    value: "high",
+    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortHigh"),
+  },
+  {
+    value: "xhigh",
+    label: t(
+      "admin.settings.gatewayForwarding.openaiImageReasoningEffortXHigh",
+    ),
+  },
+]);
+
 function getClaudeOAuthPresetLabel(
   preset: ClaudeOAuthSystemPromptPreset,
 ): string {
@@ -8106,6 +8184,8 @@ const form = reactive<SettingsForm>({
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
+  openai_image_generation_main_model: "",
+  openai_image_generation_reasoning_effort: "medium",
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -9314,6 +9394,10 @@ async function saveSettings() {
         form.antigravity_user_agent_version?.trim() || "",
       openai_codex_user_agent:
         form.openai_codex_user_agent?.trim() || "",
+      openai_image_generation_main_model:
+        form.openai_image_generation_main_model?.trim() || "",
+      openai_image_generation_reasoning_effort:
+        form.openai_image_generation_reasoning_effort || "medium",
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:

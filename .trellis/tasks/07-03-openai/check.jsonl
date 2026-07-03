@@ -1,1 +1,8 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查后端分层、测试、接口字段和 forbidden patterns。"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "检查非法 effort 回退日志是否结构化且不泄露敏感信息。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查是否误加/误改 migration，确认 Setting 键值链路足够。"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "检查前端 typecheck、i18n、Vitest 和设置页交互覆盖。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查 settings API 字段跨后端 DTO 与前端类型是否一致。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "检查 SettingsView 新增表单控件、i18n、dark mode 和后台 UI 风格。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查 Setting 存储、admin API、前端表单、OpenAI 上游请求之间的数据流一致性。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "检查新增 helper、常量和校验逻辑是否复用现有模式，避免散落重复。"}

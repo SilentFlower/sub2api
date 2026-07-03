@@ -84,6 +84,57 @@ func (s *settingAntigravityUARepoStub) Delete(ctx context.Context, key string) e
 	panic("unexpected Delete call")
 }
 
+type settingValuesRepoStub struct {
+	values  map[string]string
+	updates map[string]string
+}
+
+func (s *settingValuesRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *settingValuesRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if value, ok := s.values[key]; ok {
+		return value, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (s *settingValuesRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *settingValuesRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := s.values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result, nil
+}
+
+func (s *settingValuesRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	s.updates = make(map[string]string, len(settings))
+	for key, value := range settings {
+		s.updates[key] = value
+	}
+	return nil
+}
+
+func (s *settingValuesRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string, len(s.values))
+	for key, value := range s.values {
+		result[key] = value
+	}
+	return result, nil
+}
+
+func (s *settingValuesRepoStub) Delete(ctx context.Context, key string) error {
+	delete(s.values, key)
+	return nil
+}
+
 type defaultSubGroupReaderStub struct {
 	byID  map[int64]*Group
 	errBy map[int64]error
@@ -290,6 +341,26 @@ func TestSettingService_UpdateSettings_AntigravityUserAgentVersion(t *testing.T)
 	require.Equal(t, "1.23.2", repo.updates[SettingKeyAntigravityUserAgentVersion])
 }
 
+func TestSettingService_UpdateSettings_OpenAIImageGenerationSettings(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		OpenAIImageGenerationMainModel:       " gpt-5.4 ",
+		OpenAIImageGenerationReasoningEffort: "HIGH",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.4", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
+	require.Equal(t, "high", repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
+
+	err = svc.UpdateSettings(context.Background(), &SystemSettings{
+		OpenAIImageGenerationReasoningEffort: "invalid",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
+	require.Equal(t, openAIImageGenerationReasoningEffortDefault, repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
+}
+
 func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	cfg := &config.Config{}
@@ -335,6 +406,36 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 		svc := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{}}, &config.Config{})
 
 		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
+	})
+}
+
+func TestSettingService_GetOpenAIImageGenerationSettings(t *testing.T) {
+	t.Run("后台设置优先", func(t *testing.T) {
+		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
+			SettingKeyOpenAIImageGenerationMainModel:       " gpt-5.4 ",
+			SettingKeyOpenAIImageGenerationReasoningEffort: "xhigh",
+		}}, &config.Config{})
+
+		require.Equal(t, "gpt-5.4", svc.GetOpenAIImageGenerationMainModel(context.Background()))
+		require.Equal(t, "xhigh", svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
+	})
+
+	t.Run("空值回退默认值", func(t *testing.T) {
+		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
+			SettingKeyOpenAIImageGenerationMainModel:       "",
+			SettingKeyOpenAIImageGenerationReasoningEffort: "",
+		}}, &config.Config{})
+
+		require.Equal(t, openAIImagesResponsesMainModel, svc.GetOpenAIImageGenerationMainModel(context.Background()))
+		require.Equal(t, openAIImageGenerationReasoningEffortDefault, svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
+	})
+
+	t.Run("非法 effort 回退默认值", func(t *testing.T) {
+		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
+			SettingKeyOpenAIImageGenerationReasoningEffort: "extreme",
+		}}, &config.Config{})
+
+		require.Equal(t, openAIImageGenerationReasoningEffortDefault, svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
 	})
 }
 

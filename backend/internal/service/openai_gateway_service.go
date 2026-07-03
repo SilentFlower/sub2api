@@ -2826,7 +2826,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			markDecodedModified()
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized /responses image_generation tool payload")
 		}
-		if normalizeOpenAIResponsesImageOnlyModel(decoded) {
+		imageGenerationMainModel := openAIImagesResponsesMainModel
+		if account.Type == AccountTypeOAuth {
+			imageGenerationMainModel = s.openAIImageGenerationMainModel(ctx)
+		}
+		if normalizeOpenAIResponsesImageOnlyModel(decoded, imageGenerationMainModel) {
 			markDecodedModified()
 			if model, ok := decoded["model"].(string); ok {
 				upstreamModel = strings.TrimSpace(model)
