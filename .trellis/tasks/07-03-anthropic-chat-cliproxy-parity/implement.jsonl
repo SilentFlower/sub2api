@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/07-03-anthropic-chat-cliproxy-parity/research.md","reason":"记录 sub2api 与 CLIProxyAPI 桥接行为差异、缓存不稳定推断和 tool_result/tool_use id 结论。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"约束后端协议适配与网关代码的落点，避免跨层放置实现。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 gofmt、单元测试、禁止猜字段和敏感信息泄露。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"本任务跨 Anthropic 请求、Chat 上游请求、SSE 响应和历史 replay，需要保持格式契约一致。"}

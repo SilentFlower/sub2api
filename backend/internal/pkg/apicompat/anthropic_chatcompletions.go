@@ -1,11 +1,13 @@
 package apicompat
 
 import (
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"unicode"
 )
 
 // Anthropic Messages <-> OpenAI Chat Completions 直连桥接完全绕过
@@ -31,8 +33,8 @@ func AnthropicToChatCompletions(req *AnthropicRequest) (*ChatCompletionsRequest,
 	}
 
 	var messages []ChatMessage
-	if sys := anthropicSystemText(req.System); sys != "" {
-		messages = append(messages, ChatMessage{Role: "system", Content: mustJSONString(sys)})
+	if sys := anthropicSystemParts(req.System); len(sys) > 0 {
+		messages = append(messages, ChatMessage{Role: "system", Content: chatContentFromParts(sys)})
 	}
 	for _, m := range req.Messages {
 		msgs, err := anthropicMessageToChat(m)
@@ -78,26 +80,46 @@ func AnthropicToChatCompletions(req *AnthropicRequest) (*ChatCompletionsRequest,
 	return out, nil
 }
 
-// anthropicSystemText 将 Anthropic system 字段（字符串或 block 数组）展开成单个字符串。
-func anthropicSystemText(raw json.RawMessage) string {
+const claudeCodeAttributionSystemPrefix = "x-anthropic-billing-header:"
+
+// anthropicSystemParts 将 Anthropic system 字段转换成 Chat typed content parts。
+func anthropicSystemParts(raw json.RawMessage) []ChatContentPart {
 	if len(raw) == 0 {
-		return ""
+		return nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
+		if part, ok := anthropicTextContentPart(s); ok {
+			return []ChatContentPart{part}
+		}
+		return nil
 	}
 	var blocks []AnthropicContentBlock
 	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return ""
+		return nil
 	}
-	var parts []string
+	var parts []ChatContentPart
 	for _, b := range blocks {
-		if b.Type == "text" && b.Text != "" {
-			parts = append(parts, b.Text)
+		if b.Type != "text" {
+			continue
+		}
+		if part, ok := anthropicTextContentPart(b.Text); ok {
+			parts = append(parts, part)
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return parts
+}
+
+func anthropicTextContentPart(text string) (ChatContentPart, bool) {
+	if strings.TrimSpace(text) == "" || isClaudeCodeAttributionSystemText(text) {
+		return ChatContentPart{}, false
+	}
+	return ChatContentPart{Type: "text", Text: text}, true
+}
+
+func isClaudeCodeAttributionSystemText(text string) bool {
+	text = strings.TrimLeftFunc(text, unicode.IsSpace)
+	return strings.HasPrefix(text, claudeCodeAttributionSystemPrefix)
 }
 
 // anthropicMessageToChat 将一条 Anthropic message 转换为一条或多条 chat message。
@@ -111,7 +133,11 @@ func anthropicMessageToChat(m AnthropicMessage) ([]ChatMessage, error) {
 		if role != "user" && role != "assistant" {
 			role = "user"
 		}
-		return []ChatMessage{{Role: role, Content: mustJSONString(s)}}, nil
+		part, ok := anthropicTextContentPart(s)
+		if !ok {
+			return nil, nil
+		}
+		return []ChatMessage{{Role: role, Content: chatContentFromParts([]ChatContentPart{part})}}, nil
 	}
 
 	var blocks []AnthropicContentBlock
@@ -133,8 +159,8 @@ func anthropicUserBlocksToChat(blocks []AnthropicContentBlock) []ChatMessage {
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			if b.Text != "" {
-				parts = append(parts, ChatContentPart{Type: "text", Text: b.Text})
+			if part, ok := anthropicTextContentPart(b.Text); ok {
+				parts = append(parts, part)
 			}
 		case "image":
 			if uri := anthropicImageDataURI(b.Source); uri != "" {
@@ -161,12 +187,16 @@ func anthropicUserBlocksToChat(blocks []AnthropicContentBlock) []ChatMessage {
 
 func anthropicAssistantBlocksToChat(blocks []AnthropicContentBlock) []ChatMessage {
 	msg := ChatMessage{Role: "assistant"}
-	var textParts []string
+	var parts []ChatContentPart
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			if b.Text != "" {
-				textParts = append(textParts, b.Text)
+			if part, ok := anthropicTextContentPart(b.Text); ok {
+				parts = append(parts, part)
+			}
+		case "image":
+			if uri := anthropicImageDataURI(b.Source); uri != "" {
+				parts = append(parts, ChatContentPart{Type: "image_url", ImageURL: &ChatImageURL{URL: uri}})
 			}
 		case "tool_use":
 			args := "{}"
@@ -181,8 +211,12 @@ func anthropicAssistantBlocksToChat(blocks []AnthropicContentBlock) []ChatMessag
 			// thinking block 不能作为 chat 输入，上游通常会拒绝，故丢弃。
 		}
 	}
-	if text := strings.Join(textParts, "\n\n"); text != "" {
-		msg.Content = mustJSONString(text)
+	if len(parts) > 0 {
+		msg.Content = chatContentFromParts(parts)
+	} else if len(msg.ToolCalls) > 0 || msg.ReasoningContent != "" {
+		msg.Content = mustJSONString("")
+	} else {
+		return nil
 	}
 	return []ChatMessage{msg}
 }
@@ -225,11 +259,9 @@ func anthropicImageDataURI(src *AnthropicImageSource) string {
 	return "data:" + mediaType + ";base64," + src.Data
 }
 
-// chatContentFromParts 在只有单个 text part 时输出普通字符串，否则输出多模态 part 数组。
+// chatContentFromParts 始终保留 typed content part 数组，避免 string/array
+// 形态随单 text、多 text 或多模态场景切换，影响上游 prefix cache 边界。
 func chatContentFromParts(parts []ChatContentPart) json.RawMessage {
-	if len(parts) == 1 && parts[0].Type == "text" {
-		return mustJSONString(parts[0].Text)
-	}
 	raw, _ := json.Marshal(parts)
 	return raw
 }
@@ -347,12 +379,20 @@ type ChatCompletionsToAnthropicStreamState struct {
 	curToolBuffered bool // "Read": buffer args, emit one sanitized delta at close
 	curToolStreamed bool
 
+	pendingToolCalls map[int]*pendingChatToolCall
+
 	reasoning   strings.Builder // accumulated for the reasoning-only fallback
 	textEmitted bool
 
 	hasTool bool
 	finish  string
 	usage   *ChatUsage
+}
+
+type pendingChatToolCall struct {
+	id   string
+	name string
+	args strings.Builder
 }
 
 // NewChatCompletionsToAnthropicStreamState 构造空的流式转换状态。
@@ -403,25 +443,7 @@ func ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatC
 			if tc.Index != nil {
 				idx = *tc.Index
 			}
-			if !s.blockOpen || s.blockType != "tool_use" || s.curToolChatIdx != idx {
-				toolID := tc.ID
-				if toolID == "" {
-					toolID = generateToolUseID()
-				}
-				events = append(events, s.openToolBlock(idx, toolID, tc.Function.Name)...)
-			} else if tc.Function.Name != "" && s.curToolName == "" {
-				s.curToolName = tc.Function.Name
-				s.curToolBuffered = tc.Function.Name == "Read"
-			}
-			if tc.Function.Arguments != "" {
-				_, _ = s.curToolArgs.WriteString(tc.Function.Arguments)
-				if !s.curToolBuffered {
-					s.curToolStreamed = true
-					events = append(events, contentBlockDelta(s.blockIndex, AnthropicDelta{
-						Type: "input_json_delta", PartialJSON: tc.Function.Arguments,
-					}))
-				}
-			}
+			events = append(events, s.handleToolCallDelta(idx, tc)...)
 		}
 
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
@@ -439,6 +461,7 @@ func FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamS
 	}
 	var events []AnthropicStreamEvent
 	events = append(events, s.closeBlock()...)
+	events = append(events, s.flushPendingToolCalls()...)
 
 	// 只有 reasoning、没有 text/tool 的完成结果会把 reasoning 作为回答回显，
 	// 避免客户端收到没有正文的 thinking block。该逻辑对齐
@@ -464,6 +487,117 @@ func FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamS
 		AnthropicStreamEvent{Type: "message_stop"},
 	)
 	s.stopped = true
+	return events
+}
+
+func (s *ChatCompletionsToAnthropicStreamState) handleToolCallDelta(idx int, tc ChatToolCall) []AnthropicStreamEvent {
+	if s.blockOpen && s.blockType == "tool_use" && s.curToolChatIdx == idx {
+		if tc.Function.Name != "" && s.curToolName == "" {
+			s.curToolName = tc.Function.Name
+			s.curToolBuffered = tc.Function.Name == "Read"
+		}
+		if tc.Function.Arguments == "" {
+			return nil
+		}
+		_, _ = s.curToolArgs.WriteString(tc.Function.Arguments)
+		if s.curToolBuffered {
+			return nil
+		}
+		s.curToolStreamed = true
+		return []AnthropicStreamEvent{contentBlockDelta(s.blockIndex, AnthropicDelta{
+			Type: "input_json_delta", PartialJSON: tc.Function.Arguments,
+		})}
+	}
+
+	pending := s.pendingToolCalls[idx]
+	toolID := tc.ID
+	toolName := tc.Function.Name
+	prefixArgs := ""
+	if pending != nil {
+		if toolID == "" {
+			toolID = pending.id
+		}
+		if toolName == "" {
+			toolName = pending.name
+		}
+		prefixArgs = pending.args.String()
+	}
+
+	args := prefixArgs + tc.Function.Arguments
+	if toolID == "" || toolName == "" {
+		s.storePendingToolCall(idx, tc)
+		return nil
+	}
+	delete(s.pendingToolCalls, idx)
+
+	var events []AnthropicStreamEvent
+	if !s.blockOpen || s.blockType != "tool_use" || s.curToolChatIdx != idx {
+		events = append(events, s.openToolBlock(idx, toolID, toolName)...)
+	} else if toolName != "" && s.curToolName == "" {
+		s.curToolName = toolName
+		s.curToolBuffered = toolName == "Read"
+	}
+	if args != "" {
+		_, _ = s.curToolArgs.WriteString(args)
+		if !s.curToolBuffered {
+			s.curToolStreamed = true
+			events = append(events, contentBlockDelta(s.blockIndex, AnthropicDelta{
+				Type: "input_json_delta", PartialJSON: args,
+			}))
+		}
+	}
+	return events
+}
+
+func (s *ChatCompletionsToAnthropicStreamState) storePendingToolCall(idx int, tc ChatToolCall) {
+	if s.pendingToolCalls == nil {
+		s.pendingToolCalls = make(map[int]*pendingChatToolCall)
+	}
+	pending := s.pendingToolCalls[idx]
+	if pending == nil {
+		pending = &pendingChatToolCall{}
+		s.pendingToolCalls[idx] = pending
+	}
+	if tc.ID != "" && pending.id == "" {
+		pending.id = tc.ID
+	}
+	if tc.Function.Name != "" && pending.name == "" {
+		pending.name = tc.Function.Name
+	}
+	if tc.Function.Arguments != "" {
+		_, _ = pending.args.WriteString(tc.Function.Arguments)
+	}
+}
+
+func (s *ChatCompletionsToAnthropicStreamState) flushPendingToolCalls() []AnthropicStreamEvent {
+	if len(s.pendingToolCalls) == 0 {
+		return nil
+	}
+	indexes := make([]int, 0, len(s.pendingToolCalls))
+	for idx := range s.pendingToolCalls {
+		indexes = append(indexes, idx)
+	}
+	sort.Ints(indexes)
+
+	var events []AnthropicStreamEvent
+	for _, idx := range indexes {
+		pending := s.pendingToolCalls[idx]
+		if pending == nil || pending.name == "" {
+			continue
+		}
+		args := pending.args.String()
+		if strings.TrimSpace(args) == "" {
+			args = "{}"
+		}
+		toolID := pending.id
+		if toolID == "" {
+			toolID = deterministicToolUseID(idx, pending.name, args)
+		}
+		events = append(events, s.openToolBlock(idx, toolID, pending.name)...)
+		_, _ = s.curToolArgs.WriteString(args)
+		events = append(events, s.closeBlock()...)
+	}
+	s.pendingToolCalls = nil
 	return events
 }
 
@@ -706,7 +840,7 @@ func ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, mo
 		}
 		toolID := agg.id
 		if toolID == "" {
-			toolID = generateToolUseID()
+			toolID = deterministicToolUseID(i, agg.name, args)
 		}
 		blocks = append(blocks, AnthropicContentBlock{
 			Type:  "tool_use",
@@ -730,8 +864,10 @@ func ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, mo
 	}
 }
 
-func generateToolUseID() string {
-	b := make([]byte, 12)
-	_, _ = rand.Read(b)
-	return "toolu_" + hex.EncodeToString(b)
+func deterministicToolUseID(index int, name, args string) string {
+	if strings.TrimSpace(args) == "" {
+		args = "{}"
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\n%s\n%s", index, name, args)))
+	return "toolu_" + hex.EncodeToString(sum[:12])
 }

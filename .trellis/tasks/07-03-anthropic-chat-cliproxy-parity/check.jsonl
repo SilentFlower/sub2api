@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/07-03-anthropic-chat-cliproxy-parity/research.md","reason":"检查实现是否覆盖已确认差异和缓存不稳定根因。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查测试覆盖、gofmt、日志敏感信息和禁止模式。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"若实现增加诊断日志，检查是否只记录安全摘要而非完整 prompt 或密钥。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 Anthropic↔Chat↔Anthropic 的数据格式和 replay 契约是否端到端一致。"}

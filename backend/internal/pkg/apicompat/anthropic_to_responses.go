@@ -171,7 +171,7 @@ func parseAnthropicSystemContentParts(raw json.RawMessage) ([]ResponsesContentPa
 }
 
 func isAnthropicBillingHeaderText(text string) bool {
-	return strings.HasPrefix(text, "x-anthropic-billing-header: ")
+	return isClaudeCodeAttributionSystemText(text)
 }
 
 // anthropicMsgToResponsesItems converts a single Anthropic message into one

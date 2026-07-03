@@ -67,6 +67,16 @@ func anthChatStartedBlocks(events []AnthropicStreamEvent) map[int]string {
 	return m
 }
 
+func anthChatToolUseIDs(events []AnthropicStreamEvent) []string {
+	var ids []string
+	for _, e := range events {
+		if e.Type == "content_block_start" && e.ContentBlock != nil && e.ContentBlock.Type == "tool_use" {
+			ids = append(ids, e.ContentBlock.ID)
+		}
+	}
+	return ids
+}
+
 func anthChatMessageDelta(events []AnthropicStreamEvent) *AnthropicStreamEvent {
 	for i := range events {
 		if events[i].Type == "message_delta" {
@@ -96,10 +106,10 @@ func TestAnthropicToChatCompletions_SystemAndToolResultOrdering(t *testing.T) {
 	require.Len(t, out.Messages, 5)
 
 	assert.Equal(t, "system", out.Messages[0].Role)
-	assert.JSONEq(t, `"You are helpful"`, string(out.Messages[0].Content))
+	assert.JSONEq(t, `[{"type":"text","text":"You are helpful"}]`, string(out.Messages[0].Content))
 
 	assert.Equal(t, "user", out.Messages[1].Role)
-	assert.JSONEq(t, `"hi"`, string(out.Messages[1].Content))
+	assert.JSONEq(t, `[{"type":"text","text":"hi"}]`, string(out.Messages[1].Content))
 
 	assert.Equal(t, "assistant", out.Messages[2].Role)
 	require.Len(t, out.Messages[2].ToolCalls, 1)
@@ -113,7 +123,36 @@ func TestAnthropicToChatCompletions_SystemAndToolResultOrdering(t *testing.T) {
 	assert.JSONEq(t, `"sunny"`, string(out.Messages[3].Content))
 
 	assert.Equal(t, "user", out.Messages[4].Role)
-	assert.JSONEq(t, `"thanks"`, string(out.Messages[4].Content))
+	assert.JSONEq(t, `[{"type":"text","text":"thanks"}]`, string(out.Messages[4].Content))
+}
+
+func TestAnthropicToChatCompletions_StableContentPartsAndAttribution(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:  "claude",
+		System: json.RawMessage(`[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.63.abc; cc_entrypoint=cli; cch=12345;"},{"type":"text","text":"stable system"}]`),
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"text","text":"pre"},{"type":"tool_use","id":"call_1","name":"do_work","input":{"a":1}},{"type":"text","text":"post"}]`)},
+		},
+	}
+
+	out, err := AnthropicToChatCompletions(req)
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 3)
+
+	require.Equal(t, "system", out.Messages[0].Role)
+	assert.JSONEq(t, `[{"type":"text","text":"stable system"}]`, string(out.Messages[0].Content))
+	assert.NotContains(t, string(out.Messages[0].Content), "x-anthropic-billing-header")
+
+	require.Equal(t, "user", out.Messages[1].Role)
+	assert.JSONEq(t, `[{"type":"text","text":"hi"}]`, string(out.Messages[1].Content))
+
+	require.Equal(t, "assistant", out.Messages[2].Role)
+	assert.JSONEq(t, `[{"type":"text","text":"pre"},{"type":"text","text":"post"}]`, string(out.Messages[2].Content))
+	require.Len(t, out.Messages[2].ToolCalls, 1)
+	assert.Equal(t, "call_1", out.Messages[2].ToolCalls[0].ID)
+	assert.Equal(t, "do_work", out.Messages[2].ToolCalls[0].Function.Name)
+	assert.JSONEq(t, `{"a":1}`, out.Messages[2].ToolCalls[0].Function.Arguments)
 }
 
 func TestAnthropicToChatCompletions_ToolsAndToolChoice(t *testing.T) {
@@ -286,6 +325,62 @@ func TestChatCompletionsChunkToAnthropicEvents_ReadToolBuffered(t *testing.T) {
 	assert.JSONEq(t, `{"file_path":"/x"}`, ij[0])
 }
 
+func TestChatCompletionsChunkToAnthropicEvents_MissingToolIDDeterministic(t *testing.T) {
+	run := func() []AnthropicStreamEvent {
+		st := NewChatCompletionsToAnthropicStreamState("m")
+		var all []AnthropicStreamEvent
+		first := ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+			{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
+		}}}}}, st)
+		assert.Empty(t, anthChatToolUseIDs(first), "缺少 tool_call.id 时应延迟发送 tool_use block")
+		all = append(all, first...)
+		all = append(all, ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+			{Index: intPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
+		}}}}}, st)...)
+		all = append(all, ChatCompletionsChunkToAnthropicEvents(anthChatFinishChunk("tool_calls"), st)...)
+		all = append(all, FinalizeChatCompletionsAnthropicStream(st)...)
+		return all
+	}
+
+	firstRun := run()
+	secondRun := run()
+	firstIDs := anthChatToolUseIDs(firstRun)
+	secondIDs := anthChatToolUseIDs(secondRun)
+	require.Len(t, firstIDs, 1)
+	require.Len(t, secondIDs, 1)
+	assert.Equal(t, firstIDs[0], secondIDs[0])
+	assert.True(t, strings.HasPrefix(firstIDs[0], "toolu_"))
+
+	ij := anthChatInputJSONByIndex(firstRun)
+	require.Len(t, ij, 1)
+	assert.JSONEq(t, `{"a":1}`, ij[0])
+	md := anthChatMessageDelta(firstRun)
+	require.NotNil(t, md)
+	assert.Equal(t, "tool_use", md.Delta.StopReason)
+}
+
+func TestChatCompletionsChunkToAnthropicEvents_LateToolIDUsesUpstreamID(t *testing.T) {
+	st := NewChatCompletionsToAnthropicStreamState("m")
+	var all []AnthropicStreamEvent
+	first := ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+		{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
+	}}}}}, st)
+	assert.Empty(t, anthChatToolUseIDs(first), "上游 id 可能在后续 chunk 到达，不能提前生成 fallback id")
+	all = append(all, first...)
+	all = append(all, ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+		{Index: intPtr(0), ID: "call_late", Function: ChatFunctionCall{Arguments: `1}`}},
+	}}}}}, st)...)
+	all = append(all, ChatCompletionsChunkToAnthropicEvents(anthChatFinishChunk("tool_calls"), st)...)
+	all = append(all, FinalizeChatCompletionsAnthropicStream(st)...)
+
+	ids := anthChatToolUseIDs(all)
+	require.Len(t, ids, 1)
+	assert.Equal(t, "call_late", ids[0])
+	ij := anthChatInputJSONByIndex(all)
+	require.Len(t, ij, 1)
+	assert.JSONEq(t, `{"a":1}`, ij[0])
+}
+
 func TestFinalizeChatCompletionsAnthropicStream_ReasoningOnlyFallback(t *testing.T) {
 	st := NewChatCompletionsToAnthropicStreamState("m")
 	_ = ChatCompletionsChunkToAnthropicEvents(anthChatReasoningChunk("the reasoning"), st)
@@ -337,6 +432,30 @@ func TestChatCompletionsStreamToAnthropicResponse_BlockOrderAndUsage(t *testing.
 	assert.Equal(t, 70, resp.Usage.InputTokens)
 	assert.Equal(t, 30, resp.Usage.CacheReadInputTokens)
 	assert.Equal(t, 20, resp.Usage.OutputTokens)
+}
+
+func TestChatCompletionsStreamToAnthropicResponse_MissingToolIDDeterministic(t *testing.T) {
+	build := func() *AnthropicResponse {
+		chunks := []*ChatCompletionsChunk{
+			{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+				{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "foo", Arguments: `{"a":`}},
+			}}}}},
+			{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
+				{Index: intPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
+			}}}}},
+			anthChatFinishChunk("tool_calls"),
+		}
+		return ChatCompletionsStreamToAnthropicResponse(chunks, "m")
+	}
+
+	first := build()
+	second := build()
+	require.Len(t, first.Content, 1)
+	require.Len(t, second.Content, 1)
+	assert.Equal(t, "tool_use", first.Content[0].Type)
+	assert.Equal(t, first.Content[0].ID, second.Content[0].ID)
+	assert.True(t, strings.HasPrefix(first.Content[0].ID, "toolu_"))
+	assert.JSONEq(t, `{"a":1}`, string(first.Content[0].Input))
 }
 
 func TestChatCompletionsStreamToAnthropicResponse_ReasoningOnlyFallback(t *testing.T) {
