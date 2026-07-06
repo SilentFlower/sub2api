@@ -47,6 +47,8 @@ type OpenAICodexResetCreditStatus struct {
 	Status      string `json:"status"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+	GrantedAt   string `json:"granted_at,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
 }
 
 // OpenAICodexResetCreditsResult 表示 reset credit 查询结果。

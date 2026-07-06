@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -312,10 +313,52 @@ func openAICodexResetHeaders(account service.OpenAICodexResetClientAccount) map[
 }
 
 type openAICodexResetCreditPayload struct {
-	ID          string `json:"id"`
-	Status      string `json:"status"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          string                            `json:"id"`
+	Status      string                            `json:"status"`
+	Title       string                            `json:"title"`
+	Description string                            `json:"description"`
+	GrantedAt   openAICodexResetOptionalTimestamp `json:"granted_at"`
+	ExpiresAt   openAICodexResetOptionalTimestamp `json:"expires_at"`
+}
+
+type openAICodexResetOptionalTimestamp struct {
+	value string
+}
+
+func (t *openAICodexResetOptionalTimestamp) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		t.value = ""
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		t.value = openAICodexResetNormalizeTimestamp(strings.TrimSpace(text))
+		return nil
+	}
+	t.value = openAICodexResetNormalizeTimestamp(raw)
+	return nil
+}
+
+func openAICodexResetNormalizeTimestamp(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	number, err := strconv.ParseFloat(raw, 64)
+	if err != nil || number <= 0 {
+		return ""
+	}
+	if number > 1e11 {
+		return time.UnixMilli(int64(number)).UTC().Format(time.RFC3339)
+	}
+	return time.Unix(int64(number), 0).UTC().Format(time.RFC3339)
+}
+
+func (t openAICodexResetOptionalTimestamp) String() string {
+	return t.value
 }
 
 type openAICodexResetCreditsPayload struct {
@@ -336,6 +379,8 @@ func (p openAICodexResetCreditsPayload) toService() *service.OpenAICodexResetCre
 			Status:      status,
 			Title:       credit.Title,
 			Description: credit.Description,
+			GrantedAt:   credit.GrantedAt.String(),
+			ExpiresAt:   credit.ExpiresAt.String(),
 		})
 		if status == "" || strings.EqualFold(status, "available") {
 			availableIDs = append(availableIDs, credit.ID)

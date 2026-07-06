@@ -3297,6 +3297,7 @@ export default {
         noAvailableCredit: '当前没有可用重置次数',
         creditList: '重置次数明细',
         noCredits: '暂无重置次数',
+        expiresAt: '过期时间：{time}',
         inviteEmails: '邀请邮箱',
         invitePlaceholder: '输入邮箱，支持逗号、空格或换行分隔',
         inviteHint: '已识别 {count} 个邮箱，最多 5 个',

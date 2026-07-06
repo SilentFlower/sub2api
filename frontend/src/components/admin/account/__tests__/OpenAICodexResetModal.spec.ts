@@ -19,6 +19,13 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
+vi.mock('@/utils/format', () => ({
+  formatDateTime: vi.fn((value: string | Date | null | undefined) => {
+    if (!value || value === 'invalid-date') return ''
+    return `格式化时间:${String(value)}`
+  })
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -30,6 +37,7 @@ vi.mock('vue-i18n', async () => {
         if (key.endsWith('inviteSuccess')) return `已发送 ${params?.count ?? 0} 个邀请`
         if (key.endsWith('consumeSuccess')) return `已使用重置次数：${params?.credit ?? ''}`
         if (key.endsWith('totalCredits')) return `共 ${params?.count ?? 0} 次`
+        if (key.endsWith('expiresAt')) return `过期时间：${params?.time ?? ''}`
         return key
       }
     })
@@ -66,13 +74,15 @@ function testAccount(): Account {
   }
 }
 
-function statusPayload(availableCount = 1) {
+function statusPayload(availableCount = 1, expiresAt?: string) {
+  const credit = { id: 'credit-1', status: 'available', title: 'Reset' }
+  if (expiresAt !== undefined) Object.assign(credit, { expires_at: expiresAt })
   return {
     account: { id: 42, name: 'OpenAI OAuth', email: 'status@example.com' },
     available_count: availableCount,
     credit_count: availableCount,
     available_credit_ids: availableCount > 0 ? ['credit-1'] : [],
-    credit_statuses: availableCount > 0 ? [{ id: 'credit-1', status: 'available', title: 'Reset' }] : [],
+    credit_statuses: availableCount > 0 ? [credit] : [],
     eligibility: { eligible: true },
     rules: { max: 5 }
   }
@@ -118,6 +128,14 @@ describe('OpenAICodexResetModal', () => {
     expect(getOpenAICodexResetStatus).toHaveBeenCalledWith(42)
     expect(wrapper.text()).toContain('status@example.com')
     expect(wrapper.text()).toContain('Reset')
+  })
+
+  it('展示 reset credit 的过期时间', async () => {
+    getOpenAICodexResetStatus.mockResolvedValueOnce(statusPayload(1, '2026-07-06T12:00:00Z'))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('过期时间：格式化时间:2026-07-06T12:00:00Z')
   })
 
   it('无可用 credit 时禁用使用按钮', async () => {

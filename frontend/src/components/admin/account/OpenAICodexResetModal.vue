@@ -90,6 +90,9 @@
                 <p v-if="credit.description" class="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
                   {{ credit.description }}
                 </p>
+                <p v-if="creditExpiresAtTexts[credit.id]" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.openaiCodexReset.expiresAt', { time: creditExpiresAtTexts[credit.id] }) }}
+                </p>
               </div>
             </div>
           </div>
@@ -157,6 +160,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
+import { formatDateTime } from '@/utils/format'
 import type { Account } from '@/types'
 import type {
   OpenAICodexInviteResult,
@@ -203,6 +207,14 @@ const displayEmail = computed(() => {
 
 const creditStatuses = computed<OpenAICodexResetCreditStatus[]>(() => status.value?.credit_statuses ?? [])
 const hasAvailableCredit = computed(() => (status.value?.available_count ?? 0) > 0)
+const creditExpiresAtTexts = computed<Record<string, string>>(() => {
+  const texts: Record<string, string> = {}
+  for (const credit of creditStatuses.value) {
+    const formatted = formatDateTime(credit.expires_at)
+    if (formatted) texts[credit.id] = formatted
+  }
+  return texts
+})
 
 const parsedEmails = computed(() => {
   const parts = inviteText.value

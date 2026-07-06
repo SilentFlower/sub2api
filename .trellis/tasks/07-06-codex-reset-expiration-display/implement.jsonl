@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨上游 payload、后端 DTO、前端 API 类型和组件展示，需要按跨层数据契约执行。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "前端改动涉及 Vue 弹窗、Tailwind 样式和 i18n 文案，需要遵守组件规范。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "前端需要同步后端 snake_case API 字段并保持 TypeScript 类型安全。"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "后端透传上游字段时必须避免记录 token、Cookie 或未脱敏上游响应。"}

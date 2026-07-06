@@ -48,7 +48,7 @@ func TestOpenAICodexResetClient_CreditsAndConsume(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/wham/rate-limit-reset-credits":
-			_, _ = io.WriteString(w, `{"available_count":1,"credits":[{"id":"credit-1","status":"available","title":"Reset"},{"id":"credit-2","status":"used"}]}`)
+			_, _ = io.WriteString(w, `{"available_count":1,"credits":[{"id":"credit-1","status":"available","title":"Reset","granted_at":1700000000,"expires_at":"2026-07-06T12:00:00.123Z"},{"id":"credit-2","status":"used","expires_at":1700000000000}]}`)
 		case "/wham/rate-limit-reset-credits/consume":
 			_, _ = io.WriteString(w, `{"code":"ok","available_count":0,"credits":[]}`)
 		default:
@@ -68,6 +68,10 @@ func TestOpenAICodexResetClient_CreditsAndConsume(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, credits.AvailableCount)
 	require.Equal(t, []string{"credit-1"}, credits.AvailableCreditIDs)
+	require.Len(t, credits.CreditStatuses, 2)
+	require.Equal(t, "2023-11-14T22:13:20Z", credits.CreditStatuses[0].GrantedAt)
+	require.Equal(t, "2026-07-06T12:00:00Z", credits.CreditStatuses[0].ExpiresAt)
+	require.Equal(t, "2023-11-14T22:13:20Z", credits.CreditStatuses[1].ExpiresAt)
 
 	result, err := client.ConsumeCredit(context.Background(), account, "credit-1", "redeem-id")
 	require.NoError(t, err)

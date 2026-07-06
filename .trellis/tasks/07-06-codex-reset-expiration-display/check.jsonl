@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查时需要确认 expires_at 从上游到 UI 的每一层字段契约一致。"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "检查前端组件单测、typecheck 和 lint 风险。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查新增 API 类型与实际 JSON tag 是否保持 snake_case 一致。"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查 Go 单测和后端 DTO/client 映射是否覆盖新增字段。"}

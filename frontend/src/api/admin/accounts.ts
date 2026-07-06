@@ -284,6 +284,8 @@ export interface OpenAICodexResetCreditStatus {
   status: string
   title?: string
   description?: string
+  granted_at?: string
+  expires_at?: string
 }
 
 /**

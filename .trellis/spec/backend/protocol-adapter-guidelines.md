@@ -138,6 +138,115 @@ if tc.ID == "" || tc.Function.Name == "" {
 
 typed content part array 是该桥接路径的稳定输出形态。
 
+---
+
+## Scenario: OpenAI Codex reset credit 元数据投影
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 `backend/internal/repository/openai_codex_reset_client.go`、`backend/internal/service/openai_codex_reset_service.go` 或前端 `OpenAICodexReset*` 类型/组件时，必须按本节检查。
+- 适用上游：ChatGPT Web 后端 `GET /backend-api/wham/rate-limit-reset-credits`。
+- 适用管理端 API：`GET /api/v1/admin/accounts/:id/openai-codex-reset/status`。
+- 目标：只投影 reset credit 的非敏感展示字段，避免记录或暴露 access token、refresh token、Cookie、完整 Authorization 或未脱敏上游响应。
+
+### 2. Signatures
+
+- 后端 client：`GetCredits(ctx context.Context, account service.OpenAICodexResetClientAccount) (*service.OpenAICodexResetCreditsResult, error)`
+- 后端 service DTO：`service.OpenAICodexResetCreditStatus`
+- 前端 API 类型：`OpenAICodexResetCreditStatus` in `frontend/src/api/admin/accounts.ts`
+- 前端展示组件：`frontend/src/components/admin/account/OpenAICodexResetModal.vue`
+
+### 3. Contracts
+
+- 上游 credit 可包含：
+  ```json
+  {
+    "id": "credit-1",
+    "status": "available",
+    "title": "Reset",
+    "description": "...",
+    "granted_at": "2026-07-01T12:00:00Z",
+    "expires_at": "2026-07-08T12:00:00Z"
+  }
+  ```
+- 本项目只透传非敏感字段：`id`、`status`、`title`、`description`、`granted_at`、`expires_at`。
+- `granted_at` / `expires_at` 是可选字段。后端可接受 RFC3339/RFC3339Nano 字符串、Unix 秒时间戳、Unix 毫秒时间戳，并规范化为 UTC RFC3339 字符串。
+- 无法解析或小于等于 0 的时间值视为缺失，不应让整个 credit 查询失败。
+- 前端 API 类型必须保持 snake_case：`granted_at?: string`、`expires_at?: string`。
+- 前端展示前必须通过统一日期格式化工具处理；格式化结果为空时不显示该行。
+
+### 4. Validation & Error Matrix
+
+- 上游 `expires_at` 为 RFC3339/RFC3339Nano 字符串 -> 后端响应 `expires_at` 为 UTC RFC3339。
+- 上游 `expires_at` 为 Unix 秒数字 -> 后端响应 `expires_at` 为 UTC RFC3339。
+- 上游 `expires_at` 为 Unix 毫秒数字 -> 后端响应 `expires_at` 为 UTC RFC3339。
+- 上游 `expires_at` 缺失、`null`、空字符串、非日期字符串或小于等于 0 -> 后端省略该字段，前端不显示过期时间行。
+- 上游请求失败 -> 继续走 `OPENAI_CODEX_RESET_UPSTREAM_FAILED` 错误路径，错误消息必须脱敏。
+
+### 5. Good/Base/Bad Cases
+
+- Good: 上游 `expires_at:"2026-07-06T12:00:00.123Z"`，API 返回 `expires_at:"2026-07-06T12:00:00Z"`，前端显示本地化过期时间。
+- Good: 老上游响应没有 `expires_at`，弹窗仍正常展示 credit 标题、状态和描述。
+- Base: 只修改展示字段，不改变 invite 发送、credit consume 或账号调度逻辑。
+- Bad: 前端把字段写成 `expiresAt`，导致后端 snake_case 响应无法被类型契约覆盖。
+- Bad: 后端把上游原始响应整体塞进 `rules`、日志或错误 message，泄露 token、账号或隐私字段。
+
+### 6. Tests Required
+
+- 后端 repository 单测必须覆盖：
+  - RFC3339/RFC3339Nano 字符串规范化。
+  - Unix 秒/毫秒时间戳规范化。
+  - 字段透传到 `OpenAICodexResetCreditStatus.ExpiresAt`。
+- 前端组件单测必须覆盖：
+  - `expires_at` 有效时显示 i18n 文案和格式化时间。
+  - 缺失或格式化为空时不显示过期时间行。
+- 建议运行：
+  ```bash
+  cd backend && go test -tags=unit ./internal/repository ./internal/service -run OpenAICodexReset
+  cd frontend && pnpm vitest run src/components/admin/account/__tests__/OpenAICodexResetModal.spec.ts
+  cd frontend && pnpm typecheck
+  ```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+interface OpenAICodexResetCreditStatus {
+  id: string
+  expiresAt?: string
+}
+```
+
+问题：前端类型改成 camelCase 后，实际 API 返回的 `expires_at` 不会被组件稳定消费。
+
+#### Correct
+
+```typescript
+interface OpenAICodexResetCreditStatus {
+  id: string
+  expires_at?: string
+}
+```
+
+保持后端 JSON tag 与前端 API 类型一致，组件只负责展示格式化后的值。
+
+#### Wrong
+
+```go
+ExpiresAt string `json:"expires_at,omitempty"`
+```
+
+直接把上游原值当字符串透传会让数字时间戳、毫秒时间戳和非法值进入前端，导致显示不稳定。
+
+#### Correct
+
+```go
+ExpiresAt openAICodexResetOptionalTimestamp `json:"expires_at"`
+```
+
+在上游 payload 边界先收窄并规范化时间格式；无法解析时投影为空值。
+
 #### Wrong
 
 ```json

@@ -3265,6 +3265,7 @@ export default {
         noAvailableCredit: 'No reset credit is currently available',
         creditList: 'Reset credit details',
         noCredits: 'No reset credits',
+        expiresAt: 'Expires: {time}',
         inviteEmails: 'Invite emails',
         invitePlaceholder: 'Enter emails separated by commas, spaces, or new lines',
         inviteHint: '{count} emails detected, up to 5',
