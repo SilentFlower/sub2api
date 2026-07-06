@@ -138,3 +138,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 显示 Codex 邀请重置过期时间
+
+**Date**: 2026-07-06
+**Task**: 显示 Codex 邀请重置过期时间
+**Branch**: `build`
+
+### Summary
+
+完成 Codex 邀请重置弹窗过期时间展示：后端透传并规范化 reset credit 的 granted_at/expires_at，前端类型与弹窗展示同步，补充中英文文案、前后端测试与后端协议适配 spec；check-all 与推送已完成。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9d52416` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
