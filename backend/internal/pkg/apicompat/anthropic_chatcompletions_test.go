@@ -464,6 +464,18 @@ func TestFinalizeChatCompletionsAnthropicStream_ReasoningOnlyFallback(t *testing
 	assert.Equal(t, "end_turn", md.Delta.StopReason)
 }
 
+func TestFinalizeChatCompletionsAnthropicStream_EmptyStreamFramesMessage(t *testing.T) {
+	st := NewChatCompletionsToAnthropicStreamState("m")
+	fin := FinalizeChatCompletionsAnthropicStream(st)
+
+	require.Len(t, fin, 3)
+	assert.Equal(t, "message_start", fin[0].Type)
+	assert.Equal(t, "message_delta", fin[1].Type)
+	assert.Equal(t, "message_stop", fin[2].Type)
+	require.NotNil(t, fin[1].Delta)
+	assert.Equal(t, "end_turn", fin[1].Delta.StopReason)
+}
+
 // ---------------------------------------------------------------------------
 // ChatCompletionsStreamToAnthropicResponse 同步折叠路径测试
 // ---------------------------------------------------------------------------

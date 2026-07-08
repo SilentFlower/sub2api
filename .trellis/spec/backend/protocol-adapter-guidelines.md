@@ -40,6 +40,7 @@
   id = "toolu_" + hex(sha256(seed) 前 12 bytes)
   ```
 - 流式响应中，如果缺失 `tool_call.id` 或 function name，先累积 pending tool call，不发送空 id、空 name 或随机 id 的 `tool_use` block。上游后续 chunk 补 id 时使用上游 id；始终不补 id 时，在 finalize 阶段用完整 arguments 生成确定性 fallback。
+- 上游正常结束但只返回 `[DONE]`、没有任何 Chat chunk 时，finalize 仍必须输出完整 Anthropic frame：`message_start`、`message_delta`、`message_stop`。不能因为未见 chunk 就返回空流，否则 Anthropic 客户端会把一次正常空回答误判为协议中断。
 - usage 映射保持 Anthropic 语义：`cache_read_input_tokens = prompt_tokens_details.cached_tokens`，`input_tokens = max(prompt_tokens - cached_tokens, 0)`。
 - `/v1/messages` 账号粘性 key 优先级必须是：显式 `session_id` / `conversation_id` / `prompt_cache_key` > Anthropic `metadata.user_id` > content fallback。`metadata.user_id` 只用于账号 sticky，不直接作为上游 `prompt_cache_key`，避免固定上游缓存键压住后续 turn 的缓存滚动。
 
@@ -54,6 +55,7 @@
 - tool messages 中间出现普通 user/text message -> 不跨 message 重排，避免改变用户轮次语义。
 - Chat tool delta 缺 id 但已有 name/args -> pending；finalize 时生成确定性 fallback id。
 - Chat tool delta 缺 name 到 finalize -> 无法构造合法 Anthropic `tool_use`，跳过该 pending tool call。
+- 上游 SSE 只返回 `data: [DONE]` 且没有 chunk -> 输出 `message_start`、`message_delta(stop_reason=end_turn)`、`message_stop`。
 - Chat usage cached tokens 大于 prompt tokens -> Anthropic `input_tokens` 归零，不产生负数。
 - `thinking.type == "disabled"` -> 输出 Chat `thinking.type=disabled`，且 `reasoning_effort` 必须为空。
 - Anthropic body 含 `metadata.user_id` 且无显式 session 信号 -> 账号 sticky key 来自 `reqModel + "-" + metadata.user_id`，不被 model/tools/首条 user content fallback 覆盖。
@@ -64,6 +66,7 @@
 - Good: 同一 Anthropic 历史 replay 转出的 Chat messages 在单 text、多 text、多模态之间都保持 `content` array 形态。
 - Good: Claude Code 每轮变化的 `x-anthropic-billing-header:` 不进入上游 Chat payload。
 - Good: 并行工具结果即使按完成时间反序返回，Chat payload 中紧跟 assistant 的 tool messages 仍按上一条 `tool_calls` 顺序稳定输出。
+- Good: 空但正常完成的上游 Chat SSE 仍给 Anthropic 客户端完整收尾 frame，客户端不会收到零字节成功响应。
 - Good: Claude Code 同一 `metadata.user_id` 即使首条用户内容或工具定义不同，账号 sticky key 仍稳定命中同一个账号绑定。
 - Base: 上游稳定返回 `tool_call.id`，桥接直接复用该 id，客户端下一轮 `tool_result.tool_use_id` 可稳定引用。
 - Base: 上游不返回 `tool_call.id`，相同 index/name/arguments 多次请求生成相同 `toolu_` fallback。
@@ -93,6 +96,7 @@
   - 多个并行 `tool_result` 反序到达时，输出顺序仍跟上一条 assistant `tool_calls` 一致。
   - 缺失上游 `tool_call.id` 时 fallback id 可重复。
   - 后续 chunk 才提供 `tool_call.id` 时，最终使用上游 id。
+  - 上游只返回 `[DONE]` 时，streaming 路径仍输出 `message_start`、`message_delta`、`message_stop`。
   - `thinking:{"type":"disabled"}` 透传，且不输出 `reasoning_effort`。
   - cached token usage 映射保持不变。
   - `/v1/messages` 账号 sticky：`metadata.user_id` 优先于 content fallback，显式 session 信号优先于 `metadata.user_id`。

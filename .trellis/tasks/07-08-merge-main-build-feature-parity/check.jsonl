@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "检查 apicompat、OpenAI Messages raw Chat fallback、Codex reset 是否满足已记录契约。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查 migration 文件是否遵守不可修改、命名和执行顺序约束。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "检查账号弹窗、i18n 和前端类型是否符合组件与文案规范。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查设置字段、account extra、API DTO、前端组件和 i18n 是否跨层闭环。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "检查合并结果是否误恢复旧大文件或重复实现 main 已拆分 helper。"}

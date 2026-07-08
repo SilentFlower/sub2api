@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type GrokMediaEndpoint string
@@ -296,6 +297,10 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
+	body, contentType, err = normalizeGrokMediaForwardBody(endpoint, body, contentType)
+	if err != nil {
+		return nil, err
+	}
 
 	var bodyReader io.Reader
 	if endpoint.RequiresRequestBody() {
@@ -424,6 +429,41 @@ func prepareGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, conten
 	return out, "application/json", nil
 }
 
+func normalizeGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, contentType string) ([]byte, string, error) {
+	if !endpoint.RequiresRequestBody() || !gjson.ValidBytes(body) {
+		return body, contentType, nil
+	}
+	info := ParseGrokMediaRequest(contentType, body)
+	upstreamModel := normalizeGrokMediaModelForEndpoint(endpoint, info.Model, info.HasInputImage())
+	if upstreamModel == "" || upstreamModel == info.Model {
+		return body, contentType, nil
+	}
+	out, err := sjson.SetBytes(body, "model", upstreamModel)
+	if err != nil {
+		return nil, "", fmt.Errorf("rewrite grok media model: %w", err)
+	}
+	return out, contentType, nil
+}
+
+func (r GrokMediaRequestInfo) HasInputImage() bool {
+	return len(r.InputImageURLs) > 0 || len(r.Uploads) > 0
+}
+
+func normalizeGrokMediaModelForEndpoint(endpoint GrokMediaEndpoint, model string, hasInputImage bool) string {
+	model = strings.TrimSpace(model)
+	switch endpoint {
+	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits:
+		if model == "grok-imagine" {
+			return "grok-imagine-image-quality"
+		}
+	case GrokMediaEndpointVideosGenerations:
+		if model == "grok-imagine-video-1.5" && !hasInputImage {
+			return "grok-imagine-video"
+		}
+	}
+	return model
+}
+
 type grokMediaUsageMetadata struct {
 	ResponseID       string
 	Usage            OpenAIUsage
@@ -451,6 +491,7 @@ func grokMediaUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMedi
 		meta.ImageOutputSizes = collectOpenAIResponseImageOutputSizesFromJSONBytes(responseBody)
 	case GrokMediaEndpointVideosGenerations:
 		meta.ResponseID = extractGrokMediaVideoRequestID(responseBody)
+		// Video generation is one billable media unit; the legacy usage schema stores it in ImageCount.
 		meta.ImageCount = 1
 		meta.ImageSize = requestInfo.SizeTier
 		meta.ImageInputSize = requestInfo.Size

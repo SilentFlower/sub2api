@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "Anthropic Messages 到 OpenAI Chat Completions 直连桥接和 Codex reset 元数据投影的实现契约。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "合并 main 后需要检查 SQL migration 编号、排序和不可修改已应用迁移的约束。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "前端账号表单、i18n 模块迁移和 snake_case API 字段保持一致。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨 API、service、handler、前端组件、i18n 和迁移，需要按跨层数据流检查。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "main 已拆分大量复用 helper，迁移 build 功能时需要避免重复实现。"}

@@ -503,10 +503,11 @@ func ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatC
 // FinalizeChatCompletionsAnthropicStream 关闭尚未结束的 block，并发出终止
 // message_delta + message_stop event。该函数只应调用一次。
 func FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent {
-	if s == nil || !s.started || s.stopped {
+	if s == nil || s.stopped {
 		return nil
 	}
 	var events []AnthropicStreamEvent
+	events = append(events, s.ensureStart()...)
 	events = append(events, s.closeBlock()...)
 	events = append(events, s.flushPendingToolCalls()...)
 
