@@ -55,7 +55,12 @@ frontend/
 - 跨组件状态放 `src/stores/`，局部交互状态留在组件或 composable。
 - 可复用组合式逻辑放 `src/composables/use*.ts`。
 - 纯函数放 `src/utils/`，对应测试放 `src/utils/__tests__/`。
-- 国际化文案放 `src/i18n/locales/en.ts` 和 `src/i18n/locales/zh.ts`。
+- 国际化文案放 `src/i18n/locales/{en,zh}/**` 的模块化文件中。按业务域选择模块：
+  - 后台账号管理：`src/i18n/locales/{en,zh}/admin/accounts.ts`
+  - 后台设置：`src/i18n/locales/{en,zh}/admin/settings.ts`
+  - 公共导航/按钮：`src/i18n/locales/{en,zh}/common.ts`
+- 新增或迁移 i18n key 时，中英文模块必须同步同名路径；不要重新创建旧的
+  `src/i18n/locales/en.ts` / `src/i18n/locales/zh.ts` 大文件。
 
 ---
 

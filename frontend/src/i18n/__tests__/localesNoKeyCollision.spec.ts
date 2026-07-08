@@ -41,6 +41,13 @@ function collisions(modules: Modules): string[] {
   return out
 }
 
+function getPath(root: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, part) => {
+    if (!current || typeof current !== 'object') return undefined
+    return (current as Record<string, unknown>)[part]
+  }, root)
+}
+
 const roots: Record<string, Modules> = {
   zh: { landing: zhLanding, common: zhCommon, dashboard: zhDashboard, misc: zhMisc },
   en: { landing: enLanding, common: enCommon, dashboard: enDashboard, misc: enMisc }
@@ -78,5 +85,14 @@ describe.each(Object.keys(roots))('locale %s spread assembly', (locale) => {
 
   it('admin modules have no overlapping top-level keys', () => {
     expect(collisions(admins[locale])).toEqual([])
+  })
+})
+
+describe('OpenAI Codex reset locale coverage', () => {
+  it('模块化账号文案包含 Codex 邀请弹窗的中英文 key', () => {
+    expect(getPath(enAdminAccounts, 'accounts.openaiCodexReset.title')).toBe('Codex Invite Reset')
+    expect(getPath(enAdminAccounts, 'accounts.openaiCodexReset.sendInvite')).toBe('Send invites')
+    expect(getPath(zhAdminAccounts, 'accounts.openaiCodexReset.title')).toBe('Codex 邀请重置')
+    expect(getPath(zhAdminAccounts, 'accounts.openaiCodexReset.sendInvite')).toBe('发送邀请')
   })
 })

@@ -86,8 +86,14 @@ const { t } = useI18n()
 
 模板中使用 `t('key.path')`。新增文案必须同步更新：
 
-- `frontend/src/i18n/locales/en.ts`
-- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en/**`
+- `frontend/src/i18n/locales/zh/**`
+
+文案应放到业务归属模块中，例如账号管理文案放
+`frontend/src/i18n/locales/{en,zh}/admin/accounts.ts`。从旧大文件迁移或合并
+i18n 时，必须逐个确认组件使用的 `t('...')` key 已在中英文同名路径下存在；
+关键弹窗或菜单 key 应补 `frontend/src/i18n/__tests__/localesNoKeyCollision.spec.ts`
+或相邻组件测试，防止缺失后回退到英文或 key path。
 
 不要在组件中硬编码新的用户可见中文或英文，除非该内容是外部数据或调试信息。
 

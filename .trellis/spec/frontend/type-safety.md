@@ -77,4 +77,4 @@ return data
 - 不要用类型断言绕过后端字段不存在的问题。
 - 不要把后端 snake_case 字段随意改成 camelCase 后再传回 API。
 - 不要使用未在 `tsconfig` alias 中定义的路径别名。
-- 不要新增未同步到 `en.ts` / `zh.ts` 的 i18n key。
+- 不要新增未同步到 `src/i18n/locales/{en,zh}/**` 对应模块的 i18n key。
