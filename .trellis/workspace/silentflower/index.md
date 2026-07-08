@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
-- **Last Active**: 2026-07-06
+- **Total Sessions**: 6
+- **Last Active**: 2026-07-08
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~173 | Active |
+| `journal-1.md` | ~208 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-07-08 | 合并 main 到 build 并保留功能 | `ac3dc0dd`, `7e3b32af`, `74d2b819` | `build` |
 | 5 | 2026-07-06 | 显示 Codex 邀请重置过期时间 | `c9d52416` | `build` |
 | 4 | 2026-07-03 | OpenAI 生图设置可配置化 | `524b9b7a` | `build` |
 | 3 | 2026-06-17 | OpenAI OAuth Codex 自定义 UA 放行规则 | `416943fe` | `build` |

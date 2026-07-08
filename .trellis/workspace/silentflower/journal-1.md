@@ -171,3 +171,38 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: 合并 main 到 build 并保留功能
+
+**Date**: 2026-07-08
+**Task**: 合并 main 到 build 并保留功能
+**Branch**: `build`
+
+### Summary
+
+合并 origin/main 到 build，迁移 OpenAI/Messages/Gateway 与设置拆分，保留 build 的 Anthropic Chat 直连桥接、Codex custom User-Agent、Codex reset 和 OpenAI 生图设置；修复 Codex 邀请弹窗 i18n 漏迁移，并补齐 Codex 导入测试构造参数以恢复后端全量 unit。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac3dc0dd` | (see git log) |
+| `7e3b32af` | (see git log) |
+| `74d2b819` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
