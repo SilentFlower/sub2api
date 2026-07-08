@@ -24,10 +24,10 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-08T15:25:15+08:00",
+    "snapshot_at": "2026-07-08T18:10:22+08:00",
     "branch": "build",
     "pushed_commits": {
-      "root": "ac3dc0dd"
+      "root": "7e3b32af"
     },
     "push_mode": "push",
     "completed_steps": [
@@ -36,9 +36,10 @@
       "补齐后端 service/handler/settings 拆分适配与前端账号表单兼容",
       "完成后端和前端重点验证命令",
       "更新 backend protocol/error-handling code-spec",
-      "已推送 merge commit 到 origin/build"
+      "已推送 merge commit 到 origin/build",
+      "修复 Codex 邀请弹窗 i18n 漏迁移并推送到 origin/build"
     ],
     "next_step": "运行 finish-work 收尾并归档任务",
-    "notes": "migration 编号 158 与 160 存在重复历史风险，本轮按决策不改已发布 SQL，仅记录风险。"
+    "notes": "migration 编号 158 与 160 存在重复历史风险，本轮按决策不改已发布 SQL，仅记录风险。本轮补充修复 Codex 邀请弹窗 i18n 漏迁移，避免中文环境 fallback 到英文。"
   }
 }
