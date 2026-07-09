@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-07-08
+- **Total Sessions**: 8
+- **Last Active**: 2026-07-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~243 | Active |
+| `journal-1.md` | ~276 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-09 | Grok messages force chat completions | `421df83b` | `build` |
 | 7 | 2026-07-08 | 对齐 CLIProxyAPI 的 Anthropic Chat 桥接 | `014d69de`, `d6d3f1bf`, `8f070522` | `build` |
 | 6 | 2026-07-08 | 合并 main 到 build 并保留功能 | `ac3dc0dd`, `7e3b32af`, `74d2b819` | `build` |
 | 5 | 2026-07-06 | 显示 Codex 邀请重置过期时间 | `c9d52416` | `build` |

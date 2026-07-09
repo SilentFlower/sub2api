@@ -241,3 +241,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Grok messages force chat completions
+
+**Date**: 2026-07-09
+**Task**: Grok messages force chat completions
+**Branch**: `build`
+
+### Summary
+
+完成 Grok /v1/messages 强制 Chat Completions：后端按 openai_responses_mode 显式分流到 xAI /chat/completions，前端创建/编辑页支持配置并保留 extra，补充后端/前端测试与协议适配 spec。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `421df83b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
