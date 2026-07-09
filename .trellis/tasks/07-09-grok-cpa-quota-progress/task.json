@@ -24,10 +24,10 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-09T16:55:49Z",
+    "snapshot_at": "2026-07-09T17:16:50Z",
     "branch": "build",
     "pushed_commits": {
-      "root": "cbd34d3a"
+      "root": "a328495d"
     },
     "push_mode": "push",
     "completed_steps": [
@@ -36,6 +36,6 @@
       "Phase 3.3 Spec update（本轮无需新增）"
     ],
     "next_step": "Phase 3.5 Wrap-up reminder",
-    "notes": "业务提交 cbd34d3a 已推送 origin/build；Grok 套餐额度 UI 已改为默认摘要行，点击展开详情，并通过前端测试、typecheck、lint 和 diff 检查。"
+    "notes": "业务提交 a328495d 已推送 origin/build；Grok 套餐额度默认展示已调整为月额度/周额度紧凑进度条，展开按钮显示完整详情，并通过前端测试、typecheck、lint 和 diff 检查。"
   }
 }
