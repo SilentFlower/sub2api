@@ -1,33 +1,15 @@
 <template>
-  <div v-if="visible" class="space-y-1">
-    <div class="flex max-w-[240px] items-center gap-1.5">
+  <div v-if="visible" class="max-w-[240px] space-y-1">
+    <div class="flex items-center gap-1.5">
+      <span class="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+        {{ t('admin.accounts.usageWindow.grokBillingTitle') }}
+      </span>
+      <span v-if="planLabel" class="min-w-0 truncate text-[9px] text-gray-500 dark:text-gray-400">
+        {{ planLabel }}
+      </span>
       <button
         type="button"
-        data-testid="grok-billing-toggle"
-        class="group inline-flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/60"
-        :title="expandTitle"
-        :aria-expanded="expanded"
-        @click="expanded = !expanded"
-      >
-        <span class="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-          {{ t('admin.accounts.usageWindow.grokBillingTitle') }}
-        </span>
-        <span :class="['min-w-0 truncate text-[10px]', summaryTextClass]">
-          {{ summaryLabel }}
-        </span>
-        <svg
-          class="h-3 w-3 shrink-0 text-gray-400 transition-transform group-hover:text-gray-600 dark:text-gray-500 dark:group-hover:text-gray-300"
-          :class="{ 'rotate-180': expanded }"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+        class="ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
         :disabled="loading"
         :title="t('admin.accounts.usageWindow.grokBillingRefresh')"
         @click="refreshBilling(true)"
@@ -47,9 +29,61 @@
           />
         </svg>
       </button>
+      <button
+        type="button"
+        data-testid="grok-billing-toggle"
+        class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+        :title="expandTitle"
+        :aria-expanded="expanded"
+        @click="expanded = !expanded"
+      >
+        <svg
+          class="h-3 w-3 transition-transform"
+          :class="{ 'rotate-180': expanded }"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
     </div>
 
-    <div v-if="expanded && currentQuota" class="max-w-[240px] space-y-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/40">
+    <div v-if="currentQuota" class="space-y-1">
+      <div
+        v-for="row in compactRows"
+        :key="row.key"
+        class="flex items-center gap-1"
+      >
+        <span :class="['w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium', compactLabelClass(row.color)]">
+          {{ row.shortLabel }}
+        </span>
+        <div class="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+          <div
+            :class="['h-full transition-all duration-300', compactBarClass(row.usagePercent)]"
+            :style="{ width: barWidth(row.usagePercent) }"
+          ></div>
+        </div>
+        <span :class="['w-[32px] shrink-0 text-right text-[10px] font-medium', compactTextClass(row.usagePercent)]">
+          {{ formatUsedPercent(row.usagePercent) }}
+        </span>
+        <span v-if="row.resetAt" class="shrink-0 text-[10px] text-gray-400">
+          {{ formatCompactResetTime(row.resetAt) }}
+        </span>
+      </div>
+    </div>
+
+    <div v-else-if="loading" class="flex items-center gap-1">
+      <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+      <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+      <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+    </div>
+
+    <div v-else class="text-[10px] text-gray-500 dark:text-gray-400">
+      {{ t('admin.accounts.usageWindow.grokBillingEmpty') }}
+    </div>
+
+    <div v-if="expanded && currentQuota" class="space-y-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/40">
       <div v-if="monthlyRow" class="space-y-0.5">
         <div class="flex items-center justify-between gap-2 text-[10px]">
           <span class="font-medium text-gray-700 dark:text-gray-200">
@@ -79,17 +113,6 @@
         <div class="flex items-center justify-between gap-2 text-[10px]">
           <span class="text-gray-600 dark:text-gray-300">{{ weeklyRow.label }}</span>
           <span class="shrink-0 text-gray-500 dark:text-gray-400">{{ weeklyRow.meta }}</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <div class="h-1 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-            <div
-              :class="['h-full transition-all duration-300', barClass(weeklyRow.percent)]"
-              :style="{ width: barWidth(weeklyRow.percent) }"
-            ></div>
-          </div>
-          <span class="w-[34px] shrink-0 text-right text-[9px] text-gray-500 dark:text-gray-400">
-            {{ formatRemainingPercent(weeklyRow.percent) }}
-          </span>
         </div>
         <div v-if="weeklyRow.resetLabel" class="text-[9px] text-gray-400 dark:text-gray-500">
           {{ weeklyRow.resetLabel }}
@@ -150,9 +173,13 @@ type BillingQueueTask = () => void
 interface BillingRow {
   key: string
   label: string
+  shortLabel: string
   percent: number | null
+  usagePercent: number | null
   meta: string
+  resetAt?: string
   resetLabel?: string
+  color: 'indigo' | 'emerald'
 }
 
 const GROK_BILLING_CACHE_TTL = 30 * 60 * 1000
@@ -282,6 +309,19 @@ const remainingPercentFromAmount = (
   return clampPercent((remainingCents / limitCents) * 100)
 }
 
+const usedPercentFromAmount = (
+  usedCents: number | null | undefined,
+  limitCents: number | null | undefined
+): number | null => {
+  if (usedCents == null || limitCents == null || limitCents <= 0) return null
+  return clampPercent((usedCents / limitCents) * 100)
+}
+
+const usedPercentFromRemaining = (remainingPercent: number | null | undefined): number | null => {
+  const remaining = clampPercent(remainingPercent)
+  return remaining === null ? null : Math.max(0, 100 - remaining)
+}
+
 const formatCents = (cents: number | null | undefined): string => {
   if (cents == null || !Number.isFinite(cents)) return '--'
   return new Intl.NumberFormat(undefined, {
@@ -321,38 +361,90 @@ const barClass = (percent: number | null): string => {
   return 'bg-green-500'
 }
 
+const compactBarClass = (percent: number | null): string => {
+  if (percent === null) return 'bg-gray-300 dark:bg-gray-600'
+  if (percent >= 100) return 'bg-red-500'
+  if (percent >= 80) return 'bg-amber-500'
+  return 'bg-green-500'
+}
+
+const compactTextClass = (percent: number | null): string => {
+  if (percent === null) return 'text-gray-500 dark:text-gray-400'
+  if (percent >= 100) return 'text-red-600 dark:text-red-400'
+  if (percent >= 80) return 'text-amber-600 dark:text-amber-400'
+  return 'text-gray-600 dark:text-gray-400'
+}
+
+const compactLabelClass = (color: BillingRow['color']): string => {
+  if (color === 'emerald') {
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+  }
+  return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+}
+
+const formatCompactResetTime = (value: string): string => {
+  const date = new Date(value)
+  const diffMs = date.getTime() - Date.now()
+  if (!Number.isFinite(diffMs) || diffMs <= 0) {
+    return t('usage.resetPending')
+  }
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+  if (diffHours >= 24) {
+    const days = Math.floor(diffHours / 24)
+    return `${days}d ${diffHours % 24}h`
+  }
+  if (diffHours > 0) {
+    return `${diffHours}h ${diffMins}m`
+  }
+  return `${diffMins}m`
+}
+
 const monthlyRow = computed<BillingRow | null>(() => {
   const quota = currentQuota.value
   if (!quota || (quota.monthly_limit_cents == null && quota.monthly_used_cents == null)) return null
-  const percent =
+  const remainingPercent =
     remainingPercentFromUsed(quota.monthly_used_percent) ??
     remainingPercentFromAmount(quota.monthly_remaining_cents, quota.monthly_limit_cents)
+  const usagePercent =
+    clampPercent(quota.monthly_used_percent) ??
+    usedPercentFromAmount(quota.monthly_used_cents, quota.monthly_limit_cents) ??
+    usedPercentFromRemaining(remainingPercent)
   const resetLabel = quota.billing_period_end
     ? t('admin.accounts.usageWindow.grokBillingReset', { time: formatRelativeTime(quota.billing_period_end) })
     : undefined
   return {
     key: 'monthly',
     label: t('admin.accounts.usageWindow.grokBillingMonthly'),
-    percent,
+    shortLabel: t('admin.accounts.usageWindow.grokBillingMonthlyShort'),
+    percent: remainingPercent,
+    usagePercent,
     meta: formatAmountPair(quota.monthly_remaining_cents, quota.monthly_limit_cents),
-    resetLabel
+    resetAt: quota.billing_period_end,
+    resetLabel,
+    color: 'indigo'
   }
 })
 
 const weeklyRow = computed<BillingRow | null>(() => {
   const quota = currentQuota.value
   if (!quota || quota.weekly_used_percent == null) return null
-  const percent = remainingPercentFromUsed(quota.weekly_used_percent)
+  const usagePercent = clampPercent(quota.weekly_used_percent)
+  const percent = remainingPercentFromUsed(usagePercent)
   return {
     key: 'weekly',
     label: t('admin.accounts.usageWindow.grokBillingWeekly'),
+    shortLabel: t('admin.accounts.usageWindow.grokBillingWeeklyShort'),
     percent,
+    usagePercent,
     meta: t('admin.accounts.usageWindow.grokBillingRemainingPercent', {
       percent: formatRemainingPercent(percent)
     }),
+    resetAt: quota.weekly_reset_at,
     resetLabel: quota.weekly_reset_at
       ? t('admin.accounts.usageWindow.grokBillingReset', { time: formatRelativeTime(quota.weekly_reset_at) })
-      : undefined
+      : undefined,
+    color: 'emerald'
   }
 })
 
@@ -364,10 +456,13 @@ const productRows = computed<BillingRow[]>(() => {
     return {
       key: `product-${item.product}`,
       label: t('admin.accounts.usageWindow.grokBillingProductUsage', { product: item.product }),
+      shortLabel: item.product,
       percent: remainingPercentFromUsed(item.usage_percent),
+      usagePercent: used,
       meta: t('admin.accounts.usageWindow.grokBillingUsedPercent', {
         percent: formatUsedPercent(used)
-      })
+      }),
+      color: 'emerald'
     }
   })
 })
@@ -381,8 +476,14 @@ const payAsYouGoRow = computed<BillingRow | null>(() => {
   return {
     key: 'pay-as-you-go',
     label: t('admin.accounts.usageWindow.grokBillingPayAsYouGo'),
+    shortLabel: t('admin.accounts.usageWindow.grokBillingPayAsYouGo'),
     percent,
-    meta: formatAmountPair(quota.on_demand_remaining_cents, quota.on_demand_cap_cents)
+    usagePercent:
+      clampPercent(quota.on_demand_used_percent) ??
+      usedPercentFromAmount(quota.on_demand_used_cents, quota.on_demand_cap_cents) ??
+      usedPercentFromRemaining(percent),
+    meta: formatAmountPair(quota.on_demand_remaining_cents, quota.on_demand_cap_cents),
+    color: 'emerald'
   }
 })
 
@@ -402,33 +503,8 @@ const statusLabel = computed(() => {
     : t('admin.accounts.usageWindow.grokBillingUpdated', { time })
 })
 
-const summarySegments = computed(() => {
-  const segments: string[] = []
-  if (planLabel.value) {
-    segments.push(planLabel.value)
-  }
-  if (monthlyRow.value) {
-    segments.push(`${monthlyRow.value.label} ${formatRemainingPercent(monthlyRow.value.percent)}`)
-  }
-  if (weeklyRow.value) {
-    segments.push(`${weeklyRow.value.label} ${formatRemainingPercent(weeklyRow.value.percent)}`)
-  }
-  if (currentQuota.value?.stale && statusLabel.value) {
-    segments.push(statusLabel.value)
-  }
-  return segments
-})
-
-const summaryLabel = computed(() => {
-  if (summarySegments.value.length > 0) return summarySegments.value.join(' · ')
-  if (loading.value) return t('common.loading')
-  return t('admin.accounts.usageWindow.grokBillingEmpty')
-})
-
-const summaryTextClass = computed(() => {
-  if (error.value) return 'text-red-600 dark:text-red-400'
-  if (!currentQuota.value) return 'text-gray-400 dark:text-gray-500'
-  return 'text-gray-500 dark:text-gray-400'
+const compactRows = computed(() => {
+  return [monthlyRow.value, weeklyRow.value].filter((row): row is BillingRow => row !== null)
 })
 
 const expandTitle = computed(() => {
