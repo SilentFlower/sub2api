@@ -439,6 +439,59 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('submits Grok OAuth Responses override mode without dropping existing extra', async () => {
+    const account = buildGrokOAuthAccount()
+    account.extra = {
+      email: 'grok@example.test',
+      grok_usage_snapshot: { remaining_requests: 9 },
+      quota_limit: 100
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    const select = wrapper.get<HTMLSelectElement>('[data-testid="openai-responses-mode-select"]')
+    expect(select.element.disabled).toBe(false)
+    expect(wrapper.find('[data-testid="openai-endpoint-capability-chat_completions"]').exists()).toBe(false)
+
+    await select.setValue('force_chat_completions')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_responses_mode).toBe('force_chat_completions')
+    expect(extra?.email).toBe('grok@example.test')
+    expect(extra?.grok_usage_snapshot).toEqual({ remaining_requests: 9 })
+    expect(extra?.quota_limit).toBe(100)
+  })
+
+  it('clears Grok OAuth Responses override when set back to auto and preserves extra', async () => {
+    const account = buildGrokOAuthAccount()
+    account.extra = {
+      email: 'grok@example.test',
+      grok_usage_snapshot: { remaining_requests: 9 },
+      openai_responses_mode: 'force_chat_completions'
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="openai-responses-mode-select"]').setValue('auto')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('openai_responses_mode')
+    expect(extra?.email).toBe('grok@example.test')
+    expect(extra?.grok_usage_snapshot).toEqual({ remaining_requests: 9 })
+  })
+
   it('only submits model mapping credentials when saving an OpenAI spark shadow account', async () => {
     authIsSimpleMode.value = false
     const account = buildOpenAISparkShadowAccount()

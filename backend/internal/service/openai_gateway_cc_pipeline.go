@@ -130,14 +130,27 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 	return buildOpenAIChatCompletionsURL(validatedURL), nil
 }
 
-// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
-func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
-	apiKey = account.GetOpenAIApiKey()
-	if apiKey == "" {
-		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
+// resolveCCFallbackTarget 解析 CC 回退路径共用的账号凭证与上游端点。
+func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, account *Account) (apiKey string, targetURL string, err error) {
+	if account == nil {
+		return "", "", errors.New("account is nil")
 	}
-	targetURL, err = s.openAIChatCompletionsTargetURL(account)
+	switch account.Platform {
+	case PlatformGrok:
+		apiKey, _, err = s.GetAccessToken(ctx, account)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(apiKey) == "" {
+			return "", "", fmt.Errorf("account %d missing grok credential", account.ID)
+		}
+	default:
+		apiKey = account.GetOpenAIApiKey()
+		if apiKey == "" {
+			return "", "", fmt.Errorf("account %d missing api_key", account.ID)
+		}
+	}
+	targetURL, err = s.rawChatCompletionsURL(account)
 	if err != nil {
 		return "", "", err
 	}

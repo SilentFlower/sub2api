@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "检查 raw Chat fallback 是否保持 Anthropic/Chat 协议互转契约。"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查新增或复用错误路径是否保持项目错误响应规范和敏感信息约束。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查前端保存 payload、类型和字段命名是否与后端一致。"}

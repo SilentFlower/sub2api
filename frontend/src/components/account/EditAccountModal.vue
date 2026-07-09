@@ -1555,9 +1555,9 @@
         </div>
       </div>
 
-      <!-- OpenAI APIKey Responses API support mode -->
+      <!-- OpenAI/Grok Responses API 路由模式 -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        v-if="canConfigureResponsesMode"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -1571,25 +1571,25 @@
             <Select
               v-model="openAIResponsesMode"
               :options="openAIResponsesModeOptions"
-              :disabled="!openAITextGenerationCapabilityEnabled"
+              :disabled="responsesModeSelectDisabled"
               data-testid="openai-responses-mode-select"
             />
           </div>
         </div>
         <div
-          v-if="openAITextGenerationCapabilityEnabled"
+          v-if="account?.platform === 'grok' || openAITextGenerationCapabilityEnabled"
           class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
         >
           <span class="font-medium">{{ t(openAIResponsesStatusKey) }}</span>
         </div>
         <div
-          v-else
+          v-else-if="account?.platform === 'openai'"
           class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
           data-testid="openai-responses-mode-not-applicable"
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </div>
-        <div>
+        <div v-if="account?.platform === 'openai' && account?.type === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label
@@ -2935,6 +2935,15 @@ const openAIEndpointCapabilityOptions = computed<{ value: OpenAIEndpointCapabili
 const openAITextGenerationCapabilityEnabled = computed(() =>
   openAIEndpointCapabilities.value.includes('chat_completions')
 )
+const canConfigureResponsesMode = computed(() =>
+  (props.account?.platform === 'openai' && props.account?.type === 'apikey') ||
+  (props.account?.platform === 'grok' && (props.account?.type === 'oauth' || props.account?.type === 'apikey'))
+)
+const responsesModeSelectDisabled = computed(() =>
+  props.account?.platform === 'openai' &&
+  props.account?.type === 'apikey' &&
+  !openAITextGenerationCapabilityEnabled.value
+)
 
 const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
   const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings']
@@ -3266,6 +3275,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     if (compactMappings && typeof compactMappings === 'object') {
       openAICompactModelMappings.value = Object.entries(compactMappings).map(([from, to]) => ({ from, to }))
     }
+  }
+  if (newAccount.platform === 'grok' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
+    openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
   }
   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
@@ -4450,6 +4462,18 @@ const handleSubmit = async () => {
         )
       }
 
+      updatePayload.extra = newExtra
+    }
+
+    // Grok 复用 OpenAI Responses 路由覆盖键，仅增删该键，避免覆盖 OAuth 额度快照等 extra 信息。
+    if (props.account.platform === 'grok' && (props.account.type === 'oauth' || props.account.type === 'apikey')) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (openAIResponsesMode.value === 'auto') {
+        delete newExtra.openai_responses_mode
+      } else {
+        newExtra.openai_responses_mode = openAIResponsesMode.value
+      }
       updatePayload.extra = newExtra
     }
 

@@ -2908,9 +2908,9 @@
         </div>
       </div>
 
-      <!-- OpenAI APIKey Responses API support mode -->
+      <!-- OpenAI/Grok Responses API 路由模式 -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        v-if="canConfigureResponsesMode"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2924,19 +2924,19 @@
             <Select
               v-model="openAIResponsesMode"
               :options="openAIResponsesModeOptions"
-              :disabled="!openAITextGenerationCapabilityEnabled"
+              :disabled="responsesModeSelectDisabled"
               data-testid="openai-responses-mode-select"
             />
           </div>
         </div>
         <p
-          v-if="!openAITextGenerationCapabilityEnabled"
+          v-if="form.platform === 'openai' && !openAITextGenerationCapabilityEnabled"
           class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
           data-testid="openai-responses-mode-not-applicable"
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </p>
-        <div>
+        <div v-if="form.platform === 'openai' && accountCategory === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label
@@ -3754,6 +3754,15 @@ const openAIEndpointCapabilityOptions = computed<{ value: OpenAIEndpointCapabili
 const openAITextGenerationCapabilityEnabled = computed(() =>
   openAIEndpointCapabilities.value.includes('chat_completions')
 )
+const canConfigureResponsesMode = computed(() =>
+  (form.platform === 'openai' && accountCategory.value === 'apikey') ||
+  (form.platform === 'grok' && (accountCategory.value === 'oauth-based' || accountCategory.value === 'apikey'))
+)
+const responsesModeSelectDisabled = computed(() =>
+  form.platform === 'openai' &&
+  accountCategory.value === 'apikey' &&
+  !openAITextGenerationCapabilityEnabled.value
+)
 
 const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
   const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings']
@@ -4113,6 +4122,9 @@ watch(
     }
     if (newPlatform !== 'openai') {
       openaiPassthroughEnabled.value = false
+      if (newPlatform !== 'grok') {
+        openAIResponsesMode.value = 'auto'
+      }
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -4585,6 +4597,14 @@ const handleClose = () => {
   emit('close')
 }
 
+const applyResponsesModeExtra = (extra: Record<string, unknown>, enabled = true) => {
+  if (enabled && openAIResponsesMode.value !== 'auto') {
+    extra.openai_responses_mode = openAIResponsesMode.value
+    return
+  }
+  delete extra.openai_responses_mode
+}
+
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
   if (form.platform !== 'openai') {
     return base
@@ -4634,15 +4654,22 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     delete extra.openai_compact_mode
   }
 
-  if (
-    accountCategory.value === 'apikey' &&
-    openAITextGenerationCapabilityEnabled.value &&
-    openAIResponsesMode.value !== 'auto'
-  ) {
-    extra.openai_responses_mode = openAIResponsesMode.value
-  } else {
-    delete extra.openai_responses_mode
+  applyResponsesModeExtra(extra, accountCategory.value === 'apikey' && openAITextGenerationCapabilityEnabled.value)
+
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+const buildGrokExtra = (
+  base?: Record<string, unknown>,
+  platform: AccountPlatform = form.platform,
+  type: AccountType = form.type
+): Record<string, unknown> | undefined => {
+  if (platform !== 'grok' || (type !== 'oauth' && type !== 'apikey')) {
+    return base
   }
+
+  const extra: Record<string, unknown> = { ...(base || {}) }
+  applyResponsesModeExtra(extra)
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }
@@ -4975,7 +5002,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = buildAnthropicExtra(buildGrokExtra(buildOpenAIExtra()))
 
   await doCreateAccount({
     ...form,
@@ -5085,6 +5112,7 @@ const createAccountAndFinish = async (
     }
   }
   if (platform === 'grok') {
+    finalExtra = buildGrokExtra(finalExtra, platform, type)
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
@@ -5146,7 +5174,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         }
 
         const credentials = grokOAuth.buildCredentials(tokenInfo)
-        const extra = grokOAuth.buildExtraInfo(tokenInfo)
+        const extra = buildGrokExtra(grokOAuth.buildExtraInfo(tokenInfo), 'grok', 'oauth')
         const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
 
         const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)

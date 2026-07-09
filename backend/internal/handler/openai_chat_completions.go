@@ -337,15 +337,21 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 }
 
-// resolveOpenAIUpstreamEndpoint returns the actual upstream endpoint for an
-// OpenAI account, used by every OpenAI usage-recording site. APIKey accounts
-// whose upstream is forced or probed to not support the Responses API are
-// served directly via /v1/chat/completions (the raw chat path) regardless of
-// the inbound endpoint; everything else goes through the Responses API.
+// resolveOpenAIUpstreamEndpoint 返回实际上游端点，供 OpenAI/Grok usage 记录使用。
 func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account) string {
-	if account != nil && account.Type == service.AccountTypeAPIKey &&
+	if account == nil {
+		return GetUpstreamEndpoint(c, "")
+	}
+	inbound := GetInboundEndpoint(c)
+	if account.Platform == service.PlatformGrok && inbound == EndpointChatCompletions {
+		return EndpointChatCompletions
+	}
+	if inbound == EndpointMessages && service.ShouldForwardAnthropicMessagesViaRawChatCompletions(account) {
+		return EndpointChatCompletions
+	}
+	if account.Platform == service.PlatformOpenAI && account.Type == service.AccountTypeAPIKey &&
 		!openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return "/v1/chat/completions"
+		return EndpointChatCompletions
 	}
 	return GetUpstreamEndpoint(c, account.Platform)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -101,11 +102,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		zap.Bool("stream", clientStream),
 	)
 
-	apiKey, targetURL, err := s.resolveCCFallbackTarget(account)
+	apiKey, targetURL, err := s.resolveCCFallbackTarget(ctx, account)
 	if err != nil {
 		return nil, err
 	}
 	customUA := account.GetOpenAIUserAgent()
+	if customUA == "" && account.Platform == PlatformGrok {
+		customUA = "sub2api-grok/1.0"
+	}
 	upstreamDebug := map[string]string{
 		"account":        fmt.Sprintf("%d(%s)", account.ID, account.Name),
 		"account_type":   string(account.Type),
@@ -137,10 +141,35 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if account.Platform == PlatformGrok {
+			s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
+				Kind:               "failover",
+				Message:            upstreamMsg,
+			})
+			s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			if s.shouldFailoverUpstreamError(resp.StatusCode) {
+				return nil, &UpstreamFailoverError{
+					StatusCode:             resp.StatusCode,
+					ResponseBody:           respBody,
+					RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				}
+			}
+			return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
 		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
+	}
+
+	if account.Platform == PlatformGrok {
+		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 	}
 
 	if clientStream {
@@ -185,7 +214,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
+	requestID := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
 	state := apicompat.NewChatCompletionsToAnthropicStreamState(originalModel)
@@ -273,7 +302,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
+	requestID := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
 	var chunks []*apicompat.ChatCompletionsChunk
 
 	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {

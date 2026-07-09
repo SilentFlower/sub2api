@@ -144,6 +144,154 @@ typed content part array 是该桥接路径的稳定输出形态。
 
 ---
 
+## Scenario: Grok `/v1/messages` 强制 Chat Completions 路由覆盖
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 Grok 账号在 OpenAI 兼容 `/v1/messages` 入站下的 Responses / Chat Completions 分流、`extra.openai_responses_mode` 保存逻辑、raw Chat fallback 凭据解析或 usage upstream endpoint 记录时，必须按本节检查。
+- 适用后端路径：
+  - `backend/internal/service/openai_gateway_messages.go`
+  - `backend/internal/service/openai_gateway_cc_pipeline.go`
+  - `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+  - `backend/internal/handler/openai_chat_completions.go`
+- 适用前端路径：
+  - `frontend/src/components/account/CreateAccountModal.vue`
+  - `frontend/src/components/account/EditAccountModal.vue`
+- 目标：只在管理员显式设置 `extra.openai_responses_mode="force_chat_completions"` 时让 Grok `/v1/messages` 走 xAI `/chat/completions`；默认、`auto` 和 `force_responses` 必须保持现有 `/responses` 行为。
+
+### 2. Signatures
+
+- 分流判断：
+  ```go
+  func ShouldForwardAnthropicMessagesViaRawChatCompletions(account *Account) bool
+  ```
+- raw Chat fallback 目标解析：
+  ```go
+  func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, account *Account) (apiKey string, targetURL string, err error)
+  ```
+- usage endpoint 记录：
+  ```go
+  func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account) string
+  ```
+- 前端 extra 写入必须保持字段名和值：
+  ```typescript
+  type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
+  extra.openai_responses_mode?: OpenAIResponsesMode
+  ```
+
+### 3. Contracts
+
+- Grok 分流只接受 `platform="grok"` 且 `type` 为 `oauth` 或 `apikey` 的账号；其它 Grok 类型即使带 `force_chat_completions` 也不进入 raw Chat fallback。
+- Grok 只响应显式 `openai_responses_mode="force_chat_completions"`：
+  - 字段缺失、非法值、`auto`、`force_responses` -> 继续走 `/responses`。
+  - `force_chat_completions` -> `ForwardAsAnthropic` 调用 `forwardAnthropicViaRawChatCompletions`。
+- OpenAI APIKey 原契约不变：仍按 `!openai_compat.ShouldUseResponsesAPI(account.Extra)` 决定是否走 raw Chat fallback。
+- Grok raw Chat fallback 凭据必须通过 `GetAccessToken(ctx, account)` 获取：
+  - OAuth 使用有效 access token。
+  - APIKey 使用 `api_key`。
+  - 空凭据返回错误，不应构造无鉴权上游请求。
+- Grok raw Chat fallback URL 必须来自账号 Grok base URL 的 `/chat/completions`，不要复用 OpenAI APIKey 专用 URL 构造。
+- Grok raw Chat fallback 成功或上游错误后都应更新 xAI quota snapshot；错误路径应继续走 Grok 上游错误处理和 failover 语义。
+- usage/upstream endpoint 记录必须反映实际路径：
+  - Grok `/v1/messages` + `force_chat_completions` -> `/v1/chat/completions`。
+  - Grok `/v1/messages` + 默认/`auto` -> `/v1/responses`。
+  - Grok 原生 `/v1/chat/completions` -> `/v1/chat/completions`。
+- 前端创建/编辑 Grok 账号时，保存 `openai_responses_mode` 必须基于现有 `extra` 复制后只增删该键，保留 `email`、`grok_usage_snapshot`、`quota_*`、限额和通知配置等其它键。
+
+### 4. Validation & Error Matrix
+
+- `account == nil` -> 分流判断返回 false；usage endpoint 退回入站端点推导。
+- `platform=grok,type=oauth,extra.openai_responses_mode` 缺失 -> `/v1/messages` 走 `/responses`。
+- `platform=grok,type=oauth,extra.openai_responses_mode="auto"` -> `/v1/messages` 走 `/responses`。
+- `platform=grok,type=oauth,extra.openai_responses_mode="force_responses"` -> `/v1/messages` 走 `/responses`。
+- `platform=grok,type=oauth,extra.openai_responses_mode="force_chat_completions"` -> `/v1/messages` 走 `/chat/completions`，Authorization 使用 OAuth access token。
+- `platform=grok,type=apikey,extra.openai_responses_mode="force_chat_completions"` -> `/v1/messages` 走 `/chat/completions`，Authorization 使用 API key。
+- Grok `force_chat_completions` 但 token/APIKey 为空 -> 返回缺失凭据错误，不发送上游请求。
+- Grok raw Chat 上游返回 `xai-request-id` 而非 `x-request-id` -> request id 和 ops 事件应使用 `xai-request-id`。
+- 前端选择 `auto` -> payload `extra` 删除 `openai_responses_mode`，其它 `extra` 键保持。
+- 前端选择 `force_chat_completions` -> payload `extra.openai_responses_mode` 写入该值，且不显示 OpenAI APIKey endpoint capabilities 复选项给 Grok。
+
+### 5. Good/Base/Bad Cases
+
+- Good: Grok OAuth 账号 `extra` 中已有 `grok_usage_snapshot` 和 `email`，编辑页选择 `force_chat_completions` 后 payload 仍保留这些键，只新增 `openai_responses_mode`。
+- Good: Grok `/v1/messages` 强制 Chat 的非流式下游响应仍是 Anthropic Messages JSON，流式下游响应仍是 Anthropic SSE frame。
+- Base: Grok 未配置 `openai_responses_mode` 的存量账号继续走 `/responses`，不受 OpenAI APIKey 探测字段影响。
+- Base: OpenAI APIKey raw Chat fallback 行为保持不变，可继续使用 `openai_responses_supported=false` 或显式 `force_chat_completions`。
+- Bad: 把 Grok `openai_responses_supported=false` 当作强制 Chat 信号，会让探测缓存误改 OAuth 账号默认路径。
+- Bad: 保存 Grok 设置时用新对象覆盖 `extra`，导致 `grok_usage_snapshot`、限额配置或邮箱丢失。
+- Bad: raw Chat fallback 里调用 `account.GetOpenAIApiKey()` 处理 Grok OAuth，会让 OAuth 账号无法进入 `/chat/completions`。
+
+### 6. Tests Required
+
+- 后端 service 单测至少覆盖：
+  - `ShouldForwardAnthropicMessagesViaRawChatCompletions` 对 OpenAI APIKey、Grok 缺省、Grok `auto`、Grok `force_responses`、Grok OAuth/APIKey `force_chat_completions` 的返回值。
+  - Grok OAuth `force_chat_completions`：`ForwardAsAnthropic` 上游 URL 是 xAI `/chat/completions`，Authorization 是 Bearer access token，下游仍是 Anthropic 兼容响应。
+  - Grok APIKey `force_chat_completions`：上游 URL 是 xAI `/chat/completions`，Authorization 是 Bearer API key。
+  - Grok 缺省或 `auto`：`ForwardAsAnthropic` 上游仍是 xAI `/responses`。
+- 后端 handler 单测至少覆盖：
+  - Grok `/v1/messages` + `force_chat_completions` usage endpoint 为 `/v1/chat/completions`。
+  - Grok `/v1/messages` + 缺省/`auto` usage endpoint 为 `/v1/responses`。
+  - Grok 原生 `/v1/chat/completions` usage endpoint 为 `/v1/chat/completions`。
+- 前端组件测试至少覆盖：
+  - Grok 编辑页显示 Responses 模式下拉，不显示 OpenAI endpoint capabilities 复选项。
+  - 写入 `force_chat_completions` 时保留既有 `extra`。
+  - 改回 `auto` 时删除 `openai_responses_mode` 且保留其它 `extra`。
+- 建议运行：
+  ```bash
+  cd backend && go test -tags=unit ./internal/service -run 'TestShouldForwardAnthropicMessagesViaRawChatCompletions|TestForwardAsAnthropic_.*Grok|TestForwardAsAnthropicForGrokUsesXAIResponses'
+  cd backend && go test -tags=unit ./internal/handler -run 'TestResolveOpenAIUpstreamEndpointForGrokMessagesForceChat'
+  cd frontend && pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts
+  cd frontend && pnpm typecheck
+  ```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+if account.Platform == PlatformGrok && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	return true
+}
+```
+
+问题：`ShouldUseResponsesAPI` 会读取 `openai_responses_supported=false`，这会把探测状态误当作 Grok OAuth 路由覆盖，破坏存量默认 `/responses` 行为。
+
+#### Correct
+
+```go
+mode, _ := account.Extra[openai_compat.ExtraKeyResponsesMode].(string)
+return openai_compat.NormalizeResponsesSupportMode(mode) ==
+	openai_compat.ResponsesSupportModeForceChatCompletions
+```
+
+Grok 只响应显式 `force_chat_completions`，其它状态保持 `/responses`。
+
+#### Wrong
+
+```typescript
+updatePayload.extra = {
+  openai_responses_mode: openAIResponsesMode.value
+}
+```
+
+问题：覆盖整个 `extra` 会丢失 `grok_usage_snapshot`、`email`、限额配置等运行态或管理员配置。
+
+#### Correct
+
+```typescript
+const newExtra: Record<string, unknown> = { ...currentExtra }
+if (openAIResponsesMode.value === 'auto') {
+  delete newExtra.openai_responses_mode
+} else {
+  newExtra.openai_responses_mode = openAIResponsesMode.value
+}
+updatePayload.extra = newExtra
+```
+
+只修改路由覆盖键，保留其它 `extra` 信息。
+
+---
+
 ## Scenario: OpenAI Codex reset credit 元数据投影
 
 ### 1. Scope / Trigger

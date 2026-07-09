@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "约束 Anthropic Messages 与 Chat Completions 直连桥接的 payload 稳定性、tool 映射和 usage 语义。"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "约束后端 API 错误响应和外部协议错误格式，避免新增分流时泄露敏感信息。"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "约束前端 API 类型和 snake_case 字段处理，避免保存 extra 时类型漂移。"}
