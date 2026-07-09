@@ -1,0 +1,44 @@
+{
+  "id": "grok-messages-force-chat-completions",
+  "name": "grok-messages-force-chat-completions",
+  "title": "Grok messages force chat completions",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-09T06:33:08Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "421df83b"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "后端分流",
+      "usage endpoint 修正",
+      "前端创建/编辑配置入口",
+      "后端与前端测试",
+      "typecheck/lint/check-all",
+      "spec update"
+    ],
+    "next_step": "Phase 3.5 wrap-up / finish-work",
+    "notes": "Grok OAuth/APIKey 在 extra.openai_responses_mode=force_chat_completions 时 /v1/messages 强制走 xAI /chat/completions；默认仍走 /responses。"
+  }
+}
