@@ -358,6 +358,7 @@ export default {
         openaiImageReasoningEffortMedium: 'medium',
         openaiImageReasoningEffortHigh: 'high',
         openaiImageReasoningEffortXHigh: 'xhigh',
+        openaiImageReasoningEffortMax: 'max',
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:

@@ -43,7 +43,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	derivedReasoningEffort := applyOpenAICompatModelNormalization(&anthropicReq)
 	clientStream := anthropicReq.Stream
 	debugLogGatewaySnapshot(&s.debugGatewayBodyFile, "CLIENT_ORIGINAL_MESSAGES_RAW_CHAT", c.Request.Header, body, map[string]string{
 		"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
@@ -56,6 +56,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
+	}
+	if derivedReasoningEffort != "" {
+		chatReq.ReasoningEffort = derivedReasoningEffort
 	}
 
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)

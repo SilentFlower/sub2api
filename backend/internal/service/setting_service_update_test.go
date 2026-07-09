@@ -440,12 +440,12 @@ func TestSettingService_UpdateSettings_OpenAIImageGenerationSettings(t *testing.
 	svc := NewSettingService(repo, &config.Config{})
 
 	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		OpenAIImageGenerationMainModel:       " gpt-5.4 ",
-		OpenAIImageGenerationReasoningEffort: "HIGH",
+		OpenAIImageGenerationMainModel:       " gpt-5.6-sol ",
+		OpenAIImageGenerationReasoningEffort: "MAX",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "gpt-5.4", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
-	require.Equal(t, "high", repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
+	require.Equal(t, "gpt-5.6-sol", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
+	require.Equal(t, "max", repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
 
 	err = svc.UpdateSettings(context.Background(), &SystemSettings{
 		OpenAIImageGenerationReasoningEffort: "invalid",
@@ -506,12 +506,12 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 func TestSettingService_GetOpenAIImageGenerationSettings(t *testing.T) {
 	t.Run("后台设置优先", func(t *testing.T) {
 		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
-			SettingKeyOpenAIImageGenerationMainModel:       " gpt-5.4 ",
-			SettingKeyOpenAIImageGenerationReasoningEffort: "xhigh",
+			SettingKeyOpenAIImageGenerationMainModel:       " gpt-5.6-sol ",
+			SettingKeyOpenAIImageGenerationReasoningEffort: "max",
 		}}, &config.Config{})
 
-		require.Equal(t, "gpt-5.4", svc.GetOpenAIImageGenerationMainModel(context.Background()))
-		require.Equal(t, "xhigh", svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
+		require.Equal(t, "gpt-5.6-sol", svc.GetOpenAIImageGenerationMainModel(context.Background()))
+		require.Equal(t, "max", svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
 	})
 
 	t.Run("空值回退默认值", func(t *testing.T) {

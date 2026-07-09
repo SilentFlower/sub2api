@@ -7952,6 +7952,10 @@ const openAIImageGenerationReasoningEffortOptions = computed(() => [
       "admin.settings.gatewayForwarding.openaiImageReasoningEffortXHigh",
     ),
   },
+  {
+    value: "max",
+    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortMax"),
+  },
 ]);
 
 function getClaudeOAuthPresetLabel(

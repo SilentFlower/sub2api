@@ -119,9 +119,9 @@ type UsageLog struct {
 	BillingMode *string
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string
-	// ReasoningEffort is the request's reasoning effort level.
-	// OpenAI: "low" / "medium" / "high" / "xhigh"; Claude: "low" / "medium" / "high" / "max".
-	// Nil means not provided / not applicable.
+	// ReasoningEffort 记录请求使用的推理强度。
+	// OpenAI："low" / "medium" / "high" / "xhigh" / "max"；Claude："low" / "medium" / "high" / "max"。
+	// nil 表示请求未提供或当前场景不适用。
 	ReasoningEffort *string
 	// InboundEndpoint is the client-facing API endpoint path, e.g. /v1/chat/completions.
 	InboundEndpoint *string

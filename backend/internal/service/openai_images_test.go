@@ -1588,12 +1588,12 @@ func TestBuildOpenAIImagesResponsesRequest_UsesConfiguredMainModelAndReasoningEf
 	}
 
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2", openAIImagesResponsesRequestOptions{
-		MainModel:       " gpt-5.4 ",
-		ReasoningEffort: "xhigh",
+		MainModel:       " gpt-5.6-sol ",
+		ReasoningEffort: "max",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "gpt-5.4", gjson.GetBytes(body, "model").String())
-	require.Equal(t, "xhigh", gjson.GetBytes(body, "reasoning.effort").String())
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "max", gjson.GetBytes(body, "reasoning.effort").String())
 }
 
 func TestBuildOpenAIImagesResponsesRequest_InvalidReasoningEffortFallsBack(t *testing.T) {

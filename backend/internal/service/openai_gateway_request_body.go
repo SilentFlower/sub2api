@@ -1147,7 +1147,7 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 		return ""
 	}
 
-	// Normalize separators for "x-high"/"x_high" variants.
+	// 统一 x-high、x_high 等分隔符写法，同时保留 max 独立档位。
 	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
 
 	switch value {
@@ -1155,8 +1155,10 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 		return ""
 	case "low", "medium", "high":
 		return value
-	case "xhigh", "extrahigh", "max":
+	case "xhigh", "extrahigh":
 		return "xhigh"
+	case "max":
+		return "max"
 	default:
 		// Only store known effort levels for now to keep UI consistent.
 		return ""

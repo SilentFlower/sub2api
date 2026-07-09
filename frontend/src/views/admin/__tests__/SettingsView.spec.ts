@@ -747,8 +747,8 @@ describe("admin SettingsView payment visible method controls", () => {
   it("submits OpenAI image generation gateway settings", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
-      openai_image_generation_main_model: "gpt-5.4",
-      openai_image_generation_reasoning_effort: "xhigh",
+      openai_image_generation_main_model: "gpt-5.6-sol",
+      openai_image_generation_reasoning_effort: "max",
     });
 
     const wrapper = mountView();
@@ -760,8 +760,8 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        openai_image_generation_main_model: "gpt-5.4",
-        openai_image_generation_reasoning_effort: "xhigh",
+        openai_image_generation_main_model: "gpt-5.6-sol",
+        openai_image_generation_reasoning_effort: "max",
       }),
     );
   });

@@ -76,6 +76,7 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 		want  string
 	}{
 		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
+		{name: "gpt 5.6 reasoning alias strips max", input: "gpt-5.6-sol-max", want: "gpt-5.6-sol"},
 		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
@@ -94,11 +95,23 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 	t.Run("derives xhigh from model suffix when output config missing", func(t *testing.T) {
 		req := &apicompat.AnthropicRequest{Model: "gpt-5.4-xhigh"}
 
-		applyOpenAICompatModelNormalization(req)
+		derivedEffort := applyOpenAICompatModelNormalization(req)
 
 		require.Equal(t, "gpt-5.4", req.Model)
 		require.NotNil(t, req.OutputConfig)
 		require.Equal(t, "max", req.OutputConfig.Effort)
+		require.Equal(t, "xhigh", derivedEffort)
+	})
+
+	t.Run("derives max from gpt 5.6 model suffix", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-5.6-sol-max"}
+
+		derivedEffort := applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-5.6-sol", req.Model)
+		require.NotNil(t, req.OutputConfig)
+		require.Equal(t, "max", req.OutputConfig.Effort)
+		require.Equal(t, "max", derivedEffort)
 	})
 
 	t.Run("explicit output config wins over model suffix", func(t *testing.T) {
@@ -107,80 +120,94 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 			OutputConfig: &apicompat.AnthropicOutputConfig{Effort: "low"},
 		}
 
-		applyOpenAICompatModelNormalization(req)
+		derivedEffort := applyOpenAICompatModelNormalization(req)
 
 		require.Equal(t, "gpt-5.4", req.Model)
 		require.NotNil(t, req.OutputConfig)
 		require.Equal(t, "low", req.OutputConfig.Effort)
+		require.Empty(t, derivedEffort)
 	})
 
 	t.Run("non openai model is untouched", func(t *testing.T) {
 		req := &apicompat.AnthropicRequest{Model: "claude-opus-4-6"}
 
-		applyOpenAICompatModelNormalization(req)
+		derivedEffort := applyOpenAICompatModelNormalization(req)
 
 		require.Equal(t, "claude-opus-4-6", req.Model)
 		require.Nil(t, req.OutputConfig)
+		require.Empty(t, derivedEffort)
 	})
 }
 
-func TestForwardAsAnthropic_NormalizesRoutingAndEffortForGpt54XHigh(t *testing.T) {
+func TestForwardAsAnthropic_NormalizesRoutingAndEffortFromModelSuffix(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.4-xhigh","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstreamBody := strings.Join([]string{
-		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","model":"gpt-5.4","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`,
-		"",
-		"data: [DONE]",
-		"",
-	}, "\n")
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_compat"}},
-		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-	}}
-
-	svc := &OpenAIGatewayService{
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-	account := &Account{
-		ID:          1,
-		Name:        "openai-oauth",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token":       "oauth-token",
-			"chatgpt_account_id": "chatgpt-acc",
-			"model_mapping": map[string]any{
-				"gpt-5.4": "gpt-5.4",
-			},
-		},
+	tests := []struct {
+		name            string
+		requestedModel  string
+		normalizedModel string
+		effort          string
+	}{
+		{name: "gpt 5.4 xhigh", requestedModel: "gpt-5.4-xhigh", normalizedModel: "gpt-5.4", effort: "xhigh"},
+		{name: "gpt 5.6 max", requestedModel: "gpt-5.6-sol-max", normalizedModel: "gpt-5.6-sol", effort: "max"},
 	}
 
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "gpt-5.4-xhigh", result.Model)
-	require.Equal(t, "gpt-5.4", result.UpstreamModel)
-	require.Equal(t, "gpt-5.4", result.BillingModel)
-	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "xhigh", *result.ReasoningEffort)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`, tt.requestedModel))
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
 
-	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "gpt-5.4-xhigh", gjson.GetBytes(rec.Body.Bytes(), "model").String())
-	require.Equal(t, "ok", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String())
-	t.Logf("upstream body: %s", string(upstream.lastBody))
-	t.Logf("response body: %s", rec.Body.String())
+			upstreamBody := strings.Join([]string{
+				fmt.Sprintf(`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","model":%q,"status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`, tt.normalizedModel),
+				"",
+				"data: [DONE]",
+				"",
+			}, "\n")
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_compat"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+			}}
+
+			svc := &OpenAIGatewayService{
+				httpUpstream: upstream,
+				cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+			}
+			account := &Account{
+				ID:          1,
+				Name:        "openai-oauth",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"access_token":       "oauth-token",
+					"chatgpt_account_id": "chatgpt-acc",
+					"model_mapping": map[string]any{
+						tt.normalizedModel: tt.normalizedModel,
+					},
+				},
+			}
+
+			result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.1")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tt.requestedModel, result.Model)
+			require.Equal(t, tt.normalizedModel, result.UpstreamModel)
+			require.Equal(t, tt.normalizedModel, result.BillingModel)
+			require.NotNil(t, result.ReasoningEffort)
+			require.Equal(t, tt.effort, *result.ReasoningEffort)
+
+			require.Equal(t, tt.normalizedModel, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, tt.effort, gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tt.requestedModel, gjson.GetBytes(rec.Body.Bytes(), "model").String())
+			require.Equal(t, "ok", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String())
+		})
+	}
 }
 
 func TestForwardAsAnthropic_MappedClaudeModelAcceptsChatUsageShape(t *testing.T) {

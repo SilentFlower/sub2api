@@ -67,7 +67,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
 	originalModel := anthropicReq.Model
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	derivedReasoningEffort := applyOpenAICompatModelNormalization(&anthropicReq)
 	normalizedModel := anthropicReq.Model
 	clientStream := anthropicReq.Stream // client's original stream preference
 
@@ -116,6 +116,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
+	}
+	if derivedReasoningEffort != "" {
+		responsesReq.Reasoning.Effort = derivedReasoningEffort
 	}
 
 	// Upstream always uses streaming (upstream may not support sync mode).

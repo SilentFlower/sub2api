@@ -208,9 +208,9 @@ type ResponsesRequest struct {
 	PreviousResponseID string              `json:"previous_response_id,omitempty"`
 }
 
-// ResponsesReasoning configures reasoning effort in the Responses API.
+// ResponsesReasoning 配置 Responses API 的推理强度和推理摘要。
 type ResponsesReasoning struct {
-	Effort  string `json:"effort"`            // "low" | "medium" | "high" | "xhigh"
+	Effort  string `json:"effort"`            // "low" | "medium" | "high" | "xhigh" | "max"
 	Summary string `json:"summary,omitempty"` // "auto" | "concise" | "detailed"
 }
 
@@ -436,7 +436,7 @@ type ChatCompletionsRequest struct {
 	StreamOptions       *ChatStreamOptions `json:"stream_options,omitempty"`
 	Tools               []ChatTool         `json:"tools,omitempty"`
 	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
-	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
+	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh" | "max"
 	Thinking            *ChatThinking      `json:"thinking,omitempty"`         // GLM/DeepSeek/Qwen-style thinking toggle
 	ServiceTier         string             `json:"service_tier,omitempty"`
 	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string

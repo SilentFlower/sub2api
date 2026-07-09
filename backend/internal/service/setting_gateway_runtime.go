@@ -316,7 +316,7 @@ func normalizeOpenAIImageGenerationMainModel(value string) string {
 }
 
 // NormalizeOpenAIImageGenerationReasoningEffort 归一化 OpenAI 生图 Responses 请求的 reasoning.effort。
-// 空值或非法值会回退到 medium，合法值为 low、medium、high、xhigh。
+// 空值或非法值会回退到 medium，合法值为 low、medium、high、xhigh、max。
 func NormalizeOpenAIImageGenerationReasoningEffort(value string) string {
 	return normalizeOpenAIImageGenerationReasoningEffort(value, false)
 }
@@ -324,7 +324,7 @@ func NormalizeOpenAIImageGenerationReasoningEffort(value string) string {
 func normalizeOpenAIImageGenerationReasoningEffort(value string, warnInvalid bool) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	switch normalized {
-	case "low", "medium", "high", "xhigh":
+	case "low", "medium", "high", "xhigh", "max":
 		return normalized
 	case "":
 		return openAIImageGenerationReasoningEffortDefault

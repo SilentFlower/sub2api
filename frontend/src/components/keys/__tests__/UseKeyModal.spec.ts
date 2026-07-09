@@ -89,7 +89,7 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
   })
 
-  it('renders GPT-5.4 mini entry in OpenCode config', async () => {
+  it('renders GPT-5.6 max variants and GPT-5.4 mini entry in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -121,6 +121,12 @@ describe('UseKeyModal', () => {
     expect(codeBlock.exists()).toBe(true)
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
+    const config = JSON.parse(codeBlock.text())
+    const models = config.provider.openai.models
+    expect(models['gpt-5.6-sol'].variants.max).toEqual({})
+    expect(models['gpt-5.6-terra'].variants.max).toEqual({})
+    expect(models['gpt-5.6-luna'].variants.max).toEqual({})
+    expect(models['gpt-5.2'].variants.max).toBeUndefined()
   })
 
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {

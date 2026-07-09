@@ -19,14 +19,14 @@ func NormalizeOpenAICompatRequestedModel(model string) string {
 	return normalized
 }
 
-func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
+func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) string {
 	if req == nil {
-		return
+		return ""
 	}
 
 	originalModel := strings.TrimSpace(req.Model)
 	if originalModel == "" {
-		return
+		return ""
 	}
 
 	normalizedModel, derivedEffort, hasReasoningSuffix := splitOpenAICompatReasoningModel(originalModel)
@@ -35,18 +35,19 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
 	}
 
 	if req.OutputConfig != nil && strings.TrimSpace(req.OutputConfig.Effort) != "" {
-		return
+		return ""
 	}
 
 	claudeEffort := openAIReasoningEffortToClaudeOutputEffort(derivedEffort)
 	if claudeEffort == "" {
-		return
+		return ""
 	}
 
 	if req.OutputConfig == nil {
 		req.OutputConfig = &apicompat.AnthropicOutputConfig{}
 	}
 	req.OutputConfig.Effort = claudeEffort
+	return derivedEffort
 }
 
 func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reasoningEffort string, ok bool) {
@@ -62,6 +63,10 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 	}
 	modelID = strings.TrimSpace(modelID)
 	if !strings.HasPrefix(strings.ToLower(modelID), "gpt-") {
+		return trimmed, "", false
+	}
+	// gpt-5.1-codex-max 是历史模型名，末尾 max 不是 reasoning effort 后缀。
+	if strings.EqualFold(modelID, "gpt-5.1-codex-max") {
 		return trimmed, "", false
 	}
 
@@ -84,6 +89,8 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 		reasoningEffort = last
 	case "xhigh", "extrahigh":
 		reasoningEffort = "xhigh"
+	case "max":
+		reasoningEffort = "max"
 	default:
 		return trimmed, "", false
 	}
@@ -95,7 +102,7 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 	switch strings.TrimSpace(effort) {
 	case "low", "medium", "high":
 		return effort
-	case "xhigh":
+	case "xhigh", "max":
 		return "max"
 	default:
 		return ""
