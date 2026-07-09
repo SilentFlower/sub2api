@@ -274,3 +274,38 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: 新增 Grok 套餐额度进度条
+
+**Date**: 2026-07-10
+**Task**: 新增 Grok 套餐额度进度条
+**Branch**: `build`
+
+### Summary
+
+新增独立 Grok CLI Billing 套餐额度链路与管理端展示，后续将用量窗口内 UI 调整为月/周紧凑进度条并支持展开完整详情；完成后端、前端、测试、规范和 release 操作说明。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `57e409da` | (see git log) |
+| `cbd34d3a` | (see git log) |
+| `a328495d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
