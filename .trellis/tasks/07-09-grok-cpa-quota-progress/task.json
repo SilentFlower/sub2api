@@ -22,5 +22,20 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-09T16:24:38Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "57e409da"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "Phase 2.1 实现",
+      "Phase 2.2 质量检查",
+      "Phase 3.3 Spec update"
+    ],
+    "next_step": "Phase 3.5 Wrap-up reminder",
+    "notes": "业务提交 57e409da 已推送 origin/build；Grok 套餐额度进度条实现、测试和规范更新已完成。"
+  }
 }
