@@ -329,6 +329,8 @@ export default {
         grokLastHeadersSeen: '响应头 {time}',
         grokBillingTitle: 'Grok 套餐额度',
         grokBillingRefresh: '刷新 Grok 套餐额度',
+        grokBillingExpand: '展开 Grok 套餐额度',
+        grokBillingCollapse: '收起 Grok 套餐额度',
         grokBillingEmpty: '暂无套餐额度数据',
         grokBillingMonthly: '月额度',
         grokBillingWeekly: '周额度',

@@ -178,6 +178,11 @@ describe('AccountUsageCell', () => {
 
     expect(queryBillingQuota).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingTitle')
+    expect(wrapper.text()).toContain('67%')
+    expect(wrapper.text()).not.toContain('$100.00 / $150.00')
+
+    await wrapper.find('[data-testid="grok-billing-toggle"]').trigger('click')
+
     expect(wrapper.text()).toContain('$100.00 / $150.00')
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingProductUsage')
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingPayAsYouGo')
@@ -227,6 +232,9 @@ describe('AccountUsageCell', () => {
     })
 
     await flushPromises()
+    expect(wrapper.text()).toContain('67%')
+
+    await wrapper.find('[data-testid="grok-billing-toggle"]').trigger('click')
     expect(wrapper.text()).toContain('$100.00 / $150.00')
 
     await wrapper.find('button[title="admin.accounts.usageWindow.grokBillingRefresh"]').trigger('click')

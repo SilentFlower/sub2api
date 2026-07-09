@@ -1,14 +1,30 @@
 <template>
-  <div v-if="visible" class="mt-1 max-w-[240px] space-y-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/40">
-    <div class="flex items-center justify-between gap-2">
-      <div class="min-w-0">
-        <div class="truncate text-[10px] font-semibold text-gray-700 dark:text-gray-200">
+  <div v-if="visible" class="space-y-1">
+    <div class="flex max-w-[240px] items-center gap-1.5">
+      <button
+        type="button"
+        data-testid="grok-billing-toggle"
+        class="group inline-flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/60"
+        :title="expandTitle"
+        :aria-expanded="expanded"
+        @click="expanded = !expanded"
+      >
+        <span class="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
           {{ t('admin.accounts.usageWindow.grokBillingTitle') }}
-        </div>
-        <div v-if="planLabel" class="text-[9px] text-gray-500 dark:text-gray-400">
-          {{ planLabel }}
-        </div>
-      </div>
+        </span>
+        <span :class="['min-w-0 truncate text-[10px]', summaryTextClass]">
+          {{ summaryLabel }}
+        </span>
+        <svg
+          class="h-3 w-3 shrink-0 text-gray-400 transition-transform group-hover:text-gray-600 dark:text-gray-500 dark:group-hover:text-gray-300"
+          :class="{ 'rotate-180': expanded }"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
       <button
         type="button"
         class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
@@ -33,7 +49,7 @@
       </button>
     </div>
 
-    <div v-if="currentQuota" class="space-y-1">
+    <div v-if="expanded && currentQuota" class="max-w-[240px] space-y-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/40">
       <div v-if="monthlyRow" class="space-y-0.5">
         <div class="flex items-center justify-between gap-2 text-[10px]">
           <span class="font-medium text-gray-700 dark:text-gray-200">
@@ -116,15 +132,6 @@
       </div>
     </div>
 
-    <div v-else-if="loading" class="space-y-1">
-      <div class="h-3 w-28 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-      <div class="h-1.5 w-full animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
-    </div>
-
-    <div v-else class="text-[10px] text-gray-500 dark:text-gray-400">
-      {{ t('admin.accounts.usageWindow.grokBillingEmpty') }}
-    </div>
-
     <div v-if="error" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
       {{ error }}
     </div>
@@ -169,6 +176,7 @@ const { t } = useI18n()
 const currentQuota = ref<GrokBillingQuota | null>(props.quota ?? null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const expanded = ref(false)
 
 const visible = computed(() => props.account.platform === 'grok' && props.account.type === 'oauth')
 
@@ -394,6 +402,41 @@ const statusLabel = computed(() => {
     : t('admin.accounts.usageWindow.grokBillingUpdated', { time })
 })
 
+const summarySegments = computed(() => {
+  const segments: string[] = []
+  if (planLabel.value) {
+    segments.push(planLabel.value)
+  }
+  if (monthlyRow.value) {
+    segments.push(`${monthlyRow.value.label} ${formatRemainingPercent(monthlyRow.value.percent)}`)
+  }
+  if (weeklyRow.value) {
+    segments.push(`${weeklyRow.value.label} ${formatRemainingPercent(weeklyRow.value.percent)}`)
+  }
+  if (currentQuota.value?.stale && statusLabel.value) {
+    segments.push(statusLabel.value)
+  }
+  return segments
+})
+
+const summaryLabel = computed(() => {
+  if (summarySegments.value.length > 0) return summarySegments.value.join(' · ')
+  if (loading.value) return t('common.loading')
+  return t('admin.accounts.usageWindow.grokBillingEmpty')
+})
+
+const summaryTextClass = computed(() => {
+  if (error.value) return 'text-red-600 dark:text-red-400'
+  if (!currentQuota.value) return 'text-gray-400 dark:text-gray-500'
+  return 'text-gray-500 dark:text-gray-400'
+})
+
+const expandTitle = computed(() => {
+  return expanded.value
+    ? t('admin.accounts.usageWindow.grokBillingCollapse')
+    : t('admin.accounts.usageWindow.grokBillingExpand')
+})
+
 watch(
   () => props.quota,
   (quota) => {
@@ -407,6 +450,7 @@ watch(
     currentQuota.value = props.quota ?? null
     loading.value = false
     error.value = null
+    expanded.value = false
   }
 )
 

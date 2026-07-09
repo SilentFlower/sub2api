@@ -1202,6 +1202,8 @@ export default {
         grokLastHeadersSeen: 'Headers {time}',
         grokBillingTitle: 'Grok Plan Quota',
         grokBillingRefresh: 'Refresh Grok plan quota',
+        grokBillingExpand: 'Expand Grok plan quota',
+        grokBillingCollapse: 'Collapse Grok plan quota',
         grokBillingEmpty: 'No plan quota data yet',
         grokBillingMonthly: 'Monthly',
         grokBillingWeekly: 'Weekly',
