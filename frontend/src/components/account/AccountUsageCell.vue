@@ -374,6 +374,11 @@
             </span>
           </div>
         </div>
+        <GrokBillingQuotaCell
+          :account="account"
+          :quota="usageInfo.grok_billing_quota"
+          @updated="handleGrokBillingQuotaUpdated"
+        />
         <UsageProgressBar
           v-if="grokRequestQuotaBar"
           :label="t('admin.accounts.usageWindow.grokRequests')"
@@ -593,7 +598,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { Account, AccountUsageInfo, GeminiCredentials, GrokBillingQuota, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
@@ -601,6 +606,7 @@ import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
+import GrokBillingQuotaCell from './GrokBillingQuotaCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -1270,6 +1276,24 @@ const loadActiveUsage = async () => {
     console.error('Failed to load active usage:', e)
   } finally {
     activeQueryLoading.value = false
+  }
+}
+
+const handleGrokBillingQuotaUpdated = (quota: GrokBillingQuota) => {
+  if (!usageInfo.value) return
+  usageInfo.value = {
+    ...usageInfo.value,
+    grok_billing_quota: quota
+  }
+  const cached = _usageCache.get(props.account.id)
+  if (cached) {
+    _usageCache.set(props.account.id, {
+      data: {
+        ...cached.data,
+        grok_billing_quota: quota
+      },
+      ts: cached.ts
+    })
   }
 }
 

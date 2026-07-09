@@ -3,14 +3,20 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
 
-const { getUsage } = vi.hoisted(() => ({
-  getUsage: vi.fn()
+const { getUsage, queryQuota, queryBillingQuota } = vi.hoisted(() => ({
+  getUsage: vi.fn(),
+  queryQuota: vi.fn(),
+  queryBillingQuota: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       getUsage
+    },
+    grok: {
+      queryQuota,
+      queryBillingQuota
     }
   }
 }))
@@ -57,6 +63,13 @@ function makeAccount(overrides: Partial<Account>): Account {
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
+    queryQuota.mockReset()
+    queryBillingQuota.mockReset()
+    queryBillingQuota.mockResolvedValue({
+      source: 'grok_cli_billing',
+      snapshot: null,
+      fetched_at: 0
+    })
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -113,6 +126,114 @@ describe('AccountUsageCell', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.gemini3Image|70|2026-03-01T09:00:00Z')
+  })
+
+  it('Grok OAuth 会显示独立套餐额度区块', async () => {
+    getUsage.mockResolvedValue({
+      grok_quota_snapshot_state: 'observed',
+      grok_billing_quota: {
+        period_type: 'weekly',
+        weekly_used_percent: 25,
+        weekly_reset_at: '2099-07-13T00:00:00Z',
+        product_usage: [
+          {
+            product: 'grok-code',
+            usage_percent: 40
+          }
+        ],
+        monthly_limit_cents: 15000,
+        monthly_used_cents: 5000,
+        monthly_remaining_cents: 10000,
+        monthly_used_percent: 33.33,
+        billing_period_end: '2099-08-01T00:00:00Z',
+        on_demand_cap_cents: 10000,
+        on_demand_used_cents: 2000,
+        on_demand_remaining_cents: 8000,
+        on_demand_used_percent: 20,
+        plan_label: 'supergrok',
+        updated_at: '2099-07-09T08:00:00Z',
+        stale: false
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 1101,
+          platform: 'grok',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: true,
+          AccountQuotaInfo: true,
+          GrokQuotaProbeCell: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(queryBillingQuota).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingTitle')
+    expect(wrapper.text()).toContain('$100.00 / $150.00')
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingProductUsage')
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingPayAsYouGo')
+  })
+
+  it('Grok 套餐额度支持点击刷新并更新本行展示', async () => {
+    getUsage.mockResolvedValue({
+      grok_quota_snapshot_state: 'observed',
+      grok_billing_quota: {
+        monthly_limit_cents: 15000,
+        monthly_used_cents: 5000,
+        monthly_remaining_cents: 10000,
+        monthly_used_percent: 33.33,
+        updated_at: '2099-07-09T08:00:00Z',
+        stale: false
+      }
+    })
+    queryBillingQuota.mockResolvedValue({
+      source: 'grok_cli_billing',
+      snapshot: {
+        monthly_limit_cents: 15000,
+        monthly_used_cents: 6000,
+        monthly_remaining_cents: 9000,
+        monthly_used_percent: 40,
+        updated_at: '2099-07-09T09:00:00Z',
+        stale: false
+      },
+      fetched_at: 1
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 1102,
+          platform: 'grok',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: true,
+          AccountQuotaInfo: true,
+          GrokQuotaProbeCell: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('$100.00 / $150.00')
+
+    await wrapper.find('button[title="admin.accounts.usageWindow.grokBillingRefresh"]').trigger('click')
+    await flushPromises()
+
+    expect(queryBillingQuota).toHaveBeenCalledWith(1102)
+    expect(wrapper.text()).toContain('$90.00 / $150.00')
   })
 
   it('Antigravity 会显示 AI Credits 余额信息', async () => {

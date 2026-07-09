@@ -144,6 +144,100 @@ func TestGrokQuotaServiceProbeUsageLoadsProxyWhenAccountEdgeMissing(t *testing.T
 	require.Equal(t, "http://proxy.test:3128", upstream.lastProxyURL)
 }
 
+func TestGrokQuotaServiceQueryBillingQuotaStoresSeparateSnapshot(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:          47,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+		Extra: map[string]any{
+			grokQuotaSnapshotExtraKey: xai.QuotaSnapshot{UpdatedAt: time.Now().UTC().Format(time.RFC3339)},
+		},
+	}
+	repo := &grokQuotaAccountRepo{
+		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{47: account},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"config": {
+					"currentPeriod": {"type": "weekly", "end": "2026-07-13T00:00:00Z"},
+					"creditUsagePercent": 25,
+					"productUsage": [{"product": "grok-code", "usagePercent": 40}]
+				}
+			}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"config": {
+					"monthlyLimit": {"val": 15000},
+					"used": {"val": 5000},
+					"onDemandCap": {"val": 10000},
+					"billingPeriodEnd": "2026-08-01T00:00:00Z"
+				}
+			}`)),
+		},
+	}}
+	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream)
+
+	result, err := svc.QueryBillingQuota(context.Background(), 47)
+	require.NoError(t, err)
+	require.NotNil(t, result.Snapshot)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", upstream.requests[0].URL.String())
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/billing", upstream.requests[1].URL.String())
+	require.Equal(t, "Bearer access-token", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "xai-grok-cli", upstream.requests[0].Header.Get("x-xai-token-auth"))
+	require.Equal(t, "0.2.91", upstream.requests[0].Header.Get("x-grok-client-version"))
+	require.Contains(t, upstream.requests[0].Header.Get("User-Agent"), "grok-shell/0.2.91")
+	require.NotNil(t, repo.updates[47][grokBillingSnapshotExtraKey])
+	require.NotContains(t, repo.updates[47], grokQuotaSnapshotExtraKey)
+
+	stored, ok := repo.updates[47][grokBillingSnapshotExtraKey].(*xai.BillingSnapshot)
+	require.True(t, ok)
+	require.NotNil(t, stored.MonthlyLimitCents)
+	require.EqualValues(t, 15000, *stored.MonthlyLimitCents)
+	require.NotNil(t, stored.WeeklyUsedPercent)
+	require.InDelta(t, 25, *stored.WeeklyUsedPercent, 0.001)
+}
+
+func TestGrokQuotaFetcherBuildUsageInfoIncludesBillingWithoutHeaderSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().Add(-time.Hour).UTC()
+	limit := int64(15000)
+	account := &Account{
+		ID:       48,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			grokBillingSnapshotExtraKey: map[string]any{
+				"monthly_limit_cents": limit,
+				"updated_at":          now.Format(time.RFC3339),
+			},
+		},
+	}
+
+	usage := NewGrokQuotaFetcher().BuildUsageInfo(account)
+	require.Equal(t, "quota_unknown", usage.ErrorCode)
+	require.NotNil(t, usage.GrokBillingQuota)
+	require.NotNil(t, usage.GrokBillingQuota.MonthlyLimitCents)
+	require.EqualValues(t, 15000, *usage.GrokBillingQuota.MonthlyLimitCents)
+	require.True(t, usage.GrokBillingQuota.Stale)
+}
+
 func TestGrokQuotaServiceProbeUsageStoresNoHeadersState(t *testing.T) {
 	t.Parallel()
 

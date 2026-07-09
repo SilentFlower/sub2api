@@ -9,6 +9,9 @@ import (
 )
 
 const grokQuotaSnapshotExtraKey = "grok_usage_snapshot"
+const grokBillingSnapshotExtraKey = "grok_billing_snapshot"
+
+const grokBillingSnapshotTTL = 30 * time.Minute
 
 type GrokQuotaFetcher struct{}
 
@@ -32,6 +35,7 @@ func (f *GrokQuotaFetcher) BuildUsageInfo(account *Account) *UsageInfo {
 	if err != nil || snapshot == nil {
 		usage.ErrorCode = "quota_unknown"
 		usage.Error = "Grok quota is unknown until the first upstream response includes xAI rate-limit headers"
+		attachGrokBillingQuota(usage, account, now)
 		return usage
 	}
 
@@ -69,6 +73,7 @@ func (f *GrokQuotaFetcher) BuildUsageInfo(account *Account) *UsageInfo {
 	case 429:
 		usage.ErrorCode = "rate_limited"
 	}
+	attachGrokBillingQuota(usage, account, now)
 	return usage
 }
 
@@ -105,5 +110,38 @@ func grokQuotaSnapshotFromExtra(extra map[string]any) (*xai.QuotaSnapshot, error
 			return nil, err
 		}
 		return &out, nil
+	}
+}
+
+func grokBillingSnapshotFromExtra(extra map[string]any) (*xai.BillingSnapshot, error) {
+	if extra == nil {
+		return nil, nil
+	}
+	raw, ok := extra[grokBillingSnapshotExtraKey]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	return xai.BillingSnapshotFromRaw(raw)
+}
+
+func markGrokBillingSnapshotStale(snapshot *xai.BillingSnapshot, now time.Time) {
+	if snapshot == nil {
+		return
+	}
+	ts, err := time.Parse(time.RFC3339, snapshot.UpdatedAt)
+	if err != nil {
+		snapshot.Stale = true
+		return
+	}
+	snapshot.Stale = now.Sub(ts) >= grokBillingSnapshotTTL
+}
+
+func attachGrokBillingQuota(usage *UsageInfo, account *Account, now time.Time) {
+	if usage == nil || account == nil {
+		return
+	}
+	if billingSnapshot, err := grokBillingSnapshotFromExtra(account.Extra); err == nil && billingSnapshot != nil {
+		markGrokBillingSnapshotStale(billingSnapshot, now)
+		usage.GrokBillingQuota = billingSnapshot
 	}
 }

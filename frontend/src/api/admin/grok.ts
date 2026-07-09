@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import type { GrokBillingQuota } from '@/types'
 
 export interface GrokAuthUrlResponse {
   auth_url: string
@@ -76,6 +77,12 @@ export interface GrokQuotaResetResult {
   message: string
 }
 
+export interface GrokBillingQuotaResult {
+  source: 'grok_cli_billing'
+  snapshot?: GrokBillingQuota | null
+  fetched_at: number
+}
+
 export async function generateAuthUrl(
   payload: GrokAuthUrlRequest
 ): Promise<GrokAuthUrlResponse> {
@@ -118,4 +125,9 @@ export async function resetQuota(id: number): Promise<GrokQuotaResetResult> {
   return data
 }
 
-export default { generateAuthUrl, exchangeCode, refreshGrokToken, queryQuota, resetQuota }
+export async function queryBillingQuota(id: number): Promise<GrokBillingQuotaResult> {
+  const { data } = await apiClient.get<GrokBillingQuotaResult>(`/admin/grok/accounts/${id}/billing-quota`)
+  return data
+}
+
+export default { generateAuthUrl, exchangeCode, refreshGrokToken, queryQuota, resetQuota, queryBillingQuota }

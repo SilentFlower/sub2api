@@ -241,6 +241,25 @@ func (h *GrokOAuthHandler) ResetQuota(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// QueryBillingQuota 刷新并返回 Grok CLI Billing 套餐额度快照。
+func (h *GrokOAuthHandler) QueryBillingQuota(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.quotaService == nil {
+		response.BadRequest(c, "grok quota service is not enabled")
+		return
+	}
+	result, err := h.quotaService.QueryBillingQuota(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *GrokOAuthHandler) RuntimeSanity(c *gin.Context) {
 	response.Success(c, xai.RuntimeSanity())
 }

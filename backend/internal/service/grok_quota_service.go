@@ -12,12 +12,16 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
 const (
 	grokQuotaUpstreamTimeout = 20 * time.Second
 	grokQuotaProbeInput      = "."
 	grokQuotaDefaultModel    = "grok-4.3"
+	grokBillingBodyLimit     = 1 << 20
+	grokBillingUserAgent     = "grok-pager/0.2.91 grok-shell/0.2.91 (macos; aarch64)"
+	grokBillingClientVersion = "0.2.91"
 )
 
 type GrokQuotaProbeResult struct {
@@ -33,6 +37,13 @@ type GrokQuotaResetResult struct {
 	Supported bool   `json:"supported"`
 	Code      string `json:"code"`
 	Message   string `json:"message"`
+}
+
+// GrokBillingQuotaResult 是主动刷新 Grok CLI Billing 套餐额度后的返回结果。
+type GrokBillingQuotaResult struct {
+	Source    string               `json:"source"`
+	Snapshot  *xai.BillingSnapshot `json:"snapshot,omitempty"`
+	FetchedAt int64                `json:"fetched_at"`
 }
 
 type GrokQuotaService struct {
@@ -120,6 +131,51 @@ func (s *GrokQuotaService) ResetQuota(ctx context.Context, accountID int64) (*Gr
 	return nil, infraerrors.New(http.StatusNotImplemented, "GROK_QUOTA_RESET_UNSUPPORTED", "xAI does not expose a Grok subscription quota reset endpoint for OAuth accounts")
 }
 
+// QueryBillingQuota 主动查询 Grok CLI Billing 套餐额度并写入独立快照。
+func (s *GrokQuotaService) QueryBillingQuota(ctx context.Context, accountID int64) (*GrokBillingQuotaResult, error) {
+	account, token, proxyURL, err := s.prepareProbe(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	weeklyURL, err := xai.BuildBillingURL(xai.DefaultCLIBaseURL, true)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_BILLING_URL_INVALID", "failed to build weekly billing URL: %v", err)
+	}
+	monthlyURL, err := xai.BuildBillingURL(xai.DefaultCLIBaseURL, false)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_BILLING_URL_INVALID", "failed to build monthly billing URL: %v", err)
+	}
+
+	weeklyPayload, weeklyErr := s.fetchBillingPayload(ctx, account, token, proxyURL, weeklyURL)
+	monthlyPayload, monthlyErr := s.fetchBillingPayload(ctx, account, token, proxyURL, monthlyURL)
+	snapshot := xai.BuildBillingSnapshot(weeklyPayload, monthlyPayload, time.Now())
+	if snapshot == nil {
+		if weeklyErr != nil && monthlyErr != nil {
+			return nil, weeklyErr
+		}
+		if weeklyErr != nil {
+			return nil, weeklyErr
+		}
+		if monthlyErr != nil {
+			return nil, monthlyErr
+		}
+		return nil, infraerrors.New(http.StatusBadGateway, "GROK_BILLING_EMPTY", "upstream billing response did not include usable quota data")
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+		grokBillingSnapshotExtraKey: snapshot,
+	}); err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_BILLING_CACHE_UPDATE_FAILED", "failed to update billing quota snapshot: %v", err)
+	}
+
+	return &GrokBillingQuotaResult{
+		Source:    "grok_cli_billing",
+		Snapshot:  snapshot,
+		FetchedAt: time.Now().Unix(),
+	}, nil
+}
+
 func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*Account, string, string, error) {
 	if s == nil || s.tokenProvider == nil || s.httpUpstream == nil {
 		return nil, "", "", infraerrors.New(http.StatusInternalServerError, "GROK_QUOTA_NOT_CONFIGURED", "grok quota service is not configured")
@@ -173,6 +229,38 @@ func (s *GrokQuotaService) loadGrokOAuthAccount(ctx context.Context, accountID i
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_QUOTA_INVALID_TYPE", "account is not an OAuth account")
 	}
 	return account, nil
+}
+
+func (s *GrokQuotaService) fetchBillingPayload(ctx context.Context, account *Account, token, proxyURL, targetURL string) (*xai.BillingPayload, error) {
+	callCtx, cancel := context.WithTimeout(ctx, grokQuotaUpstreamTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(callCtx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_BILLING_REQUEST_BUILD_FAILED", "failed to build upstream request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-xai-token-auth", "xai-grok-cli")
+	req.Header.Set("x-grok-client-version", grokBillingClientVersion)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", grokBillingUserAgent)
+
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadGateway, "GROK_BILLING_REQUEST_FAILED", "upstream billing request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, grokBillingBodyLimit))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyText := logredact.RedactText(truncate(strings.TrimSpace(string(bodyBytes)), 240), "authorization")
+		slog.Warn("grok_billing_request_failed", "account_id", account.ID, "status", resp.StatusCode, "body", bodyText)
+		return nil, infraerrors.Newf(mapUpstreamStatus(resp.StatusCode), "GROK_BILLING_UPSTREAM_ERROR", "upstream returned %d: %s", resp.StatusCode, bodyText)
+	}
+	payload, err := xai.ParseBillingPayload(bodyBytes)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadGateway, "GROK_BILLING_PARSE_FAILED", "failed to parse upstream billing response: %v", err)
+	}
+	return payload, nil
 }
 
 func buildGrokQuotaProbeBody(account *Account) ([]byte, error) {
