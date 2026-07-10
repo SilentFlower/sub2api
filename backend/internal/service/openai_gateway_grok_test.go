@@ -41,6 +41,17 @@ func TestPatchGrokResponsesBodySetsMappedModelAndDropsUnsupportedFields(t *testi
 	require.Equal(t, "high", gjson.GetBytes(patched, "reasoning.effort").String())
 }
 
+func TestExtractGrokResponsesReasoningEffortSupportsOpenAICompatibleField(t *testing.T) {
+	t.Parallel()
+
+	effort := extractOpenAIReasoningEffortFromBody(
+		[]byte(`{"model":"grok-4.3","reasoning_effort":"high"}`),
+		"grok-4.3",
+	)
+	require.NotNil(t, effort)
+	require.Equal(t, "high", *effort)
+}
+
 func TestPatchGrokResponsesBodyDropsGrok45ReasoningUnsupportedFields(t *testing.T) {
 	t.Parallel()
 
