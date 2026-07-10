@@ -342,3 +342,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: 修复 OpenAI GPT-5.6 Luna Codex 客户端版本兼容
+
+**Date**: 2026-07-10
+**Task**: 修复 OpenAI GPT-5.6 Luna Codex 客户端版本兼容
+**Branch**: `build`
+
+### Summary
+
+统一 OpenAI Codex 内置客户端身份为 0.144.1，覆盖 HTTP、compact、passthrough、WebSocket、模型目录与账号探测路径并通过完整后端单测和增量 lint；补充协议规范与 release operations，联调时将 ai-fund monitor ID 1 的 UA 更新为 Codex 0.144.1，Luna 实测 HTTP 200 且跟踪状态恢复 available。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `792c51ff` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
