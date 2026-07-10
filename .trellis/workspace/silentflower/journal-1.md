@@ -309,3 +309,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: 修复 Grok 4.5 effort 归一化
+
+**Date**: 2026-07-10
+**Task**: 修复 Grok 4.5 effort 归一化
+**Branch**: `build`
+
+### Summary
+
+完成 Grok 4.5 与 GLM effort 归一化、最终上游字段日志一致性、前端 None/Minimal 展示及回归测试；已更新协议规范并推送。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05918460` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
