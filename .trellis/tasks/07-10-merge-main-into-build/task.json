@@ -22,5 +22,23 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-10T16:00:36+08:00",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "a79bb140"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "合并 origin/main 到 build 并解决 7 个冲突",
+      "复核 8 个自动合并文件并保留 build 现有 feature",
+      "完成后端全量 unit、固定版本 lint、前端 typecheck/lint 与 94 项 Vitest",
+      "Phase 2.2：Check All 通过",
+      "Phase 3.3：更新 OpenAI reasoning effort 协议规范",
+      "Phase 3.4：已推送双父 merge commit 到 origin/build"
+    ],
+    "next_step": "Phase 3.5：等待用户执行 trellis-finish-work 与任务归档",
+    "notes": "merge commit a79bb140 已保留 build 的 Anthropic、Grok、Codex、Beta Fast、缓存稳定和确定性 tool id 等 feature，并吸收 main 的 GPT-5.6 定价/effort、compact keepalive、计费与前端修复；普通 push 已完成，未 force push，也未额外合并其它分支。"
+  }
 }
