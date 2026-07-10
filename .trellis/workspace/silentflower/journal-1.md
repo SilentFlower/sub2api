@@ -375,3 +375,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: 合并 main 到 build 并保留现有 feature
+
+**Date**: 2026-07-10
+**Task**: 合并 main 到 build 并保留现有 feature
+**Branch**: `build`
+
+### Summary
+
+将 origin/main 合入 build，解决 7 个冲突并复核 8 个自动合并文件，保留 Anthropic、Grok、Codex、Beta Fast、缓存稳定与确定性 tool id 等 feature；后端全量 unit/固定版本 lint、前端 typecheck/lint 和 94 项 Vitest 均通过，merge 与任务 snapshot 已推送到 origin/build。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a79bb140` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
