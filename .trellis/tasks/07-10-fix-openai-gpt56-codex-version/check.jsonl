@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查单一版本源、gofmt、测试覆盖、lint 和禁止模式。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 HTTP、compact、passthrough、WebSocket、模型目录和账号测试路径未发生协议行为漂移。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查 404 model-not-found 和 OpenAI 兼容错误语义保持不变。"}
+{"file":".trellis/tasks/07-10-fix-openai-gpt56-codex-version/research/codex-version-compatibility.md","reason":"对照官方版本契约、路径矩阵、配置优先级和历史回归风险审计实现。"}

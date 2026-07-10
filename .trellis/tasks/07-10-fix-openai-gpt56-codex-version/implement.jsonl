@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 OpenAI/Codex 网关协议适配、请求路径兼容和相关测试范围，避免版本修复改变既有桥接行为。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 OpenAI 兼容错误语义，并确认本任务不修改 404 model-not-found 与冷却处理。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 代码组织、测试标签、静态检查和回归质量要求。"}
+{"file":".trellis/tasks/07-10-fix-openai-gpt56-codex-version/research/codex-version-compatibility.md","reason":"提供官方最低版本、历史同类修复、生产字面量、消费路径和配置兼容边界。"}

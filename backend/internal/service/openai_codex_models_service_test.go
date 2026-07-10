@@ -22,12 +22,14 @@ func newCodexModelsTestAccount() *Account {
 func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	manifestBody := `{"models":[{"slug":"gpt-5.5","display_name":"GPT-5.5"}]}`
 
-	var gotAuth, gotAccountID, gotOriginator, gotClientVersion string
+	var gotAuth, gotAccountID, gotOriginator, gotClientVersion, gotHeaderVersion, gotUserAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotAccountID = r.Header.Get("chatgpt-account-id")
 		gotOriginator = r.Header.Get("Originator")
 		gotClientVersion = r.URL.Query().Get("client_version")
+		gotHeaderVersion = r.Header.Get("Version")
+		gotUserAgent = r.Header.Get("User-Agent")
 		w.Header().Set("ETag", `W/"abc123"`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(manifestBody))
@@ -62,12 +64,20 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	if gotClientVersion != "0.137.0" {
 		t.Errorf("client_version query: got %q", gotClientVersion)
 	}
+	if gotHeaderVersion != "0.137.0" {
+		t.Errorf("version header: got %q", gotHeaderVersion)
+	}
+	if gotUserAgent != codexCLIUserAgent {
+		t.Errorf("user-agent header: got %q, want %q", gotUserAgent, codexCLIUserAgent)
+	}
 }
 
 func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
-	var gotClientVersion string
+	var gotClientVersion, gotHeaderVersion, gotUserAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotClientVersion = r.URL.Query().Get("client_version")
+		gotHeaderVersion = r.Header.Get("Version")
+		gotUserAgent = r.Header.Get("User-Agent")
 		_, _ = w.Write([]byte(`{"models":[]}`))
 	}))
 	defer server.Close()
@@ -82,6 +92,12 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 	}
 	if gotClientVersion != openAICodexProbeVersion {
 		t.Errorf("default client_version: got %q, want %q", gotClientVersion, openAICodexProbeVersion)
+	}
+	if gotHeaderVersion != openAICodexProbeVersion {
+		t.Errorf("default version header: got %q, want %q", gotHeaderVersion, openAICodexProbeVersion)
+	}
+	if gotUserAgent != codexCLIUserAgent {
+		t.Errorf("default user-agent header: got %q, want %q", gotUserAgent, codexCLIUserAgent)
 	}
 }
 

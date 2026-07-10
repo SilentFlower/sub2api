@@ -1111,6 +1111,41 @@ func TestOpenAIGatewayService_OAuthPassthrough_NonCodexUAFallbackToCodexUA(t *te
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 }
 
+func TestOpenAIGatewayService_OAuthPassthrough_GPT56ModelsUseCurrentCodexIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	models := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+	for _, model := range models {
+		t.Run(model, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+			c.Request.Header.Set("User-Agent", "curl/8.0")
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			body := []byte(fmt.Sprintf(`{"model":%q,"stream":false,"input":"Reply with exactly OK"}`, model))
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"chatgpt_account_id": "chatgpt-acc",
+				},
+			}
+			svc := &OpenAIGatewayService{
+				cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+			}
+
+			req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "oauth-token")
+			require.NoError(t, err)
+			upstreamBody, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			require.Equal(t, model, gjson.GetBytes(upstreamBody, "model").String())
+			require.Equal(t, codexCLIUserAgent, req.Header.Get("User-Agent"))
+			require.Contains(t, req.Header.Get("User-Agent"), openAICodexClientVersion)
+		})
+	}
+}
+
 func TestOpenAIGatewayService_CodexCLIOnly_RejectsNonCodexClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
