@@ -22,5 +22,24 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-10T00:31:27Z",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "05918460"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "Step 1：收敛 provider effort helper",
+      "Step 2：覆盖 Grok Responses 与 WebSocket",
+      "Step 3：覆盖 Chat fallback 与 GLM 遗漏入口",
+      "Step 4：修正前端展示",
+      "Step 5：补齐并通过后端与前端测试",
+      "Phase 2.2：check-all 通过",
+      "Phase 3.3：协议规范更新"
+    ],
+    "next_step": "Phase 3.5：等待用户执行 trellis-finish-work 与任务归档",
+    "notes": "Grok 4.5/GLM effort 归一化、最终上游字段日志一致性及 None/Minimal 展示已完成；业务提交已推送。"
+  }
 }
