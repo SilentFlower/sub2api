@@ -1,0 +1,45 @@
+{
+  "id": "sync-main-0151-into-build",
+  "name": "sync-main-0151-into-build",
+  "title": "同步 main 0.1.151 到 build 并保护定制特性",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-10",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-11T00:24:03+08:00",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "0712a147"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "固定 origin/main=e316ebf5 和合并前 build=939b896b，创建备份分支",
+      "合并 origin/main 并按确认方案解决 4 个文本冲突",
+      "复核 21 个自动合并高风险文件，保留 build 定制能力",
+      "完成后端全量 unit、golangci-lint、迁移检查和前端 41 项测试/typecheck/lint",
+      "Phase 2.2：Check All 功能与假设验证通过；按用户决定保留 main 英文注释",
+      "Phase 3.3：现有 spec 已覆盖，无需更新",
+      "Phase 3.4：双父 merge commit 0712a147 已普通推送 origin/build"
+    ],
+    "next_step": "Phase 3.5：等待用户决定是否执行 trellis-finish-work 与任务归档",
+    "notes": "merge commit 0712a147 已同步 main 0.1.151，并保留 build 的 Anthropic Messages 直连、Grok 最终 effort、Codex 统一身份、Fast/Flex 用户范围、GPT-5.6 max/定价、生图策略及 setup-token 刷新等能力；普通 push 已完成，未 force push，也未更新其它分支。"
+  }
+}
