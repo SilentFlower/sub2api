@@ -90,7 +90,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		return nil, err
 	}
-	reasoningEffort := extractFinalOpenAIReasoningEffort(chatBody)
+	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel, billingModel)
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 
 	logger.L().Debug("openai messages: forwarding via raw chat completions",

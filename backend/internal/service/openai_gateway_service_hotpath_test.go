@@ -775,9 +775,16 @@ func TestExtractOpenAIReasoningEffortFromBody(t *testing.T) {
 			wantValue: "xhigh",
 		},
 		{
-			name:      "max 保持独立档位",
+			name:      "非 GPT-5.6 max 折叠为 xhigh",
 			body:      []byte(`{"reasoning_effort":"max"}`),
 			model:     "deepseek-v4-pro",
+			wantNil:   false,
+			wantValue: "xhigh",
+		},
+		{
+			name:      "GPT-5.6 max 保持独立档位",
+			body:      []byte(`{"reasoning_effort":"max"}`),
+			model:     "gpt-5.6-luna",
 			wantNil:   false,
 			wantValue: "max",
 		},

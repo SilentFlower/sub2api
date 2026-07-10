@@ -1734,3 +1734,25 @@ func TestExtractOpenAIUpstreamReasoningEffort_ProviderScaleUsesFinalBody(t *test
 	require.NotNil(t, kimiEffort)
 	require.Equal(t, "high", *kimiEffort)
 }
+
+func TestExtractOpenAIUpstreamReasoningEffort_UsesMappedBillingOriginalOrder(t *testing.T) {
+	bodyWithoutEffort := []byte(`{"model":"alias","input":"hello"}`)
+	bodyWithMax := []byte(`{"model":"alias","reasoning":{"effort":"max"},"input":"hello"}`)
+
+	fromBillingSuffix := extractOpenAIUpstreamReasoningEffort(
+		bodyWithoutEffort,
+		"alias",
+		"gpt-5.6-sol",
+		"gpt-5.6-sol-max",
+	)
+	require.NotNil(t, fromBillingSuffix)
+	require.Equal(t, "max", *fromBillingSuffix)
+
+	fromMappedModel := extractOpenAIUpstreamReasoningEffort(
+		bodyWithMax,
+		"gpt-5.6-sol",
+		"gpt-5.4",
+	)
+	require.NotNil(t, fromMappedModel)
+	require.Equal(t, "xhigh", *fromMappedModel)
+}

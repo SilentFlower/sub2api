@@ -57,7 +57,6 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 4. Model mapping
 	mappedModel := originalModel
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
@@ -72,6 +71,7 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
@@ -190,14 +190,21 @@ func (s *GatewayService) ForwardAsResponses(
 	return result, handleErr
 }
 
-// ExtractResponsesReasoningEffortFromBody reads Responses API reasoning.effort
-// and normalizes it for usage logging.
-func ExtractResponsesReasoningEffortFromBody(body []byte) *string {
+// ExtractResponsesReasoningEffortFromBody 读取 Responses API 的 reasoning.effort，
+// 并按映射后、原始模型候选归一化为 usage 日志值。
+//
+// @param body Responses API 请求体
+// @param modelCandidates 按优先级排列的模型候选；为空时读取请求体 model
+// @return 归一化后的 effort；缺失或无效时返回 nil
+func ExtractResponsesReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
 		return nil
 	}
-	normalized := normalizeOpenAIReasoningEffort(raw)
+	if firstNonEmpty(modelCandidates...) == "" {
+		modelCandidates = append(modelCandidates, gjson.GetBytes(body, "model").String())
+	}
+	normalized := normalizeOpenAIReasoningEffortForModel(raw, firstNonEmpty(modelCandidates...))
 	if normalized == "" {
 		return nil
 	}

@@ -314,7 +314,7 @@ updatePayload.extra = newExtra
 func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool)
 func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool)
 func extractFinalOpenAIReasoningEffort(body []byte) *string
-func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string) *string
+func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string
 ```
 
 结果与持久化链路：
@@ -411,10 +411,99 @@ reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalBody, ma
 if normalizedBody, changed := normalizeOpenAIReasoningEffortForProvider(upstreamBody, upstreamModel); changed {
 	upstreamBody = normalizedBody
 }
-reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel)
+reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel, billingModel)
 ```
 
 先按最终模型改写上游 body，再从实际发送体提取日志值；Grok/GLM 不推断默认档位，其它 provider 保留既有 fallback。
+
+---
+
+## Scenario: OpenAI reasoning effort 模型候选与 GPT-5.6 `max` 兼容
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 OpenAI-compatible 请求中的 `reasoning.effort` / `reasoning_effort`、模型 effort 后缀、模型映射、billing model、Responses ↔ Chat fallback、Anthropic Messages raw Chat fallback 或 WebSocket usage 元数据时，必须按本节检查。
+- 适用路径：`openai_gateway_request_body.go`、`gateway_request.go`、raw Chat、Messages/Responses fallback、Responses/Chat 兼容转换和 WebSocket passthrough。
+- 目标：显式 effort 与后缀 effort 在模型映射后仍保持正确语义；只有 GPT-5.6 Sol/Terra/Luna 可以在普通请求中保留 `max`，usage 记录必须与最终上游请求或可恢复的模型后缀一致。
+
+### 2. Signatures
+
+```go
+func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string
+func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string
+func normalizeOpenAIReasoningEffortForModel(raw, model string) string
+func isOpenAIGPT56Model(model string) bool
+func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, account *Account, body []byte) ([]byte, bool, error)
+```
+
+调用方有 billing model 时，参数关系必须为：`requestedModel=originalModel`、`mappedModel=upstreamModel`、`additionalModelCandidates=billingModel`。helper 内部由此形成 `upstream -> billing -> original` 的候选顺序。
+
+### 3. Contracts
+
+- 显式字段优先级固定为 `reasoning.effort` > `reasoning_effort`；命中显式值时，仅使用第一个非空模型候选判断模型感知归一化。
+- 请求体没有 effort 时，按全部候选顺序推导模型后缀。OAuth/Codex 标准化可能剥离 upstream model 的 `-high` / `-xhigh` / `-max`，因此必须保留 billing 和 original model 候选。
+- `max` 仅在第一个非空候选由 `isOpenAIGPT56Model` 识别为 `gpt-5.6-sol`、`gpt-5.6-terra` 或 `gpt-5.6-luna` 时保留；大小写、provider 路径和日期后缀允许存在。其它模型的 `max` 统一为 `xhigh`。
+- GLM 与 Grok 4.5 继续走 provider-specific 分支：直接读取最终上游 body，不用模型后缀或 thinking fallback 覆盖实际发送值。
+- raw Chat、Messages fallback、Responses fallback 有 billing model 时都必须传入；WebSocket 只有 original/mapped model 时可省略额外候选。
+- OpenAI OAuth 的 `/responses/compact` 是明确例外：GPT-5.6 `max` 在 compact 子请求中降级为 `xhigh`。普通 Responses、OpenAI API Key compact 和其它平台 OAuth 不应用该降级。
+- 本场景不新增 API、DTO、数据库字段或 migration；变化只影响上游请求体与 usage 元数据。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 必须结果 |
+|---|---|
+| 显式 `max`，首个候选为 GPT-5.6 | 保留 `max` |
+| 显式 `max`，首个候选非 GPT-5.6 | 归一化为 `xhigh`，后续候选不得反转判断 |
+| body 无 effort，original model 为 `gpt-5.6-sol-max` | 从后缀恢复 `max` |
+| body 无 effort，original model 为 `gpt-5.4-xhigh` | 从后缀恢复 `xhigh` |
+| GLM/Grok 4.5 已完成 provider 归一化 | usage 记录最终 body 值，不应用后缀或 thinking fallback |
+| OpenAI OAuth GPT-5.6 compact + `max` | 上游 body 与 usage 均为 `xhigh` |
+| 所有候选均为空或无后缀，body 也无 effort | 返回 `nil`；仅非 provider-specific 路径可沿用既有 thinking fallback |
+
+### 5. Good/Base/Bad Cases
+
+- Good: 客户端模型 `sol` 映射到 `gpt-5.6-sol`，显式 `max` 使用 upstream model 判断并保持为 `max`。
+- Good: OAuth 上游模型已去掉 `-xhigh`，usage 仍从 original model 后缀恢复 `xhigh`。
+- Base: upstream、billing、original 是相同基名且无后缀，结果保持 `nil`，不伪造 effort。
+- Bad: 只传 upstream model，导致映射或标准化剥离后缀后 usage 丢失。
+- Bad: 让所有模型都保留 `max`，导致不支持该档位的 GPT/Codex 上游收到非法值。
+- Bad: 把 original model 放在首位判断显式 `max`，导致别名映射后的 GPT-5.6 能力无法生效。
+
+### 6. Tests Required
+
+- `openai_reasoning_effort_candidates_test.go`：覆盖候选顺序、显式 `max` 首候选判定和后缀恢复。
+- `openai_gpt56_max_test.go`：覆盖 Sol/Terra/Luna、非 GPT-5.6 降级、普通 Responses 与 OAuth compact 例外。
+- raw Chat、Messages/Responses fallback 与 WebSocket 测试必须至少各覆盖一个 mapped/billing/original 候选或 GPT-5.6 `max` 场景。
+- 建议运行：
+
+```bash
+cd backend && go test -tags=unit ./internal/service -run 'TestExtractOpenAIReasoningEffort|TestNormalizeOpenAIReasoningEffortForGPT56|TestOpenAIGatewayServiceForward.*Max|TestForwardAsRawChatCompletions_PreservesMappedGPT56MaxEffort|TestWSPassthroughUsageMeta'
+cd backend && go test -tags=unit ./internal/service
+git diff --check
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+reasoningEffort := extractOpenAIReasoningEffortFromBody(upstreamBody, originalModel)
+```
+
+问题：模型映射与 OAuth 标准化后的真实能力不由 original model 单独决定，且只传一个候选会丢失 billing/original 后缀恢复链路。
+
+#### Correct
+
+```go
+reasoningEffort := extractOpenAIUpstreamReasoningEffort(
+	upstreamBody,
+	originalModel,
+	upstreamModel,
+	billingModel,
+)
+```
+
+显式值由 upstream model 判断 GPT-5.6 `max` 能力；无显式值时再按 `upstream -> billing -> original` 恢复后缀，provider-specific 模型仍记录最终上游 body。
 
 ---
 

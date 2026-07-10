@@ -71,7 +71,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}
-	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel)
+	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel, billingModel)
 
 	logger.L().Debug("openai responses: forwarding via raw chat completions",
 		zap.Int64("account_id", account.ID),

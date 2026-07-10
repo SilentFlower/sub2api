@@ -179,7 +179,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 
 	// 13. Extract reasoning effort from CC request body
-	reasoningEffort := extractCCReasoningEffortFromBody(body)
+	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
 	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
 	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
@@ -198,10 +198,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	return result, handleErr
 }
 
-// extractCCReasoningEffortFromBody reads reasoning effort from a Chat Completions
-// request body. It checks both nested (reasoning.effort) and flat (reasoning_effort)
-// formats used by OpenAI-compatible clients.
-func extractCCReasoningEffortFromBody(body []byte) *string {
+// extractCCReasoningEffortFromBody 读取 Chat Completions 请求中的 reasoning effort。
+// 同时兼容 reasoning.effort 与 reasoning_effort，并按模型候选处理 max 档位。
+func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
 		raw = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
@@ -209,7 +208,10 @@ func extractCCReasoningEffortFromBody(body []byte) *string {
 	if raw == "" {
 		return nil
 	}
-	normalized := normalizeOpenAIReasoningEffort(raw)
+	if firstNonEmpty(modelCandidates...) == "" {
+		modelCandidates = append(modelCandidates, gjson.GetBytes(body, "model").String())
+	}
+	normalized := normalizeOpenAIReasoningEffortForModel(raw, firstNonEmpty(modelCandidates...))
 	if normalized == "" {
 		return nil
 	}

@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Anthropic 直连 Chat、Grok messages 强制 Chat、usage endpoint、缓存稳定与 effort 语义。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 合并改动、gofmt、定向测试与 package 级回归。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Codex 版本常量必须保持单一来源，effort helper 需复用而不是在多个路径重复实现。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"合并同时影响 handler、service、apicompat、usage、定价和前端，需要按数据流复核。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"约束自动合入的前端修复、Vitest 与 typecheck 验证。"}
+{"file":".trellis/tasks/07-10-merge-main-into-build/research/merge-evidence.md","reason":"记录本次分支头、merge base、真实冲突、相关提交和逐类解决结论。"}

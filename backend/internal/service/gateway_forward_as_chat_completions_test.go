@@ -29,8 +29,14 @@ func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 		require.Equal(t, "xhigh", *got)
 	})
 
-	t.Run("max 保持独立档位", func(t *testing.T) {
+	t.Run("非 GPT-5.6 max 折叠为 xhigh", func(t *testing.T) {
 		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning_effort":"Max"}`))
+		require.NotNil(t, got)
+		require.Equal(t, "xhigh", *got)
+	})
+
+	t.Run("GPT-5.6 max 保持独立档位", func(t *testing.T) {
+		got := extractCCReasoningEffortFromBody([]byte(`{"model":"gpt-5.6-terra","reasoning_effort":"Max"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "max", *got)
 	})

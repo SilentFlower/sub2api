@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 Anthropic/Grok 路由、桥接、quota、缓存稳定和 usage effort 是否均未回退。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查冲突标记、重复定义、格式、测试范围和回归证据。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查 Codex identity 与 effort 逻辑是否维持唯一来源和统一 helper。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查自动合并文件在 handler、service、类型、定价和前端之间的数据流完整性。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 main 的前端修复与 build 现有 feature 是否通过 typecheck 和相关 Vitest。"}
+{"file":".trellis/tasks/07-10-merge-main-into-build/research/merge-evidence.md","reason":"对照实施前证据复核实际冲突数量、解决策略、分支祖先关系和回滚点。"}

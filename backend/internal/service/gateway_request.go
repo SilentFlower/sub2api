@@ -1358,11 +1358,18 @@ func extractFinalOpenAIReasoningEffort(body []byte) *string {
 	return &effort
 }
 
-func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string) *string {
+// extractOpenAIUpstreamReasoningEffort 从最终上游请求体提取 usage effort。
+// provider-specific 模型必须记录实际发送值；其它模型按上游、计费、原始模型
+// 的顺序恢复被模型映射剥离的 effort 后缀。
+func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string {
 	if isGLMOpenAIReasoningEffortModel(mappedModel) || isGrok45OpenAIReasoningEffortModel(mappedModel) {
 		return extractFinalOpenAIReasoningEffort(body)
 	}
-	effort := extractOpenAIReasoningEffortFromBody(body, requestedModel)
+	modelCandidates := make([]string, 0, len(additionalModelCandidates)+2)
+	modelCandidates = append(modelCandidates, mappedModel)
+	modelCandidates = append(modelCandidates, additionalModelCandidates...)
+	modelCandidates = append(modelCandidates, requestedModel)
+	effort := extractOpenAIReasoningEffortFromBody(body, modelCandidates...)
 	return ApplyThinkingEnabledFallback(effort, body, mappedModel)
 }
 
