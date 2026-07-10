@@ -176,8 +176,8 @@ export function parseDateTimeLocalInput(value: string): number | null {
 
 /**
  * 格式化 OpenAI reasoning effort（用于使用记录展示）
- * @param effort 原始 effort（如 "low" / "medium" / "high" / "xhigh" / "max"）
- * @returns 格式化后的字符串（Low / Medium / High / XHigh / Max），无值返回 "-"
+ * @param effort 原始 effort（如 "none" / "minimal" / "low" / "medium" / "high" / "xhigh" / "max"）
+ * @returns 格式化后的字符串，无值返回 "-"
  */
 export function formatReasoningEffort(effort: string | null | undefined): string {
   const raw = (effort ?? '').toString().trim()
@@ -197,8 +197,9 @@ export function formatReasoningEffort(effort: string | null | undefined): string
     case 'max':
       return 'Max'
     case 'none':
+      return 'None'
     case 'minimal':
-      return '-'
+      return 'Minimal'
     default:
       // best-effort: Title-case first letter
       return raw.length > 1 ? raw[0].toUpperCase() + raw.slice(1) : raw.toUpperCase()

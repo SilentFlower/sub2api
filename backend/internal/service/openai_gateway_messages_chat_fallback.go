@@ -75,16 +75,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		chatReq.ServiceTier = "priority"
 	}
 
-	var reasoningEffort *string
-	if e := strings.TrimSpace(chatReq.ReasoningEffort); e != "" {
-		reasoningEffort = &e
-	}
-
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions request: %w", err)
 	}
-	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
+	if normalizedBody, normalized := normalizeOpenAIReasoningEffortForProvider(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
 	chatBody, err = s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, chatBody)
@@ -95,6 +90,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		return nil, err
 	}
+	reasoningEffort := extractFinalOpenAIReasoningEffort(chatBody)
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 
 	logger.L().Debug("openai messages: forwarding via raw chat completions",

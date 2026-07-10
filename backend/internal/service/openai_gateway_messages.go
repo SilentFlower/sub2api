@@ -393,10 +393,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			st := responsesReq.ServiceTier
 			result.ServiceTier = &st
 		}
-		if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
-			re := responsesReq.Reasoning.Effort
-			result.ReasoningEffort = &re
-		}
+		result.ReasoningEffort = extractFinalOpenAIReasoningEffort(responsesBody)
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts).

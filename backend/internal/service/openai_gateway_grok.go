@@ -128,7 +128,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		Usage:           *usage,
 		Model:           originalModel,
 		UpstreamModel:   upstreamModel,
-		ReasoningEffort: ptrStringOrNil(normalizeOpenAIReasoningEffort(gjson.GetBytes(patchedBody, "reasoning.effort").String())),
+		ReasoningEffort: extractFinalOpenAIReasoningEffort(patchedBody),
 		Stream:          reqStream,
 		OpenAIWSMode:    false,
 		ResponseHeaders: resp.Header.Clone(),
@@ -144,6 +144,9 @@ func patchGrokResponsesBody(body []byte, upstreamModel string) ([]byte, error) {
 	out, err := sjson.SetBytes(body, "model", upstreamModel)
 	if err != nil {
 		return nil, err
+	}
+	if normalizedBody, normalized := normalizeOpenAIReasoningEffortForProvider(out, upstreamModel); normalized {
+		out = normalizedBody
 	}
 	for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier"} {
 		if gjson.GetBytes(out, unsupportedField).Exists() {

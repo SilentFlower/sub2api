@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Grok Responses/Chat/Messages 桥接、上游路径和 usage 语义，避免归一化破坏协议兼容。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"约束 usage 与结构化日志的真实值、字段语义和敏感信息边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束未知 effort 原样透传后的上游错误处理和 OpenAI/xAI 兼容响应。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 改动、测试范围、gofmt 和回归质量要求。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束前端 usage 字段保持 snake_case 和严格 TypeScript 兼容。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"约束 formatter 单测、Vitest、typecheck 和 lint 验证。"}
+{"file":".trellis/tasks/07-10-fix-grok45-effort-normalization/research/effort-contracts.md","reason":"提供 GLM-5.2/Grok-4.5 官网档位、最终映射决策和现有代码路径证据。"}

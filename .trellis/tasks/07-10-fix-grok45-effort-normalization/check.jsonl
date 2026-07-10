@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查所有 Grok/GLM 协议入口是否使用一致归一化且未破坏现有桥接契约。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"检查 usage log 是否严格等于最终上游请求字段且无默认值推断。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查未知 effort 和上游错误仍保持既有兼容响应与 failover 语义。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查测试覆盖、格式化、分层和回归风险。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查前端 formatter 改动未引入类型或字段语义漂移。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 Vitest、typecheck 和 lint 结果及测试有效性。"}
+{"file":".trellis/tasks/07-10-fix-grok45-effort-normalization/research/effort-contracts.md","reason":"对照官网契约、映射表和路径矩阵审计实现正确性。"}

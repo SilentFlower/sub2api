@@ -292,6 +292,132 @@ updatePayload.extra = newExtra
 
 ---
 
+## Scenario: Grok 4.5 / GLM reasoning effort 归一化与 usage 日志一致性
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 Grok 4.5 或 GLM 的 OpenAI-compatible `reasoning.effort` / `reasoning_effort` 改写、Responses ↔ Chat fallback、Anthropic Messages 桥接、WebSocket HTTP bridge 或 `usage_logs.reasoning_effort` 取值时，必须按本节检查。
+- 适用后端路径：
+  - `backend/internal/service/gateway_request.go`
+  - `backend/internal/service/openai_gateway_grok.go`
+  - `backend/internal/service/openai_gateway_chat_completions_raw.go`
+  - `backend/internal/service/openai_gateway_messages.go`
+  - `backend/internal/service/openai_gateway_messages_chat_fallback.go`
+  - `backend/internal/service/openai_gateway_responses_chat_fallback.go`
+  - `backend/internal/service/openai_ws_http_bridge.go`
+- 适用前端路径：`frontend/src/utils/format.ts`。
+- 目标：客户端跨模型发送档位别名时，只按最终上游模型的原生档位改写；usage 日志必须记录最终请求体实际发送的值，而不是客户端原值、模型默认值或 thinking 推断值。
+
+### 2. Signatures
+
+```go
+func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool)
+func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool)
+func extractFinalOpenAIReasoningEffort(body []byte) *string
+func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string) *string
+```
+
+结果与持久化链路：
+
+```text
+最终上游 body
+  -> OpenAIForwardResult.ReasoningEffort
+  -> UsageLog.ReasoningEffort
+  -> usage_logs.reasoning_effort
+  -> formatReasoningEffort
+```
+
+### 3. Contracts
+
+- 字段定位优先级固定为：已存在的 `reasoning.effort` > 已存在的 `reasoning_effort`。只改写命中的现有路径，不新增字段。
+- 别名识别前执行 trim、转小写，并移除 `-`、`_`、空格；未知值返回空映射并保持原请求值。
+- GLM guard：最终模型 trim/lower 后以 `glm-` 开头。
+- Grok guard：最终模型必须大小写不敏感地精确等于 `grok-4.5`；不得使用 `grok-` 前缀匹配，避免改坏 `grok-4.20-multi-agent` 等支持 `xhigh` 的模型。
+- 映射表：
+
+| 客户端语义 | GLM 最终值 | Grok 4.5 最终值 |
+|---|---|---|
+| `none` | `none` | `low` |
+| `minimal` | `minimal` | `low` |
+| `low` | `high` | `low` |
+| `medium` | `high` | `medium` |
+| `high` | `high` | `high` |
+| `xhigh` / `extra high` | `max` | `high` |
+| `max` / `ultracode` | `max` | `high` |
+| 未知值 | 原样透传 | 原样透传 |
+
+- Grok / GLM 的 `OpenAIForwardResult.ReasoningEffort` 必须在完成模型改写、provider 归一化和 fast policy 后，从最终请求体提取；只 trim，不做白名单过滤。
+- 最终请求体没有 effort 时，结果保持 `nil`，不得调用 `ApplyThinkingEnabledFallback` 猜测 `high`。
+- 其它 provider 继续沿用既有模型后缀提取和 thinking fallback，不能因本规则发生全局行为变化。
+- `/v1/messages` 默认 Responses 路径与强制 Chat 路径保持既有缺省差异：Responses 转换器当前会发 `medium`；强制 Chat 未产生 effort 时继续省略，不互相补默认值。
+- 前端继续读取现有 `reasoning_effort` 字段；`none` 显示为 `None`，`minimal` 显示为 `Minimal`，空值才显示 `-`。
+
+### 4. Validation & Error Matrix
+
+- 已知别名 + 命中 GLM/Grok guard -> 改写命中路径，返回 `changed=true`。
+- 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
+- `banana` 等未知值 -> 请求体原样透传；上游接受时日志保留 trim 后实际值，上游拒绝时沿用现有错误路径。
+- effort 字段缺失或 trim 后为空 -> 不新增字段，最终日志为 `nil`。
+- 同时存在嵌套和扁平字段 -> 只处理、记录嵌套字段，扁平字段保持原样。
+- 最终模型为 `grok-4.20-multi-agent` / `grok-4.3` -> 跳过 Grok 4.5 归一化。
+- GLM `thinking.type=enabled` 但最终 body 没有 effort -> 日志为 `nil`，不得补 `high`。
+- GLM `thinking.type=enabled` 且最终 body 为 `minimal` -> 上游和日志均为 `minimal`。
+
+### 5. Good/Base/Bad Cases
+
+- Good: 客户端向 `grok` 别名发送 `xhigh`，模型映射先得到 `grok-4.5`，最终上游 body 和 usage 日志都为 `high`。
+- Good: GLM 收到 `MINIMAL`，最终上游 body 和 usage 日志都为小写 `minimal`，即使 thinking 已开启也不误记为 `high`。
+- Good: Responses、原生 Chat、Messages 两种分支和 Grok WebSocket HTTP bridge 复用同一 provider 分派和最终值提取逻辑。
+- Base: 未提供 effort 时保持缺失；Grok 上游自身的默认档位不写入本地日志。
+- Base: 非 Grok 4.5 模型继续原样接收 `xhigh`。
+- Bad: 在模型映射前按客户端 `grok`/`grok-latest` 名称判断，导致别名漏归一化。
+- Bad: 从转换前 DTO 或客户端原始 body 回填 `ReasoningEffort`，导致 `xhigh -> high` 后日志仍写 `xhigh`。
+- Bad: 为了日志非空，根据 thinking 状态或厂商默认值补 `high`。
+
+### 6. Tests Required
+
+- `gateway_request_test.go`：覆盖完整映射表、大小写/分隔符、嵌套优先、未知值、缺失值、非 4.5 Grok 模型和最终值提取。
+- `openai_gateway_grok_test.go`：覆盖 Grok Responses、原生 Chat、Messages Responses 的上游 body 与结果 effort 一致。
+- `openai_gateway_chat_completions_raw_test.go`：覆盖 GLM `xhigh -> max`、`MINIMAL -> minimal` 及结果日志一致。
+- `openai_gateway_messages_chat_fallback_test.go`：覆盖 Grok/GLM 强制 Chat，并锁定强制 Chat 不补默认 effort。
+- `openai_gateway_responses_chat_fallback_test.go`：覆盖 GLM Responses 转 Chat 归一化。
+- `openai_ws_http_bridge_test.go`：覆盖 Grok 4.5 WebSocket HTTP bridge 的上游 body 和结果 effort。
+- `formatReasoningEffort.spec.ts`：覆盖空值、标准档位、分隔符别名、`none/minimal` 和未知值。
+- 建议运行：
+
+```bash
+cd backend && go test -tags=unit ./internal/service
+cd backend && go test -tags=unit ./internal/pkg/apicompat
+cd frontend && pnpm vitest run src/utils/__tests__/formatReasoningEffort.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts
+cd frontend && pnpm typecheck
+cd frontend && pnpm lint:check
+git diff --check
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+reasoningEffort := extractOpenAIReasoningEffortFromBody(originalBody, originalModel)
+reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalBody, mappedModel)
+```
+
+问题：读取发生在 provider 改写前，且 fallback 会把“最终未发送 effort”误记为 `high`。
+
+#### Correct
+
+```go
+if normalizedBody, changed := normalizeOpenAIReasoningEffortForProvider(upstreamBody, upstreamModel); changed {
+	upstreamBody = normalizedBody
+}
+reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel)
+```
+
+先按最终模型改写上游 body，再从实际发送体提取日志值；Grok/GLM 不推断默认档位，其它 provider 保留既有 fallback。
+
+---
+
 ## Scenario: Grok CLI Billing 套餐额度快照
 
 ### 1. Scope / Trigger
