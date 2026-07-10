@@ -22,5 +22,23 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-10T10:05:24+08:00",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "792c51ff"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "Step 1：建立单一 Codex 版本源",
+      "Step 2：锁定身份一致性",
+      "Step 3：覆盖 GPT-5.6 和关键请求路径",
+      "Step 4：静态扫描与定向验证",
+      "Phase 2.2：check-all 通过",
+      "Phase 3.3：协议规范更新"
+    ],
+    "next_step": "Phase 3.5：等待用户执行 trellis-finish-work 与任务归档",
+    "notes": "OpenAI Codex 内置客户端身份已统一为 0.144.1，GPT-5.6 关键链路回归测试、完整后端 unit 测试和增量 lint 均通过；业务提交已推送。"
+  }
 }
