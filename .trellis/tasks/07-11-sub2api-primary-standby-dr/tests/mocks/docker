@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+lookup_image_id() {
+  local ref="$1"
+
+  [ -f "${MOCK_IMAGE_MAP_FILE:-}" ] || return 1
+  awk -F '\t' -v ref="${ref}" '$1 == ref { print $2; found = 1; exit } END { if (!found) exit 1 }' \
+    "${MOCK_IMAGE_MAP_FILE}"
+}
+
+container_exists() {
+  case "$1" in
+    sub2api|sub2api-dr-postgres|sub2api-dr-redis) return 0 ;;
+    sub2api-dr-app) [ "${MOCK_APP_STATE:-absent}" != "absent" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+container_state() {
+  case "$1" in
+    sub2api|sub2api-dr-postgres|sub2api-dr-redis) printf 'running\n' ;;
+    sub2api-dr-app) printf '%s\n' "${MOCK_APP_STATE:-absent}" ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "${1:-}" = "container" ] && [ "${2:-}" = "inspect" ]; then
+  container_exists "${@: -1}"
+  exit
+fi
+
+if [ "${1:-}" = "inspect" ]; then
+  [ "${2:-}" = "--format" ] || exit 97
+  template="${3:-}"
+  ref="${4:-}"
+  case "${template}" in
+    '{{.Config.Image}}')
+      case "${ref}" in
+        sub2api) printf '%s\n' "${MOCK_A_SOURCE_REF:?}" ;;
+        sub2api-dr-app) printf '%s\n' "${MOCK_B_RUNNING_REF:-unknown}" ;;
+        *) exit 97 ;;
+      esac
+      ;;
+    '{{.Image}}')
+      case "${ref}" in
+        sub2api) printf '%s\n' "${MOCK_A_IMAGE_ID:?}" ;;
+        sub2api-dr-app) printf '%s\n' "${MOCK_B_RUNNING_IMAGE_ID:-unknown}" ;;
+        *) exit 97 ;;
+      esac
+      ;;
+    '{{.State.Status}}') container_state "${ref}" ;;
+    *) exit 97 ;;
+  esac
+  exit
+fi
+
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "inspect" ]; then
+  if [ "${3:-}" = "--format" ]; then
+    template="${4:-}"
+    ref="${5:-}"
+    case "${template}" in
+      '{{range .RepoDigests}}{{println .}}{{end}}')
+        printf '%s\n' "${MOCK_REPO_DIGESTS:-}"
+        ;;
+      '{{.Id}}')
+        [ "${MOCK_CACHE_MISSING_REF:-}" != "${ref}" ] || exit 1
+        lookup_image_id "${ref}"
+        ;;
+      *) exit 97 ;;
+    esac
+  else
+    ref="${3:-}"
+    [ "${MOCK_CACHE_MISSING_REF:-}" != "${ref}" ] || exit 1
+    lookup_image_id "${ref}" >/dev/null
+  fi
+  exit
+fi
+
+if [ "${1:-}" = "exec" ]; then
+  joined="$*"
+  if [[ "${joined}" == *"SELECT pg_is_in_recovery();"* ]]; then
+    printf '%s\n' "${MOCK_PG_RECOVERY:-t}"
+  elif [[ "${joined}" == *"pg_last_wal_replay_lsn()"* ]]; then
+    printf '%s\n' "${MOCK_PG_LSN:-1/100}"
+  elif [[ "${joined}" == *"pg_current_wal_lsn()"* ]]; then
+    printf '%s\n' "${MOCK_PG_LSN:-1/100}"
+  elif [[ "${joined}" == *"redis-cli INFO replication"* ]]; then
+    printf 'role:%s\n' "${MOCK_REDIS_ROLE:-slave}"
+    if [ "${MOCK_REDIS_ROLE:-slave}" = "slave" ]; then
+      printf 'master_link_status:%s\n' "${MOCK_REDIS_LINK:-up}"
+      printf 'master_sync_in_progress:%s\n' "${MOCK_REDIS_SYNC:-0}"
+      printf 'master_repl_offset:%s\n' "${MOCK_REDIS_MASTER_OFFSET:-100}"
+      printf 'slave_repl_offset:%s\n' "${MOCK_REDIS_SLAVE_OFFSET:-100}"
+    else
+      printf 'master_repl_offset:%s\n' "${MOCK_REDIS_MASTER_OFFSET:-100}"
+    fi
+  else
+    exit 97
+  fi
+  exit
+fi
+
+if [ "${1:-}" = "volume" ] && [ "${2:-}" = "inspect" ]; then
+  exit 1
+fi
+
+if [ "${1:-}" = "pull" ]; then
+  printf '%s\n' "$*" >> "${MOCK_DOCKER_LOG:?}"
+  exit
+fi
+
+printf '未处理的 docker mock 调用：%s\n' "$*" >&2
+exit 97

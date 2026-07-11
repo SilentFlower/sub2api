@@ -5,7 +5,7 @@
 ## 已完成
 
 - B `/root/sub2api-dr/scripts/switch-mode.sh` 已支持 `status`、`standby`、`enable`、`freeze`。
-- A `/root/sub2api-ha-export/scripts/switch-mode.sh` 已支持 `status`、`prepare-from-b`、`cutback-to-a`、`restore-b-standby`。
+- A `/root/sub2api-ha-export/scripts/switch-mode.sh` 已支持 `status`、`sync-release`、`prepare-from-b`、`cutback-to-a`、`restore-b-standby`。
 - A、B 的 `README.md` 已统一改为简明操作手册，按日常检查、A 故障切 B、A 修复回切、状态含义和禁止事项组织，并已同步部署到两台服务器。
 - B 已部署临时恢复出口定义 `compose.recovery-export.yaml`，但恢复出口容器未启动，宿主机 `25432`、`26379` 未监听。
 - B 已部署 `prepare-recovery-source.sh` 和 `restore-standby-from-a.sh`，分别用于 B 作为 A 恢复源，以及 A 回切后从新 A 主库重新初始化 B。

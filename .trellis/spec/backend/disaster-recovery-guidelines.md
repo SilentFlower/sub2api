@@ -24,6 +24,7 @@ A 节点：
 
 ```text
 /root/sub2api-ha-export/scripts/switch-mode.sh status
+/root/sub2api-ha-export/scripts/switch-mode.sh sync-release [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh prepare-from-b [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh cutback-to-a [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh restore-b-standby [--dry-run]
@@ -69,6 +70,17 @@ redis_slave_offset
 redis_volume
 app_container
 app_volume
+app_image_digest
+recovery_image_digest
+recovery_image_cached
+release_image_digest
+release_source_ref
+release_synced_at
+dr_image_digest
+dr_image_cached
+dr_release_image_digest
+dr_release_synced_at
+image_sync
 ```
 
 B 必须输出：
@@ -85,10 +97,18 @@ redis_sync
 redis_master_offset
 redis_slave_offset
 app_container
+app_image_digest
+app_image_cached
+running_app_image_digest
+release_image_digest
+release_source_ref
+release_synced_at
 ```
 
 - 每行格式固定为 `key=value`，不得把说明文字写入标准输出。
 - A 的回切脚本至少依赖 B 的 `mode`、`postgres_lsn` 和 `redis_master_offset`。
+- A 的发布同步至少依赖 B 的 `mode`、数据库/Redis 复制状态、`app_image_digest`、`app_image_cached` 和 `release_image_digest`。
+- `image_sync=ok` 只表示 A 当前运行镜像、A 恢复配置、B 容灾配置、B 本地缓存和双端最近同步记录一致，不表示数据库迁移支持向旧镜像回滚。
 - 有效状态返回 `0`；检测到 `inconsistent` 返回 `2`；配置、命令、角色或前置条件错误返回非零。
 
 ### 3. Contracts
@@ -149,6 +169,20 @@ app_container
 - `B_SSH_TARGET` 必须符合 `user@host` 形态；`B_DR_ROOT` 必须是受限字符组成的绝对路径；配置了 SSH 私钥时文件必须存在。
 - 默认端口契约是：A 应用 `8080`、B 原应用 `8080`、B 容灾应用 `18080`、A PostgreSQL/Redis 复制出口 `15432/16379`、B 临时恢复出口 `25432/26379`。修改宿主机端口时，两端连接参数必须成对修改。
 
+##### 3.2.1 应用发布镜像同步
+
+- A 日常更新仍由原部署流程负责。A 应用更新并通过健康检查后，必须执行 `sync-release --dry-run` 和 `sync-release`，把当前运行容器对应的不可变镜像 digest 同步到容灾配置。
+- 标签只用于记录来源，不能作为容灾版本身份。脚本必须用 A 运行容器的镜像 ID 锁定实际内容，再从该镜像的 `RepoDigests` 中选择与容器来源仓库一致的唯一 `仓库@sha256`；无匹配 digest、多个匹配结果或镜像 ID 不一致时必须失败。
+- `sync-release` 只允许 A 为 `legacy-active` 或 `active-recovered`、A 应用健康、B 为健康 `standby` 且复制已追平时执行。B 已接管后，不得再从故障 A 推导发布版本。
+- `--dry-run` 只能读取当前镜像、双端状态、配置和缓存，不得拉取镜像、写 `.env`、写状态文件、重启服务或启动 B 应用。
+- 实际同步顺序固定为：B 拉取并验证精确 digest，原子更新 B `.env` 中唯一的 `SUB2API_IMAGE`，写 B `state/release-image.env`，原子更新 A `.env` 中唯一的 `SUB2API_IMAGE`，最后写 A `state/release-image.env`。
+- `.env` 单键更新必须使用同目录临时文件加 `mv`，保持权限为 `0600`，且同步后 `SUB2API_IMAGE` 必须恰好出现一次。禁止重写或覆盖数据库、复制、端口及其它环境键。
+- 双端发布状态文件只允许记录 `APP_IMAGE_DIGEST`、`PREVIOUS_APP_IMAGE_DIGEST`、`SOURCE_IMAGE_REF` 和 `SYNCED_AT`，权限必须为 `0600`，不得写入密码或 Token。
+- 跨节点同步不具备分布式事务。若 B 已更新而 A 更新失败，状态必须显示 `drift`，不得自动回滚 B 或启动任何应用；修复连接或文件问题后通过同一命令幂等重跑。
+- B `enable` 和 `promote.sh` 必须在 PostgreSQL 提升前验证：配置是固定 digest、镜像已缓存、最近同步记录与配置一致；任一条件不满足都必须拒绝提升。
+- B 已接管后，A `prepare-from-b` 必须以 B 当前活动配置 digest 为权威，在停止 A 旧服务前确保 A 已缓存并使用同一 digest。
+- `PREVIOUS_APP_IMAGE_DIGEST` 只用于诊断。数据库迁移可能不向后兼容，保留旧镜像不能被描述为可保证成功的应用回滚。
+
 #### 3.3 人工 fencing 与入口切换
 
 - 本方案没有自动 fencing。SSH 超时、健康检查失败或网络不可达都不能证明 A 已停止写入。
@@ -195,11 +229,12 @@ legacy-active
 
 | 动作 | 允许状态或幂等结果 |
 |---|---|
+| A `sync-release` | A 为 `legacy-active` 或 `active-recovered`，应用健康；B 为健康 `standby`，PostgreSQL/Redis 复制正常；同 digest 重跑时幂等刷新双端配置和记录 |
 | A `prepare-from-b` | A 为 `legacy-active` 或 `offline`，且 B 为 `active` 或 `active-stopped`；A 已是 `standby-from-b` 时直接成功返回 |
 | A `cutback-to-a` | A 为 `standby-from-b`、`cutback-postgres-promoted` 或 `active-recovered-stopped`，且 B 为 `active` 或 `active-stopped`；A 已是 `active-recovered` 时直接成功返回 |
 | A `restore-b-standby` | A 必须为 `active-recovered`；B 为 `active-stopped` 时全量重建，B 已是 `standby` 时只同步非日志应用数据 |
 | B `standby` | PostgreSQL 必须仍在恢复，Redis 必须是已追平的从库；若应用意外运行，只停止应用后重新验证 |
-| B `enable` | 容灾 PostgreSQL、Redis 容器必须存在；实际提升始终要求人工 fencing 口令，已完成阶段按状态标记和真实角色幂等复核 |
+| B `enable` | 容灾 PostgreSQL、Redis 容器必须存在；发布镜像必须是已缓存且与最近同步记录一致的固定 digest；实际提升始终要求人工 fencing 口令，已完成阶段按状态标记和真实角色幂等复核 |
 | B `freeze` | 只接受 `active` 或 `active-stopped`，且 PostgreSQL、Redis 均为主库；已冻结时只复核状态 |
 
 独立确认口令：
@@ -251,6 +286,11 @@ legacy-active
 | A 不是 `standby-from-b` 或允许的中间恢复态 | `cutback-to-a` 拒绝执行 |
 | B 写入冻结后 A 未追平目标 LSN 或 Redis offset | 不提升 A，保持 B 数据库为权威主库 |
 | B 已提升后尝试原地 `standby` | 拒绝执行，要求从新主库全量重建 |
+| A 运行镜像没有同仓库 RepoDigest、RepoDigest 与运行镜像 ID 不一致或结果不唯一 | `sync-release` 立即失败，不修改双端配置或状态 |
+| A 应用不健康、B 不是健康 `standby` 或复制未追平 | `sync-release` 拒绝执行，不拉取镜像或修改 `.env` |
+| B 拉取或验证精确 digest 失败 | 停止同步，双端 `.env` 保持原值，不在故障窗口退回可变标签 |
+| 双端配置、缓存或发布记录不一致 | `status` 显示 `drift` 或 `unknown`；B `enable` 在提升 PostgreSQL 前失败 |
+| 跨节点同步只完成 B 侧后失败 | 保持 B 应用停止，不自动回滚；修复故障后幂等重跑 `sync-release` |
 | 来源受限出口只能从本机监听、另一节点协议验证失败 | 不停止旧服务、不删除卷、不开始基础备份 |
 | B 未报告 NTP 同步 | `enable` 明确警告；真实演练前必须人工处理或确认时间同步，追平判断仍以 LSN/offset 为准 |
 | 健康检查失败或确认口令不匹配 | 当前阶段立即停止，不自动越过或切换入口 |
@@ -258,6 +298,7 @@ legacy-active
 ### 5. Good/Base/Bad Cases
 
 - Good: A 正常提供服务，B 显示 `standby`，PostgreSQL 为 `streaming`，Redis 链路为 `up` 且同步完成，B 容灾应用和 `18080` 均未运行。
+- Good: A 更新后即使继续使用同一标签，也执行 `sync-release --dry-run` 和 `sync-release`；A/B 状态最终显示同一 digest 且 `image_sync=ok`。
 - Good: A 故障时先在控制台确认 A 已停止，再执行 B `enable --dry-run` 和 `enable`，最后人工切换公共入口。
 - Good: A 修复后使用新恢复卷从 B 重建，冻结 B 后按 LSN/offset 等待完全追平，再提升 A 并从新 A 全量重建 B。
 - Base: 只修改 SSH 目标或外部端口时，同步修改两端环境文件并重新验证 Compose、SSH、协议连接和 `status --machine`。
@@ -265,6 +306,7 @@ legacy-active
 - Bad: 因为 A ping 不通或 SSH 超时就直接提升 B，这不构成 fencing，可能造成双主写入。
 - Bad: 只改 `B_DR_ROOT` 后移动 B 目录，却不更新 README、远程命令、预检和服务器部署文件。
 - Bad: 手工运行 `docker compose down`、删除卷、启动 B 容灾应用或绕过统一脚本修改数据库角色。
+- Bad: 把 `build-latest` 等标签文本直接写入 B 容灾配置，或在 A 故障提升现场才临时拉取可变标签。
 - Bad: 在 B 本机用 `127.0.0.1` 自测只允许 A 来源的恢复出口，并把被拒绝误判为出口故障。
 - Bad: A 提升后直接让 B 使用旧数据目录连接新时间线，或在创建新物理槽前先执行 B 恢复源预检。
 
@@ -296,7 +338,9 @@ docker compose --project-name deploy --env-file /root/sub2api/deploy/.env --env-
 
 ```bash
 /root/sub2api-ha-export/scripts/switch-mode.sh status
+/root/sub2api-ha-export/scripts/switch-mode.sh sync-release --dry-run
 /root/sub2api-dr/scripts/switch-mode.sh status
+/root/sub2api-dr/scripts/switch-mode.sh enable --dry-run
 ```
 
 断言点：
@@ -307,6 +351,10 @@ docker compose --project-name deploy --env-file /root/sub2api/deploy/.env --env-
 - B 容灾应用停止，`18080` 不监听；临时恢复阶段以外 `25432/26379` 不监听。
 - B 原部署容器 ID、启动时间、端口、网络和卷基线不变；A 在线准备阶段原容器和 PostgreSQL 进程启动时间不变。
 - 所有状态允许的变更命令先跑对应 `--dry-run`，并确认容器角色、卷列表、监听端口和状态文件没有变化。
+- `sync-release --dry-run` 前后双端 `.env` 和 `state/release-image.env` 哈希必须不变；实际同步不得改变 A/B 数据库、Redis、应用容器 ID 或启动时间。
+- 实际 `sync-release` 后双端 `SUB2API_IMAGE` 各自恰好出现一次且为同一 digest，B 已缓存该 digest，双端发布记录一致，A `status --machine` 显示 `image_sync=ok`。
+- B `enable --dry-run` 必须在发布配置、缓存或同步记录漂移时于数据库提升前失败；同步成功后通过镜像门禁，并且前后 `.env`、状态文件、数据库角色和应用状态不变。
+- 使用隔离 fixture 或 mock 覆盖：同一标签对应新 digest、无 RepoDigest、仓库不匹配、B 缓存缺失、双端记录漂移、B 非 `standby` 和 SSH 失败；不得用生产数据库提升来制造这些分支。
 - 非法状态的 `--dry-run` 必须在角色保护处失败，不能为了展示计划而绕过状态机。
 - 用包含反斜杠和冒号的测试密码验证 `.pgpass` 结果符合 PostgreSQL 转义规则，但不得把真实密码写入测试输出。
 - 来源限制出口的 PostgreSQL 和 Redis 协议测试必须从真实允许的另一节点执行。
@@ -355,4 +403,26 @@ pg_basebackup 完成并提升新 A
 -> 从 B 验证 IDENTIFY_SYSTEM 和 READ_REPLICATION_SLOT
 -> 删除且仅删除 B 容灾卷
 -> 从新 A 全量重建 B
+```
+
+#### Wrong
+
+```text
+A 使用 build-latest 更新成功
+-> 只确认标签文字没有变化
+-> 不同步容灾镜像
+-> A 故障时让 B 按旧缓存启动
+```
+
+问题：同一标签可能已指向新镜像，数据库迁移已复制到 B，但备用应用仍是旧版本。
+
+#### Correct
+
+```text
+A 更新并健康
+-> A sync-release --dry-run
+-> A sync-release
+-> B 预缓存精确 digest
+-> 双端 status 显示 image_sync=ok
+-> B enable --dry-run 验证镜像门禁
 ```

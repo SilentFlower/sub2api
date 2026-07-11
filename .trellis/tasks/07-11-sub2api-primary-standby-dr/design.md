@@ -185,6 +185,7 @@ A 的统一入口固定为：
 
 ```text
 /root/sub2api-ha-export/scripts/switch-mode.sh status
+/root/sub2api-ha-export/scripts/switch-mode.sh sync-release [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh prepare-from-b [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh cutback-to-a [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh restore-b-standby [--dry-run]
@@ -229,7 +230,48 @@ A 提升后会产生新 PostgreSQL时间线，因此 B 不能原地声明为备�
 
 每个变更命令先输出两端角色、复制位置、目标卷和下一步动作；`--dry-run` 只执行状态检查和计划输出。破坏性阶段使用不同确认口令，避免一次确认覆盖整个回切过程。公共入口方式尚未确定时，脚本最多报告“节点已就绪，等待入口切换”，不能标记完整回切完成。
 
-## 11. 回滚与保护
+## 11. 应用发布镜像同步
+
+A 日常更新可能复用同一个标签，因此容灾版本身份必须是运行中容器对应的不可变 digest，而不是 Compose 中的标签文本：
+
+```text
+A 更新完成并健康
+  -> 读取 sub2api 容器 Config.Image 与镜像 ID
+  -> 从该镜像 ID 的 RepoDigests 中选择同仓库 digest
+  -> B 预拉取并验证 digest
+  -> 原子更新 B 容灾 .env 的 SUB2API_IMAGE
+  -> 原子更新 A 恢复 .env 的 SUB2API_IMAGE
+  -> 双端写入无敏感信息的 release sync 状态
+  -> status 显示 image_sync=ok
+```
+
+`sync-release` 只接受 A 为 `legacy-active` 或 `active-recovered`、A 应用健康、B 为 `standby` 且复制健康的正常拓扑。它不执行 A 的 `docker compose pull/up`，只在用户现有更新流程成功后同步容灾发布身份。
+
+Digest解析规则：
+
+- `docker inspect sub2api` 的 `.Config.Image` 只用于确定期望仓库和展示来源标签，`.Image` 用于锁定实际运行内容。
+- 如果 `.Config.Image` 已是 `仓库@sha256`，仍需验证它与运行镜像 ID 一致。
+- 如果 `.Config.Image` 是标签，从该镜像 ID 的 `RepoDigests` 中筛选同仓库的唯一 `仓库@sha256`；仓库不匹配、无 digest或结果不唯一时失败。
+- 不支持仅存在本地 image ID、没有仓库 digest 的镜像；必须先推送到 A/B 都能访问的镜像仓库。
+
+同步顺序先远端缓存、后配置提交。B 侧新增内部辅助脚本，只允许接收经过格式校验的 digest和来源标签，确认镜像已缓存后通过临时文件加 `mv` 原子替换 `.env` 中唯一的 `SUB2API_IMAGE` 行，并保持原权限。A 侧使用相同原子更新规则。任一步失败时保留尚未更新一侧的原值，重跑时根据实际 digest幂等收敛；跨节点不存在伪装成事务的自动回滚。
+
+双端状态文件只记录非敏感发布元数据：
+
+```text
+APP_IMAGE_DIGEST=<repository@sha256>
+PREVIOUS_APP_IMAGE_DIGEST=<repository@sha256-or-empty>
+SOURCE_IMAGE_REF=<tag-or-digest>
+SYNCED_AT=<ISO-8601>
+```
+
+A `status --machine` 新增 `app_image_digest`、`recovery_image_digest`、`dr_image_digest`、`dr_image_cached`、`image_sync`；B 新增 `app_image_digest`、`app_image_cached`、`release_image_digest`、`release_synced_at`。B `enable` 在写入 fencing确认标记和提升 PostgreSQL前验证：配置值是 digest、镜像已缓存、配置 digest等于最近成功同步 digest。
+
+B 已接管后不再从故障 A 推导版本。`prepare-from-b` 读取 B 的活动配置 digest，在停止 A 旧容器前验证 A 能拉取该 digest；实际执行时更新 A 恢复 `.env`，保证 `cutback-to-a` 启动的应用与 B 当前权威数据库版本一致。
+
+保留前一 digest仅用于诊断和有条件的应用回退。由于 A 更新可能已经执行并复制数据库迁移，脚本不得承诺旧镜像一定能兼容新数据库。
+
+## 12. 回滚与保护
 
 - B-only 准备：删除 `/root/sub2api-dr` 中新增文件以及未使用的 `sub2api-dr-*` 空资源，不影响现有栈。
 - 复制初始化前：若失败，清空且仅清空新容灾卷后重试。
@@ -239,3 +281,4 @@ A 提升后会产生新 PostgreSQL时间线，因此 B 不能原地声明为备�
 - A 重建：默认创建并切换到新的恢复卷，故障前旧卷不删除；初始化失败时停止新恢复容器并保留失败卷供检查。
 - A 回切失败：只要公共入口尚未切回 A，就保持 B 数据库为冻结写入后的权威主库；不得同时启动 B 应用恢复写入和继续提升 A。
 - B 重新入备失败：保持 A 为唯一写入主节点，B 应用继续停止；清理并重试的范围只限 `sub2api-dr-*` 容灾卷。
+- 发布同步失败：不重启任何服务；根据双端 `.env`、镜像缓存和 release sync状态显示 `drift`，修复后重新执行同步。不得在 B 提升现场临时使用可变标签追赶版本。

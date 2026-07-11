@@ -10,12 +10,14 @@ usage() {
   cat <<'EOF'
 用法：
   switch-mode.sh status
+  switch-mode.sh sync-release [--dry-run]
   switch-mode.sh prepare-from-b [--dry-run]
   switch-mode.sh cutback-to-a [--dry-run]
   switch-mode.sh restore-b-standby [--dry-run]
 
 说明：
   status             只读显示 A 本地角色和 B 容灾角色。
+  sync-release       A 更新健康后，把实际运行镜像 digest同步到双端容灾配置。
   prepare-from-b     B 已接管后，使用新命名卷把 A 重建为 B 的备节点。
   cutback-to-a       冻结 B 写入、等待 A 追平，再提升 A 并启动 A 应用。
   restore-b-standby  A 稳定为主后，从 A 全量重建 B 并恢复 A 主 B 备。
@@ -39,16 +41,265 @@ b_state() {
   ssh_b "cd '${B_DR_ROOT}' && ./scripts/switch-mode.sh status --machine"
 }
 
+image_sync_state() {
+  local local_output="$1"
+  local remote_output="$2"
+  local local_mode b_mode expected_digest app_digest recovery_digest recovery_cached
+  local local_release dr_digest dr_cached dr_release running_dr value
+
+  local_mode="$(field_value "${local_output}" mode)"
+  b_mode="$(field_value "${remote_output}" mode)"
+  app_digest="$(field_value "${local_output}" app_image_digest)"
+  recovery_digest="$(field_value "${local_output}" recovery_image_digest)"
+  recovery_cached="$(field_value "${local_output}" recovery_image_cached)"
+  local_release="$(field_value "${local_output}" release_image_digest)"
+  dr_digest="$(field_value "${remote_output}" app_image_digest)"
+  dr_cached="$(field_value "${remote_output}" app_image_cached)"
+  dr_release="$(field_value "${remote_output}" release_image_digest)"
+  running_dr="$(field_value "${remote_output}" running_app_image_digest)"
+
+  case "${local_mode}" in
+    legacy-active|active-recovered) expected_digest="${app_digest}" ;;
+    standby-from-b|cutback-postgres-promoted|active-recovered-stopped)
+      case "${b_mode}" in
+        active|active-stopped) expected_digest="${dr_digest}" ;;
+        *) printf 'unknown\n'; return 0 ;;
+      esac
+      ;;
+    *) printf 'unknown\n'; return 0 ;;
+  esac
+
+  for value in "${expected_digest}" "${recovery_digest}" "${local_release}" "${dr_digest}" "${dr_release}"; do
+    case "${value}" in
+      ""|unknown|absent) printf 'unknown\n'; return 0 ;;
+    esac
+  done
+  if ! validate_image_digest "${expected_digest}" \
+    || ! validate_image_digest "${recovery_digest}" \
+    || ! validate_image_digest "${local_release}" \
+    || ! validate_image_digest "${dr_digest}" \
+    || ! validate_image_digest "${dr_release}"; then
+    printf 'drift\n'
+    return 0
+  fi
+  if [ "${expected_digest}" != "${recovery_digest}" ] \
+    || [ "${expected_digest}" != "${local_release}" ] \
+    || [ "${expected_digest}" != "${dr_digest}" ] \
+    || [ "${expected_digest}" != "${dr_release}" ] \
+    || [ "${recovery_cached}" != "yes" ] \
+    || [ "${dr_cached}" != "yes" ]; then
+    printf 'drift\n'
+    return 0
+  fi
+  if [ "${b_mode}" = "active" ] && [ "${running_dr}" != "${dr_digest}" ]; then
+    printf 'drift\n'
+    return 0
+  fi
+  printf 'ok\n'
+}
+
+validate_b_release_image() {
+  local remote_output="$1"
+  local b_mode digest cached release_digest running_digest
+
+  b_mode="$(field_value "${remote_output}" mode)"
+  digest="$(field_value "${remote_output}" app_image_digest)"
+  cached="$(field_value "${remote_output}" app_image_cached)"
+  release_digest="$(field_value "${remote_output}" release_image_digest)"
+  running_digest="$(field_value "${remote_output}" running_app_image_digest)"
+  validate_image_digest "${digest}" || die "B 容灾应用镜像不是固定 digest：${digest:-unknown}"
+  [ "${cached}" = "yes" ] || die "B 尚未缓存容灾应用镜像：${digest}"
+  [ "${release_digest}" = "${digest}" ] || die "B 容灾应用镜像与发布同步记录不一致"
+  if [ "${b_mode}" = "active" ]; then
+    [ "${running_digest}" = "${digest}" ] || die "B 运行中的容灾应用镜像与发布配置不一致"
+  fi
+  printf '%s\n' "${digest}"
+}
+
+set_local_release_image() {
+  local digest="$1"
+  local source_ref="$2"
+  local current_digest current_release current_previous current_source previous_digest
+
+  current_digest="$(env_value "${ENV_FILE}" SUB2API_IMAGE)" \
+    || die "A 容灾环境文件缺少 SUB2API_IMAGE"
+  current_release="$(release_state_value APP_IMAGE_DIGEST 2>/dev/null || true)"
+  current_previous="$(release_state_value PREVIOUS_APP_IMAGE_DIGEST 2>/dev/null || true)"
+  current_source="$(release_state_value SOURCE_IMAGE_REF 2>/dev/null || true)"
+  if [ "${current_digest}" = "${digest}" ] \
+    && [ "${current_release}" = "${digest}" ] \
+    && [ "${current_source}" = "${source_ref}" ]; then
+    return 0
+  fi
+
+  previous_digest="${current_previous}"
+  if [ "${current_digest}" != "${digest}" ] && validate_image_digest "${current_digest}"; then
+    previous_digest="${current_digest}"
+  fi
+  replace_env_value "${ENV_FILE}" SUB2API_IMAGE "${digest}"
+  write_release_state "${digest}" "${previous_digest}" "${source_ref}"
+}
+
 show_status() {
-  local remote_output
+  local machine="${1:-false}"
+  local local_output remote_output remote_human sync_state
+
+  local_output="$(local_state)"
+  if ! remote_output="$(b_state)"; then
+    if [ "${machine}" = "true" ]; then
+      printf '%s\n' "${local_output}"
+      printf 'dr_image_digest=unknown\n'
+      printf 'dr_image_cached=unknown\n'
+      printf 'dr_release_image_digest=unknown\n'
+      printf 'dr_release_synced_at=unknown\n'
+      printf 'image_sync=unknown\n'
+    else
+      "${SCRIPT_DIR}/verify-cutback.sh"
+      printf '%s\n' '警告：无法读取 B 状态；A 本地状态如上。' >&2
+    fi
+    return 2
+  fi
+  sync_state="$(image_sync_state "${local_output}" "${remote_output}")"
+
+  if [ "${machine}" = "true" ]; then
+    printf '%s\n' "${local_output}"
+    printf 'dr_image_digest=%s\n' "$(field_value "${remote_output}" app_image_digest)"
+    printf 'dr_image_cached=%s\n' "$(field_value "${remote_output}" app_image_cached)"
+    printf 'dr_release_image_digest=%s\n' "$(field_value "${remote_output}" release_image_digest)"
+    printf 'dr_release_synced_at=%s\n' "$(field_value "${remote_output}" release_synced_at)"
+    printf 'image_sync=%s\n' "${sync_state}"
+    return 0
+  fi
 
   "${SCRIPT_DIR}/verify-cutback.sh"
   printf '%s\n' '--- B 容灾节点 ---'
-  if ! remote_output="$(ssh_b "cd '${B_DR_ROOT}' && ./scripts/switch-mode.sh status")"; then
-    printf '%s\n' '警告：无法读取 B 状态；A 本地状态如上。' >&2
+  if ! remote_human="$(ssh_b "cd '${B_DR_ROOT}' && ./scripts/switch-mode.sh status")"; then
+    printf '%s\n' '警告：无法读取 B 人类可读状态；机器状态已获取。' >&2
     return 2
   fi
-  printf '%s\n' "${remote_output}"
+  printf '%s\n' "${remote_human}"
+  printf '双端发布镜像：A运行=%s A恢复=%s B配置=%s B缓存=%s sync=%s\n' \
+    "$(field_value "${local_output}" app_image_digest)" \
+    "$(field_value "${local_output}" recovery_image_digest)" \
+    "$(field_value "${remote_output}" app_image_digest)" \
+    "$(field_value "${remote_output}" app_image_cached)" \
+    "${sync_state}"
+}
+
+sync_release() {
+  local dry_run="$1"
+  local local_output remote_output local_mode b_mode source_ref digest sync_state
+  local local_image_id remote_image_id remote_cached
+
+  local_output="$(local_state)"
+  local_mode="$(field_value "${local_output}" mode)"
+  case "${local_mode}" in
+    legacy-active|active-recovered) ;;
+    *) die "A 当前模式为 ${local_mode}，只允许启用主节点同步发布镜像" ;;
+  esac
+  curl -fsS "http://127.0.0.1:${SERVER_PORT:-8080}/health" >/dev/null \
+    || die "A 应用健康检查失败，拒绝同步发布镜像"
+
+  remote_output="$(b_state)"
+  b_mode="$(field_value "${remote_output}" mode)"
+  [ "${b_mode}" = "standby" ] || die "B 当前模式为 ${b_mode}，只允许向 standby同步发布镜像"
+  [ "$(field_value "${remote_output}" postgres_recovery)" = "t" ] \
+    || die "B PostgreSQL不是可用备库"
+  [ "$(field_value "${remote_output}" redis_role)" = "slave" ] \
+    || die "B Redis不是从库"
+  [ "$(field_value "${remote_output}" redis_link)" = "up" ] \
+    || die "B Redis主链路未连接"
+  [ "$(field_value "${remote_output}" redis_sync)" = "0" ] \
+    || die "B Redis仍在执行同步"
+  ssh_b "cd '${B_DR_ROOT}' && ./scripts/verify-replication.sh >/dev/null" \
+    || die "B 数据库复制健康检查失败，拒绝同步发布镜像"
+
+  source_ref="$(docker inspect --format '{{.Config.Image}}' sub2api)"
+  validate_image_reference "${source_ref}" || die "A 运行镜像引用格式无效：${source_ref}"
+  digest="$(resolve_running_image_digest sub2api)" || die "无法解析 A 当前运行镜像的可拉取 digest"
+  local_image_id="$(docker inspect --format '{{.Image}}' sub2api)"
+  remote_cached="$(field_value "${remote_output}" app_image_cached)"
+  sync_state="$(image_sync_state "${local_output}" "${remote_output}")"
+
+  printf 'A 当前运行镜像：source=%s digest=%s\n' "${source_ref}" "${digest}"
+  printf '当前容灾配置：A=%s B=%s B缓存=%s sync=%s\n' \
+    "$(field_value "${local_output}" recovery_image_digest)" \
+    "$(field_value "${remote_output}" app_image_digest)" \
+    "${remote_cached}" "${sync_state}"
+  if [ "${dry_run}" = "true" ]; then
+    if [ "${sync_state}" = "ok" ]; then
+      printf 'dry-run：双端已经同步，无需更新。\n'
+    else
+      printf 'dry-run：将让 B 拉取精确 digest，再只更新双端 SUB2API_IMAGE和发布状态。\n'
+    fi
+    printf 'dry-run 完成：没有拉取镜像、修改环境文件、重启服务或启动 B 应用。\n'
+    return 0
+  fi
+  if [ "${sync_state}" = "ok" ]; then
+    printf '双端发布镜像已经同步，无需重复更新。\n'
+    return 0
+  fi
+
+  ssh_b "docker pull '${digest}' >/dev/null"
+  remote_image_id="$(ssh_b "docker image inspect --format '{{.Id}}' '${digest}'")"
+  [ "${remote_image_id}" = "${local_image_id}" ] \
+    || die "B 拉取镜像后的 image ID与 A 当前运行镜像不一致"
+  ssh_b "cd '${B_DR_ROOT}' && ./scripts/set-release-image.sh '${digest}' '${source_ref}'"
+  set_local_release_image "${digest}" "${source_ref}"
+
+  local_output="$(local_state)"
+  remote_output="$(b_state)"
+  sync_state="$(image_sync_state "${local_output}" "${remote_output}")"
+  [ "${sync_state}" = "ok" ] || die "双端发布镜像同步后状态仍为 ${sync_state}"
+  printf '发布镜像同步完成：%s；A/B 数据库和应用运行状态未改变。\n' "${digest}"
+}
+
+ensure_recovery_image_from_b() {
+  local remote_output="$1"
+  local dry_run="$2"
+  local digest source_ref current_digest local_image_id remote_image_id
+
+  digest="$(validate_b_release_image "${remote_output}")"
+  source_ref="$(field_value "${remote_output}" release_source_ref)"
+  if ! validate_image_reference "${source_ref}"; then
+    source_ref="${digest}"
+  fi
+  current_digest="$(env_value "${ENV_FILE}" SUB2API_IMAGE)" \
+    || die "A 容灾环境文件缺少 SUB2API_IMAGE"
+  printf 'B 当前权威应用镜像：%s；A 恢复配置：%s\n' "${digest}" "${current_digest}"
+
+  if [ "${dry_run}" = "true" ]; then
+    if [ "${current_digest}" = "${digest}" ] && image_is_cached "${digest}"; then
+      printf 'dry-run：A 已缓存并配置 B 的权威应用镜像。\n'
+    else
+      printf 'dry-run：实际确认后将在停止 A 旧容器前拉取并写入 B 的权威应用 digest。\n'
+    fi
+    return 0
+  fi
+
+  docker pull "${digest}" >/dev/null
+  local_image_id="$(docker image inspect --format '{{.Id}}' "${digest}")"
+  remote_image_id="$(ssh_b "docker image inspect --format '{{.Id}}' '${digest}'")"
+  [ "${local_image_id}" = "${remote_image_id}" ] \
+    || die "A 拉取镜像后的 image ID与 B 权威镜像不一致"
+  set_local_release_image "${digest}" "${source_ref}"
+  [ "$(env_value "${ENV_FILE}" SUB2API_IMAGE)" = "${digest}" ] \
+    || die "A 恢复环境文件镜像更新后校验失败"
+}
+
+verify_recovery_image_matches_b() {
+  local remote_output="$1"
+  local digest recovery_digest local_release
+
+  digest="$(validate_b_release_image "${remote_output}")"
+  recovery_digest="$(env_value "${ENV_FILE}" SUB2API_IMAGE)" \
+    || die "A 容灾环境文件缺少 SUB2API_IMAGE"
+  local_release="$(release_state_value APP_IMAGE_DIGEST 2>/dev/null || true)"
+  [ "${recovery_digest}" = "${digest}" ] \
+    || die "A 恢复应用镜像与 B 权威镜像不一致，请先重新执行 prepare-from-b"
+  [ "${local_release}" = "${digest}" ] \
+    || die "A 发布同步记录与 B 权威镜像不一致"
+  image_is_cached "${digest}" || die "A 尚未缓存 B 权威应用镜像：${digest}"
 }
 
 volume_is_empty() {
@@ -154,10 +405,12 @@ prepare_from_b() {
     active|active-stopped) ;;
     *) die "B 当前模式为 ${b_mode}，不是可用恢复主节点" ;;
   esac
+  validate_b_release_image "${remote_output}" >/dev/null
   ssh_b "cd '${B_DR_ROOT}' && ./scripts/prepare-recovery-source.sh --dry-run"
   ensure_recovery_volumes_available
 
   if [ "${dry_run}" = "true" ]; then
+    ensure_recovery_image_from_b "${remote_output}" true
     printf 'dry-run：将停止并移除 A 旧容器但保留旧卷，随后从 B 初始化三个新恢复卷。\n'
     printf 'dry-run 完成：没有停止服务、创建卷或启动 B 临时出口。\n'
     return 0
@@ -167,6 +420,7 @@ prepare_from_b() {
   read -r -p '请输入 STOP_AND_REBUILD_A_FROM_B 继续：' confirmation
   [ "${confirmation}" = "STOP_AND_REBUILD_A_FROM_B" ] || die "确认口令不匹配，已取消"
 
+  ensure_recovery_image_from_b "${remote_output}" false
   ssh_b "cd '${B_DR_ROOT}' && ./scripts/prepare-recovery-source.sh"
   verify_b_recovery_source
   compose_primary stop sub2api postgres redis
@@ -250,6 +504,7 @@ cutback_to_a() {
     active|active-stopped) ;;
     *) die "B 当前模式为 ${b_mode}，不能执行受控回切" ;;
   esac
+  verify_recovery_image_matches_b "${remote_output}"
 
   if [ "${dry_run}" = "true" ]; then
     ssh_b "cd '${B_DR_ROOT}' && ./scripts/switch-mode.sh freeze --dry-run"
@@ -354,6 +609,7 @@ main() {
   local action="${1:-status}"
   local option="${2:-}"
   local dry_run=false
+  local machine=false
 
   [ "$#" -le 2 ] || die "参数过多；请使用 --help 查看用法"
   case "${action}" in
@@ -365,14 +621,16 @@ main() {
   esac
   case "${action}:${option}" in
     status:) ;;
-    prepare-from-b:|cutback-to-a:|restore-b-standby:) ;;
-    prepare-from-b:--dry-run|cutback-to-a:--dry-run|restore-b-standby:--dry-run) dry_run=true ;;
+    status:--machine) machine=true ;;
+    sync-release:|prepare-from-b:|cutback-to-a:|restore-b-standby:) ;;
+    sync-release:--dry-run|prepare-from-b:--dry-run|cutback-to-a:--dry-run|restore-b-standby:--dry-run) dry_run=true ;;
     *) die "操作 ${action} 不支持参数：${option:-<空>}" ;;
   esac
 
   require_command awk
   require_command curl
   require_command docker
+  require_command mktemp
   require_command ssh
   load_recovery_env
   POSTGRES_USER="${POSTGRES_USER:-sub2api}"
@@ -391,7 +649,8 @@ main() {
   require_var A_RECOVERY_REDIS_VOLUME
 
   case "${action}" in
-    status) show_status ;;
+    status) show_status "${machine}" ;;
+    sync-release) sync_release "${dry_run}" ;;
     prepare-from-b) prepare_from_b "${dry_run}" ;;
     cutback-to-a) cutback_to_a "${dry_run}" ;;
     restore-b-standby) restore_b_standby "${dry_run}" ;;

@@ -20,6 +20,12 @@ postgres_lsn=unknown
 redis_master_offset=unknown
 redis_slave_offset=unknown
 app_container_state=absent
+app_image_digest=unknown
+app_image_cached=unknown
+running_app_image_digest=absent
+release_image_digest=unknown
+release_source_ref=unknown
+release_synced_at=unknown
 current_mode=uninitialized
 
 usage() {
@@ -87,6 +93,20 @@ load_current_state() {
   fi
 
   app_container_state="$(inspect_container_state "${APP_CONTAINER}")"
+  app_image_digest="$(env_value "${ENV_FILE}" SUB2API_IMAGE 2>/dev/null || printf 'unknown')"
+  if validate_image_digest "${app_image_digest}" && image_is_cached "${app_image_digest}"; then
+    app_image_cached=yes
+  else
+    app_image_cached=no
+  fi
+  if [ "${app_container_state}" = "running" ]; then
+    running_app_image_digest="$(docker inspect --format '{{.Config.Image}}' "${APP_CONTAINER}" 2>/dev/null || printf 'unknown')"
+  else
+    running_app_image_digest=absent
+  fi
+  release_image_digest="$(release_state_value APP_IMAGE_DIGEST 2>/dev/null || printf 'unknown')"
+  release_source_ref="$(release_state_value SOURCE_IMAGE_REF 2>/dev/null || printf 'unknown')"
+  release_synced_at="$(release_state_value SYNCED_AT 2>/dev/null || printf 'unknown')"
 
   if [ "${postgres_recovery}" = "t" ] \
     && [ "${redis_role}" = "slave" ] \
@@ -125,6 +145,12 @@ print_current_state() {
     printf 'redis_master_offset=%s\n' "${redis_master_offset}"
     printf 'redis_slave_offset=%s\n' "${redis_slave_offset}"
     printf 'app_container=%s\n' "${app_container_state}"
+    printf 'app_image_digest=%s\n' "${app_image_digest}"
+    printf 'app_image_cached=%s\n' "${app_image_cached}"
+    printf 'running_app_image_digest=%s\n' "${running_app_image_digest}"
+    printf 'release_image_digest=%s\n' "${release_image_digest}"
+    printf 'release_source_ref=%s\n' "${release_source_ref}"
+    printf 'release_synced_at=%s\n' "${release_synced_at}"
     return 0
   fi
 
@@ -135,6 +161,10 @@ print_current_state() {
     "${redis_container_state}" "${redis_role}" "${redis_link}" "${redis_sync}"
   printf 'Redis offset：master=%s slave=%s\n' "${redis_master_offset}" "${redis_slave_offset}"
   printf 'Sub2API：container=%s\n' "${app_container_state}"
+  printf '发布镜像：configured=%s cached=%s running=%s\n' \
+    "${app_image_digest}" "${app_image_cached}" "${running_app_image_digest}"
+  printf '发布同步：digest=%s source=%s synced_at=%s\n' \
+    "${release_image_digest}" "${release_source_ref}" "${release_synced_at}"
 }
 
 port_18080_is_listening() {
@@ -192,6 +222,7 @@ enable_mode() {
 
   load_current_state
   print_current_state
+  verify_release_image_ready
   warn_unsynchronized_clock
 
   if [ "${dry_run}" = "true" ]; then

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+remote_command="${!#}"
+printf '%s\n' "${remote_command}" >> "${MOCK_SSH_LOG:?}"
+
+[ "${MOCK_SSH_FAIL:-none}" != "all" ] || exit 255
+
+case "${remote_command}" in
+  *"switch-mode.sh status --machine"*)
+    if [ -n "${MOCK_B_ROOT:-}" ]; then
+      "${MOCK_B_ROOT}/scripts/switch-mode.sh" status --machine
+    else
+      cat "${MOCK_B_STATUS_FILE:?}"
+    fi
+    ;;
+  *"verify-replication.sh"*)
+    if [ -n "${MOCK_B_ROOT:-}" ]; then
+      "${MOCK_B_ROOT}/scripts/verify-replication.sh" >/dev/null
+    else
+      [ "${MOCK_VERIFY_REPLICATION_FAIL:-false}" != "true" ]
+    fi
+    ;;
+  *"prepare-recovery-source.sh --dry-run"*)
+    exit 0
+    ;;
+  *"docker image inspect"*)
+    printf '%s\n' "${MOCK_REMOTE_IMAGE_ID:?}"
+    ;;
+  *"docker pull"*)
+    exit 0
+    ;;
+  *"set-release-image.sh"*)
+    [ -n "${MOCK_B_ROOT:-}" ] || exit 0
+    digest="$(printf '%s\n' "${remote_command}" | awk -F "'" '{ print $4 }')"
+    source_ref="$(printf '%s\n' "${remote_command}" | awk -F "'" '{ print $6 }')"
+    "${MOCK_B_ROOT}/scripts/set-release-image.sh" "${digest}" "${source_ref}"
+    ;;
+  *)
+    printf '未处理的 ssh mock 调用：%s\n' "${remote_command}" >&2
+    exit 96
+    ;;
+esac

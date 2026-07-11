@@ -59,6 +59,18 @@
 9. 两端所有变更命令均支持 `--dry-run`；清理卷、提升数据库、冻结写入和改变复制方向使用独立确认口令。
 10. 更新 A、B README，写明正常故障切换、A 修复准备、回切和恢复 B 为备库的命令顺序。
 
+## 阶段 5.5：A 日常更新后的容灾镜像同步
+
+1. 在 A 脚本库增加运行容器镜像解析、同仓库 RepoDigest筛选、digest格式校验、`.env` 单键原子替换和发布状态读写函数。
+2. 在 B 增加内部发布镜像设置脚本：只接受固定 digest，要求镜像已缓存，只更新 `.env` 中唯一 `SUB2API_IMAGE` 并写入无敏感信息的同步状态。
+3. 在 A `switch-mode.sh` 增加 `sync-release [--dry-run]`，仅允许 A 正常启用、B `standby` 且复制健康时执行。
+4. `sync-release --dry-run` 只解析 A 当前运行 digest、读取双端配置和缓存状态并输出计划；实际命令先让 B 拉取精确 digest，再依次原子更新 B、A 配置和状态文件。
+5. 扩展 A/B `status --machine` 与人类可读输出，显示当前运行、恢复配置、容灾配置、远端缓存和 `image_sync` 状态；保持现有字段兼容。
+6. 在 B `enable` 的数据库提升前增加镜像门禁：拒绝普通标签、缺失缓存、缺失同步记录或记录与配置不一致。
+7. 在 A `prepare-from-b` 中以 B 活动 digest为权威，`--dry-run` 只验证计划，实际执行在停止 A 旧容器前拉取并更新 A 恢复配置。
+8. 更新两端 README和 `disaster-recovery-guidelines.md`，明确同标签更新也必须运行版本同步、故障窗口禁止临时拉取可变标签、旧 digest不等于保证可回滚。
+9. 在本地与服务器验证同 digest幂等、模拟同标签新 digest、B 缓存缺失、状态漂移、B 非 standby、A/B SSH失败和 B 接管后 A 恢复等分支；验证过程不得提升数据库或启动 B 应用。
+
 ## 阶段 6：计划演练与生产回切
 
 > 本阶段需要单独维护窗口和用户确认。
@@ -72,6 +84,12 @@
 7. 从新的 A 主节点重新初始化 B，使 A 恢复为主、B 恢复为备。
 
 ## 验证命令
+
+发布镜像同步隔离回归：
+
+```bash
+.trellis/tasks/07-11-sub2api-primary-standby-dr/tests/release-image-sync-test.sh
+```
 
 B 资源隔离：
 
@@ -97,6 +115,7 @@ cd /root/sub2api-ha-export
 docker compose --env-file .env.example -f /root/sub2api/deploy/docker-compose.yml -f compose.recovery.yaml config
 bash -n scripts/*.sh
 ./scripts/switch-mode.sh status
+./scripts/switch-mode.sh sync-release --dry-run
 ./scripts/switch-mode.sh prepare-from-b --dry-run
 ./scripts/switch-mode.sh cutback-to-a --dry-run
 ./scripts/switch-mode.sh restore-b-standby --dry-run
@@ -143,6 +162,8 @@ docker compose --profile promoted ps
 - A 与 B 的远程编排依赖标准 SSH可用；脚本不得记录密码，SSH失败时必须在任何本地破坏性动作前停止。
 - B 回切前被冻结后仍是权威数据库主节点；若 A 提升失败，不得重新开启 B 应用和继续 A 提升两个方向同时操作。
 - A 提升产生新时间线后，B 必须重新基础备份，不能仅修改 `primary_conninfo` 假装重新入备。
+- A 复用同一标签更新时，标签字符串不会变化；若不解析运行镜像 digest并同步到 B，数据库迁移可能已复制而备用应用仍是旧版本。
+- 发布同步跨两台服务器无法形成真正原子事务；必须先缓存后更新、保留状态并允许幂等重跑，不能在半成功时自动启动任何应用。
 
 ## 回滚点
 
@@ -151,4 +172,5 @@ docker compose --profile promoted ps
 - 阶段 3：停止 B 容灾数据库并清理新容灾卷后重新初始化。
 - 阶段 4：未切换入口前保持 A 为唯一主节点。
 - 阶段 5：脚本和覆盖文件准备只执行静态检查与 `--dry-run`，不触发实际提升、数据卷重建或入口切换。
+- 阶段 5.5：同步失败时保持 A 正常提供服务、B 应用停止；不删除已拉取镜像，只修复漂移后重跑。恢复配置仍指向旧 digest时禁止提升 B。
 - 阶段 6：一旦 B 已提升，不自动回退；A 重建失败时保留 B 为主，A 回切成功但 B 重新入备失败时保留 A 为唯一主节点并保持 B 应用停止。

@@ -19,6 +19,12 @@ redis_slave_offset=unknown
 redis_volume=unknown
 app_container=absent
 app_volume=unknown
+app_image_digest=absent
+recovery_image_digest=unknown
+recovery_image_cached=unknown
+release_image_digest=unknown
+release_source_ref=unknown
+release_synced_at=unknown
 current_mode=offline
 
 redis_replication_info() {
@@ -68,6 +74,20 @@ load_state() {
 
   app_container="$(container_state sub2api)"
   app_volume="$(mount_name sub2api /app/data)"
+  if [ "${app_container}" = "running" ]; then
+    app_image_digest="$(resolve_running_image_digest sub2api 2>/dev/null || printf 'unknown')"
+  else
+    app_image_digest=absent
+  fi
+  recovery_image_digest="$(env_value "${ENV_FILE}" SUB2API_IMAGE 2>/dev/null || printf 'unknown')"
+  if validate_image_digest "${recovery_image_digest}" && image_is_cached "${recovery_image_digest}"; then
+    recovery_image_cached=yes
+  else
+    recovery_image_cached=no
+  fi
+  release_image_digest="$(release_state_value APP_IMAGE_DIGEST 2>/dev/null || printf 'unknown')"
+  release_source_ref="$(release_state_value SOURCE_IMAGE_REF 2>/dev/null || printf 'unknown')"
+  release_synced_at="$(release_state_value SYNCED_AT 2>/dev/null || printf 'unknown')"
 
   if [ "${postgres_volume}" = "${A_RECOVERY_POSTGRES_VOLUME}" ] \
     && [ "${redis_volume}" = "${A_RECOVERY_REDIS_VOLUME}" ]; then
@@ -129,6 +149,12 @@ print_state() {
     printf 'redis_volume=%s\n' "${redis_volume}"
     printf 'app_container=%s\n' "${app_container}"
     printf 'app_volume=%s\n' "${app_volume}"
+    printf 'app_image_digest=%s\n' "${app_image_digest}"
+    printf 'recovery_image_digest=%s\n' "${recovery_image_digest}"
+    printf 'recovery_image_cached=%s\n' "${recovery_image_cached}"
+    printf 'release_image_digest=%s\n' "${release_image_digest}"
+    printf 'release_source_ref=%s\n' "${release_source_ref}"
+    printf 'release_synced_at=%s\n' "${release_synced_at}"
     return 0
   fi
 
@@ -139,6 +165,10 @@ print_state() {
     "${redis_container}" "${redis_role}" "${redis_link}" "${redis_sync}" \
     "${redis_master_offset}" "${redis_slave_offset}" "${redis_volume}"
   printf 'Sub2API：container=%s volume=%s\n' "${app_container}" "${app_volume}"
+  printf '发布镜像：running=%s recovery=%s cached=%s\n' \
+    "${app_image_digest}" "${recovery_image_digest}" "${recovery_image_cached}"
+  printf '发布同步：digest=%s source=%s synced_at=%s\n' \
+    "${release_image_digest}" "${release_source_ref}" "${release_synced_at}"
 }
 
 main() {

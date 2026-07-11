@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# 测试夹具默认没有任何宿主机监听端口。
+exit 0

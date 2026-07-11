@@ -31,7 +31,22 @@ cd /root/sub2api-dr
 - B Redis为 `role=slave`、`link=up`、`sync_in_progress=0`。
 - B 容灾应用没有运行，`18080` 没有监听。
 
-## 2. A 故障，切换到 B
+## 2. A 更新版本后
+
+A 可以继续使用原来的更新方式，也可以复用同一个标签。A 更新完成并确认健康后，在 A 执行：
+
+```bash
+cd /root/sub2api-ha-export
+./scripts/switch-mode.sh sync-release --dry-run
+./scripts/switch-mode.sh sync-release
+./scripts/switch-mode.sh status
+```
+
+正常结果应显示 `image_sync=ok`。脚本读取 A 当前运行容器的真实 `仓库@sha256`，先让 B 缓存该镜像，再只更新双端容灾配置中的 `SUB2API_IMAGE`。
+
+该操作不会更新或重启 A，不会重启 A/B PostgreSQL、Redis，也不会启动 B 容灾应用。不要手工把 B 改成与 A 相同的可变标签，也不要等到故障提升时才临时拉取标签。
+
+## 3. A 故障，切换到 B
 
 重要：只有确认 A 已关机或已经完全停止写入时才能继续。网络不通不代表 A 已停机；无法确认时，先在云厂商控制台关闭 A。
 
@@ -55,7 +70,7 @@ curl -fsS http://127.0.0.1:18080/health
 
 B 应显示 `active`。最后人工把公共域名或入口切换到 B 的 `18080`。
 
-## 3. A 修复后，切回 A
+## 4. A 修复后，切回 A
 
 前提：B 正在提供服务。不要手工启动 A 故障前的旧数据库和应用。
 
@@ -101,7 +116,7 @@ A 应显示 `active-recovered`，B 应显示 `active-stopped`。确认业务正�
 
 最后再次运行 A、B 的 `status`，结果应为 A 主、B `standby`。
 
-## 4. 常见状态
+## 5. 常见状态
 
 | 节点 | 状态 | 含义 |
 |---|---|---|
@@ -113,23 +128,30 @@ A 应显示 `active-recovered`，B 应显示 `active-stopped`。确认业务正�
 | B | `active-stopped` | B 应用已冻结，等待回切 |
 | 任一端 | `inconsistent` | 状态矛盾，立即停止操作 |
 
-## 5. 禁止事项
+版本状态：
+
+- `image_sync=ok`：A 当前运行镜像、A 恢复配置、B 容灾配置和同步记录一致，B 已缓存镜像。
+- `image_sync=drift`：已知配置不一致，禁止提升 B，先在 A 重新执行 `sync-release`。
+- `image_sync=unknown`：缺少同步记录或无法读取对端，先排查状态，不能按标签猜测版本。
+
+## 6. 禁止事项
 
 - 所有实际变更都先运行一次相同命令的 `--dry-run`。
 - 不要手工执行 `docker compose down`、删除容器或删除数据卷。
 - 不要手工启动 B 的 `sub2api-dr-app`。
 - B 接管后，不要直接启动 A 故障前的旧服务。
 - 不要让 A、B 两边同时提供写入。
+- 不要让 B 使用普通标签作为容灾应用版本，也不要绕过镜像同步门禁提升数据库。
 - 任何一端出现 `inconsistent` 时，不要继续执行下一步。
 - 脚本不会自动切换域名或公共入口。
 
-## 6. 目录说明
+## 7. 目录说明
 
 - `README.md`：本说明。
 - `scripts/switch-mode.sh`：唯一推荐的操作入口。
 - `scripts/` 其它文件：辅助脚本，不建议单独执行。
 - `compose*.yaml`：容灾配置，不建议手工操作。
 - B 的 `.env` 和 A 的 `secrets.env`：运行参数与复制凭据，不要输出或修改。
-- `state/`：脚本执行状态，排查问题时不要删除。
+- `state/`：脚本执行状态和最近发布镜像记录，排查问题时不要删除。
 
 如果执行报错，先保存错误信息，再分别运行 A、B 的 `status`。不要连续重跑实际命令，也不要自行清理容器或数据卷。

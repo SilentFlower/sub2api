@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EXPORT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 STATE_DIR="${EXPORT_ROOT}/state"
 ENV_FILE="${EXPORT_ROOT}/.env"
+RELEASE_STATE_FILE="${STATE_DIR}/release-image.env"
 # 该变量由加载本文件的配置脚本使用。
 # shellcheck disable=SC2034
 SECRETS_FILE="${EXPORT_ROOT}/secrets.env"
@@ -35,6 +36,144 @@ require_var() {
   case "${!name}" in
     REPLACE_WITH_*) die "环境变量 ${name} 仍是占位值" ;;
   esac
+}
+
+env_value() {
+  local file="$1"
+  local name="$2"
+
+  awk -v name="${name}" '
+    index($0, name "=") == 1 {
+      value = substr($0, length(name) + 2)
+      found = 1
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+      print value
+    }
+  ' "${file}"
+}
+
+validate_image_reference() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/@:+-]*$ ]]
+}
+
+validate_image_digest() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/:+-]*@sha256:[a-f0-9]{64}$ ]]
+}
+
+image_repository_from_ref() {
+  local ref="$1"
+  local repository last_component
+
+  validate_image_reference "${ref}" || return 1
+  repository="${ref%%@*}"
+  last_component="${repository##*/}"
+  if [[ "${last_component}" == *:* ]]; then
+    repository="${repository%:*}"
+  fi
+  [ -n "${repository}" ] || return 1
+  printf '%s\n' "${repository}"
+}
+
+resolve_running_image_digest() {
+  local container="$1"
+  local source_ref image_id repository candidate candidate_id match=""
+
+  docker container inspect "${container}" >/dev/null 2>&1 || {
+    printf '无法读取运行容器：%s\n' "${container}" >&2
+    return 1
+  }
+  source_ref="$(docker inspect --format '{{.Config.Image}}' "${container}")"
+  image_id="$(docker inspect --format '{{.Image}}' "${container}")"
+  repository="$(image_repository_from_ref "${source_ref}")" || {
+    printf '容器 %s 的镜像引用格式无效：%s\n' "${container}" "${source_ref}" >&2
+    return 1
+  }
+
+  while IFS= read -r candidate; do
+    [ -n "${candidate}" ] || continue
+    validate_image_digest "${candidate}" || continue
+    [[ "${candidate}" == "${repository}@sha256:"* ]] || continue
+    candidate_id="$(docker image inspect --format '{{.Id}}' "${candidate}" 2>/dev/null || true)"
+    [ "${candidate_id}" = "${image_id}" ] || continue
+    if [ -n "${match}" ] && [ "${candidate}" != "${match}" ]; then
+      printf '运行镜像匹配到多个同仓库 digest：%s、%s\n' "${match}" "${candidate}" >&2
+      return 1
+    fi
+    match="${candidate}"
+  done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image_id}" 2>/dev/null || true)
+
+  [ -n "${match}" ] || {
+    printf '运行镜像没有与仓库 %s 匹配的可拉取 RepoDigest\n' "${repository}" >&2
+    return 1
+  }
+  printf '%s\n' "${match}"
+}
+
+image_is_cached() {
+  validate_image_digest "$1" || return 1
+  docker image inspect "$1" >/dev/null 2>&1
+}
+
+release_state_value() {
+  local name="$1"
+
+  [ -f "${RELEASE_STATE_FILE}" ] || return 1
+  env_value "${RELEASE_STATE_FILE}" "${name}"
+}
+
+replace_env_value() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  local temp_file
+
+  [[ "${name}" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "环境变量名称格式无效：${name}"
+  [ -f "${file}" ] || die "环境文件不存在：${file}"
+  temp_file="$(mktemp "${file}.tmp.XXXXXX")"
+  if ! awk -v name="${name}" -v value="${value}" '
+    BEGIN { found = 0 }
+    index($0, name "=") == 1 {
+      if (!found) {
+        print name "=" value
+      }
+      found = 1
+      next
+    }
+    { print }
+    END { if (!found) exit 2 }
+  ' "${file}" > "${temp_file}"; then
+    rm -f "${temp_file}"
+    die "环境文件缺少 ${name}，拒绝追加未知配置"
+  fi
+  chmod 0600 "${temp_file}"
+  mv -f "${temp_file}" "${file}"
+}
+
+write_release_state() {
+  local digest="$1"
+  local previous_digest="$2"
+  local source_ref="$3"
+  local synced_at="${4:-$(date -Is)}"
+  local temp_file
+
+  validate_image_digest "${digest}" || die "发布镜像 digest格式无效：${digest}"
+  [ -z "${previous_digest}" ] || validate_image_digest "${previous_digest}" \
+    || die "上一发布镜像 digest格式无效：${previous_digest}"
+  validate_image_reference "${source_ref}" || die "来源镜像引用格式无效：${source_ref}"
+  mkdir -p "${STATE_DIR}"
+  temp_file="$(mktemp "${RELEASE_STATE_FILE}.tmp.XXXXXX")"
+  {
+    printf 'APP_IMAGE_DIGEST=%s\n' "${digest}"
+    printf 'PREVIOUS_APP_IMAGE_DIGEST=%s\n' "${previous_digest}"
+    printf 'SOURCE_IMAGE_REF=%s\n' "${source_ref}"
+    printf 'SYNCED_AT=%s\n' "${synced_at}"
+  } > "${temp_file}"
+  chmod 0600 "${temp_file}"
+  mv -f "${temp_file}" "${RELEASE_STATE_FILE}"
 }
 
 postgres_user() {

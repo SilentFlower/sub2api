@@ -57,6 +57,7 @@ main() {
 
   docker inspect sub2api-dr-postgres >/dev/null 2>&1 || die "PostgreSQL容灾容器不存在"
   docker inspect sub2api-dr-redis >/dev/null 2>&1 || die "Redis容灾容器不存在"
+  verify_release_image_ready
   show_pre_promote_status
 
   if [ "${dry_run}" = "true" ]; then

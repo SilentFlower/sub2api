@@ -6,24 +6,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "${SCRIPT_DIR}/lib.sh"
 
-env_value() {
-  local file="$1"
-  local name="$2"
-
-  awk -v name="${name}" '
-    index($0, name "=") == 1 {
-      value = substr($0, length(name) + 2)
-      found = 1
-    }
-    END {
-      if (!found) {
-        exit 1
-      }
-      print value
-    }
-  ' "${file}"
-}
-
 require_source_value() {
   local file="$1"
   local name="$2"
@@ -96,7 +78,11 @@ main() {
   trap 'rm -f "${temp_env}"' EXIT
 
   {
-    cat "${source_env}"
+    # B 容灾覆盖键必须只出现一次，避免 shell 与 Compose 对重复键产生隐式最后值语义。
+    awk '
+      /^(COMPOSE_PROJECT_NAME|DR_BIND_HOST|DR_APP_PORT|SUB2API_IMAGE|POSTGRES_IMAGE|REDIS_IMAGE|A_REPLICATION_HOST|A_POSTGRES_REPLICATION_PORT|POSTGRES_REPLICATION_USER|POSTGRES_REPLICATION_PASSWORD|POSTGRES_REPLICATION_SLOT|REDIS_MASTER_PASSWORD|A_REDIS_REPLICATION_PORT)=/ { next }
+      { print }
+    ' "${source_env}"
     printf '\n# B 容灾栈运行时覆盖\n'
     printf 'COMPOSE_PROJECT_NAME=sub2api-dr\n'
     printf 'DR_BIND_HOST=0.0.0.0\n'
