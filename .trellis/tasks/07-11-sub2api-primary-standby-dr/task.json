@@ -24,10 +24,10 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-11T13:38:34+08:00",
+    "snapshot_at": "2026-07-11T16:53:41+08:00",
     "branch": "build",
     "pushed_commits": {
-      "root": "d5fef3ec"
+      "root": "45561e0d"
     },
     "push_mode": "push",
     "completed_steps": [
@@ -36,10 +36,11 @@
       "阶段 3：建立复制",
       "阶段 4：入口与提升脚本",
       "阶段 5：A 恢复与回切脚本",
-      "Phase 2.2：check-all",
-      "Phase 3.3：容灾规范沉淀"
+      "阶段 5.5：A 日常更新后的容灾镜像同步",
+      "Phase 2.2：阶段 5.5 最终 check-all",
+      "Phase 3.3：发布镜像同步规范沉淀"
     ],
     "next_step": "Phase 3.5：按用户指令执行 trellis-finish-work；阶段 6 生产演练等待独立维护窗口授权",
-    "notes": "A 保持 legacy-active，B 保持 standby；未执行生产提升、回切或入口切换；B NTP 同步仍需演练前处理。"
+    "notes": "A 保持 legacy-active，B 保持 standby，image_sync=ok；15 项隔离回归通过；未执行生产提升、回切或入口切换；B NTP 同步仍需演练前处理。"
   }
 }
