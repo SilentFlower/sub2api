@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-
-set -Eeuo pipefail
-
-[ "${MOCK_CURL_FAIL:-false}" != "true" ]

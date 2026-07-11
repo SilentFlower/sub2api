@@ -3,7 +3,7 @@
   "name": "sub2api-primary-standby-dr",
   "title": "Sub2API 主备容灾部署",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "silentflower",
   "assignee": "silentflower",
   "createdAt": "2026-07-11",
-  "completedAt": null,
+  "completedAt": "2026-07-11",
   "branch": null,
   "base_branch": "build",
   "worktree_path": null,
@@ -21,7 +21,7 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "任务按用户决定于 2026-07-11 提前终止并归档。阶段 1 至 5.5 已完成；阶段 6 生产提升、入口切换、回切与重建演练未执行。后续自动故障切换与自动回切由独立任务承接。",
   "meta": {},
   "last_push_snapshot": {
     "snapshot_at": "2026-07-11T16:53:41+08:00",
@@ -40,7 +40,7 @@
       "Phase 2.2：阶段 5.5 最终 check-all",
       "Phase 3.3：发布镜像同步规范沉淀"
     ],
-    "next_step": "Phase 3.5：按用户指令执行 trellis-finish-work；阶段 6 生产演练等待独立维护窗口授权",
-    "notes": "A 保持 legacy-active，B 保持 standby，image_sync=ok；15 项隔离回归通过；未执行生产提升、回切或入口切换；B NTP 同步仍需演练前处理。"
+    "next_step": "任务提前终止并归档；阶段 6 不在本任务执行，自动切换与自动回切由独立任务承接",
+    "notes": "A 保持 legacy-active，B 保持 standby，image_sync=ok；15 项隔离回归通过；未执行生产提升、回切或入口切换；B NTP 同步仍需演练前处理。任务归档不表示阶段 6 已完成。"
   }
 }

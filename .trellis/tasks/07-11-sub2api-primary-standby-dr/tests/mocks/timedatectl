@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-set -Eeuo pipefail
-
-if [ "${1:-}" = "show" ]; then
-  printf 'yes\n'
-fi
