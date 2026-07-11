@@ -1,0 +1,9 @@
+services:
+  redis-dr:
+    # 提升后移除 replicaof/masterauth，确保容器重建后仍保持主库身份。
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        exec redis-server /usr/local/etc/redis/redis.conf \
+          --requirepass "$${REDIS_PASSWORD}"

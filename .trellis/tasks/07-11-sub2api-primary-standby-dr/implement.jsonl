@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"约束 PostgreSQL迁移、数据库连接和多实例迁移锁等数据库操作边界"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/infrastructure-evidence.md","reason":"提供 A/B 实际 Docker、资源、卷、版本和不可触碰边界"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/b-only-preparation-result.md","reason":"记录 B-only 准备阶段已部署内容、验证证据和下一阶段授权边界"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/a-export-preparation-result.md","reason":"记录 A 在线复制出口、PostgreSQL在线配置、B 连通性和零重启证据"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/replication-establishment-result.md","reason":"记录 PostgreSQL与 Redis持续复制、应用数据同步、PostgreSQL 18卷布局修复和隔离验收证据"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/postgresql18-volume-root-cause.md","reason":"固化 PostgreSQL 18父级卷问题的根因、失败尝试和预防机制"}

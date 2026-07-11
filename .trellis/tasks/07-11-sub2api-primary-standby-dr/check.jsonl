@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 PostgreSQL复制准备、数据目录和数据库操作是否符合项目约束"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/infrastructure-evidence.md","reason":"核对实施前后没有触碰 B 现有栈，并验证 A 零重启目标"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/b-only-preparation-result.md","reason":"核对 B-only 阶段的实际结果、零影响证据和未越过授权边界"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/a-export-preparation-result.md","reason":"核对 A 复制出口、在线数据库变更、跨机连通和零重启证据"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/replication-establishment-result.md","reason":"核对阶段 3 双端复制状态、应用数据同步、备用应用停止和原栈零影响证据"}
+{"file":".trellis/tasks/07-11-sub2api-primary-standby-dr/research/postgresql18-volume-root-cause.md","reason":"检查 PostgreSQL 18卷挂载修复是否覆盖 Compose、辅助容器、文档和运行时验收"}

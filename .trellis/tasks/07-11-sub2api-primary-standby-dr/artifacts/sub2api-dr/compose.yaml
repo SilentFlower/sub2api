@@ -1,0 +1,122 @@
+name: sub2api-dr
+
+services:
+  postgres-dr:
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
+    container_name: sub2api-dr-postgres
+    profiles: ["standby", "promoted"]
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql
+        volume:
+          nocopy: true
+    networks:
+      - dr-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis-dr:
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    container_name: sub2api-dr-redis
+    profiles: ["standby", "promoted"]
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        exec redis-server /usr/local/etc/redis/redis.conf \
+          --requirepass "$${REDIS_PASSWORD}" \
+          --masterauth "$${REDIS_MASTER_PASSWORD}" \
+          --replicaof "$${A_REPLICATION_HOST}" "$${A_REDIS_REPLICATION_PORT}"
+    volumes:
+      - redis-data:/data
+      - ./config/redis-standby.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - dr-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  app-dr:
+    image: ${SUB2API_IMAGE:?SUB2API_IMAGE is required}
+    container_name: sub2api-dr-app
+    profiles: ["promoted"]
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AUTO_SETUP: "true"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      DATABASE_HOST: postgres-dr
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DATABASE_DBNAME: ${POSTGRES_DB:?POSTGRES_DB is required}
+      DATABASE_SSLMODE: disable
+      REDIS_HOST: redis-dr
+      REDIS_PORT: "6379"
+    ports:
+      - "${DR_BIND_HOST:-0.0.0.0}:${DR_APP_PORT:-18080}:8080"
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      postgres-dr:
+        condition: service_healthy
+      redis-dr:
+        condition: service_healthy
+    networks:
+      - dr-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  app-data:
+    name: sub2api-dr-app-data
+  postgres-data:
+    name: sub2api-dr-postgres-data
+  redis-data:
+    name: sub2api-dr-redis-data
+
+networks:
+  dr-network:
+    name: sub2api-dr-network
+    driver: bridge

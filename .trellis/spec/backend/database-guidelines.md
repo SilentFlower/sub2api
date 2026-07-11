@@ -108,6 +108,25 @@ Ent schema 字段和 migration 必须保持一致。新增字段时同时检查�
 
 ---
 
+## Docker PostgreSQL 18 Volume Layout
+
+官方 PostgreSQL 18 镜像可能在父目录声明 Docker卷，而实际 `PGDATA` 位于其子目录。设计 Compose或辅助容器前，必须先检查当前固定镜像的元数据：
+
+```bash
+docker image inspect --format '{{json .Config.Volumes}}' "${POSTGRES_IMAGE}"
+```
+
+当镜像声明 `/var/lib/postgresql` 时：
+
+- 命名卷挂载到 `/var/lib/postgresql`，显式设置 `PGDATA=/var/lib/postgresql/data`。
+- Compose长语法启用 `volume.nocopy: true`，初始化辅助容器使用等价的 `volume-nocopy` 挂载。
+- `pg_basebackup`、权限修正和配置写入辅助容器必须使用同一个父目录挂载契约，不能只在主服务上修正。
+- 启动后检查容器只有一个位于 `/var/lib/postgresql` 的目标命名卷，不得存在承载真实数据的匿名父级卷。
+
+禁止把命名卷只挂到 `/var/lib/postgresql/data`。父级镜像卷会遮蔽子挂载，或者先把镜像内的 `data -> .` 内容复制到空卷，导致 `pg_basebackup` 报目标目录非空。
+
+---
+
 ## Common Mistakes
 
 - 不要修改已应用 migration。需要修复时新增迁移。
@@ -115,3 +134,4 @@ Ent schema 字段和 migration 必须保持一致。新增字段时同时检查�
 - 不要忘记 `pnpm-lock.yaml` 之外的后端生成文件：Ent schema 改动必须提交 `backend/ent/` 生成结果。
 - 不要在 service/handler 中直接依赖 DB 或 Redis。数据库访问应留在 repository 层。
 - 不要用 `localhost` 假设 PostgreSQL 连接一定走 IPv4；`DEV_GUIDE.md` 建议本地使用 `127.0.0.1` 避免 Windows IPv6 回退问题。
+- 不要在未检查固定镜像 `Config.Volumes` 的情况下沿用 PostgreSQL旧版本卷挂载路径。

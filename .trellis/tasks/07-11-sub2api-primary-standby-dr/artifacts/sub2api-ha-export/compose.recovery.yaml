@@ -1,0 +1,50 @@
+services:
+  sub2api:
+    image: ${SUB2API_IMAGE:?SUB2API_IMAGE is required}
+    profiles: ["cutback"]
+    volumes: !override
+      - type: volume
+        source: recovery-app-data
+        target: /app/data
+
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    profiles: ["cutback"]
+    environment:
+      PGDATA: /var/lib/postgresql/data
+    volumes: !override
+      - type: volume
+        source: recovery-postgres-data
+        target: /var/lib/postgresql
+        volume:
+          nocopy: true
+
+  redis:
+    image: ${REDIS_IMAGE:?REDIS_IMAGE is required}
+    profiles: ["cutback"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_MASTER_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        exec redis-server \
+          --save 60 1 \
+          --appendonly yes \
+          --appendfsync everysec \
+          --requirepass "$${REDIS_PASSWORD}" \
+          --masterauth "$${REDIS_MASTER_PASSWORD}" \
+          --replicaof "${B_REPLICATION_HOST:?B_REPLICATION_HOST is required}" "${B_REDIS_RECOVERY_PORT:-26379}"
+    volumes: !override
+      - type: volume
+        source: recovery-redis-data
+        target: /data
+
+volumes:
+  recovery-app-data:
+    name: ${A_RECOVERY_APP_VOLUME:-sub2api-ha-app-data}
+  recovery-postgres-data:
+    name: ${A_RECOVERY_POSTGRES_VOLUME:-sub2api-ha-postgres-data}
+  recovery-redis-data:
+    name: ${A_RECOVERY_REDIS_VOLUME:-sub2api-ha-redis-data}

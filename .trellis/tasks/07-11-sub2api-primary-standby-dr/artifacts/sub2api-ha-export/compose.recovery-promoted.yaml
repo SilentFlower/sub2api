@@ -1,0 +1,12 @@
+services:
+  redis:
+    # A 提升后移除 replicaof/masterauth，确保 Redis重建后仍保持主库身份。
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        exec redis-server \
+          --save 60 1 \
+          --appendonly yes \
+          --appendfsync everysec \
+          --requirepass "$${REDIS_PASSWORD}"

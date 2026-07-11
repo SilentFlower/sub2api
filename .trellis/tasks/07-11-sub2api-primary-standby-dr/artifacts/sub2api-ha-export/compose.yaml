@@ -1,0 +1,48 @@
+name: sub2api-ha-export
+
+services:
+  postgres-export:
+    image: ${SOCAT_IMAGE:?SOCAT_IMAGE is required}
+    container_name: sub2api-ha-postgres-export
+    restart: unless-stopped
+    read_only: true
+    entrypoint: ["socat"]
+    command:
+      - -d
+      - -d
+      - "TCP-LISTEN:15432,fork,reuseaddr,keepalive,range=${B_SOURCE_CIDR:?B_SOURCE_CIDR is required}"
+      - "TCP:postgres:5432,keepalive,connect-timeout=5"
+    ports:
+      - "${EXPORT_BIND_HOST:-0.0.0.0}:${POSTGRES_EXPORT_PORT:-15432}:15432"
+    networks:
+      - sub2api-network
+    stop_grace_period: 5s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+  redis-export:
+    image: ${SOCAT_IMAGE:?SOCAT_IMAGE is required}
+    container_name: sub2api-ha-redis-export
+    restart: unless-stopped
+    read_only: true
+    entrypoint: ["socat"]
+    command:
+      - -d
+      - -d
+      - "TCP-LISTEN:16379,fork,reuseaddr,keepalive,range=${B_SOURCE_CIDR:?B_SOURCE_CIDR is required}"
+      - "TCP:redis:6379,keepalive,connect-timeout=5"
+    ports:
+      - "${EXPORT_BIND_HOST:-0.0.0.0}:${REDIS_EXPORT_PORT:-16379}:16379"
+    networks:
+      - sub2api-network
+    stop_grace_period: 5s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  sub2api-network:
+    external: true
+    name: deploy_sub2api-network

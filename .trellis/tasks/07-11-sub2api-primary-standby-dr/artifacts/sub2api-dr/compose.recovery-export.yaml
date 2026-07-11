@@ -1,0 +1,44 @@
+services:
+  postgres-recovery-export:
+    image: ${SOCAT_IMAGE:?SOCAT_IMAGE is required}
+    container_name: sub2api-dr-postgres-recovery-export
+    profiles: ["recovery-source"]
+    restart: unless-stopped
+    read_only: true
+    entrypoint: ["socat"]
+    command:
+      - -d
+      - -d
+      - "TCP-LISTEN:25432,fork,reuseaddr,keepalive,range=${A_SOURCE_CIDR:?A_SOURCE_CIDR is required}"
+      - "TCP:postgres-dr:5432,keepalive,connect-timeout=5"
+    ports:
+      - "${RECOVERY_EXPORT_BIND_HOST:-0.0.0.0}:${B_POSTGRES_RECOVERY_PORT:-25432}:25432"
+    networks:
+      - dr-network
+    stop_grace_period: 5s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  redis-recovery-export:
+    image: ${SOCAT_IMAGE:?SOCAT_IMAGE is required}
+    container_name: sub2api-dr-redis-recovery-export
+    profiles: ["recovery-source"]
+    restart: unless-stopped
+    read_only: true
+    entrypoint: ["socat"]
+    command:
+      - -d
+      - -d
+      - "TCP-LISTEN:26379,fork,reuseaddr,keepalive,range=${A_SOURCE_CIDR:?A_SOURCE_CIDR is required}"
+      - "TCP:redis-dr:6379,keepalive,connect-timeout=5"
+    ports:
+      - "${RECOVERY_EXPORT_BIND_HOST:-0.0.0.0}:${B_REDIS_RECOVERY_PORT:-26379}:26379"
+    networks:
+      - dr-network
+    stop_grace_period: 5s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
