@@ -599,6 +599,47 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 	return inputContainsImageGenerationTool(reqBody["input"])
 }
 
+func hasOpenAIImageGenNamespaceTool(reqBody map[string]any) bool {
+	if reqBody == nil {
+		return false
+	}
+	if toolsContainImageGenNamespace(reqBody["tools"]) {
+		return true
+	}
+	return inputContainsImageGenNamespace(reqBody["input"])
+}
+
+func toolsContainImageGenNamespace(rawTools any) bool {
+	tools, ok := rawTools.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawTool := range tools {
+		toolMap, ok := rawTool.(map[string]any)
+		if ok && isImageGenNamespaceToolMap(toolMap) {
+			return true
+		}
+	}
+	return false
+}
+
+func inputContainsImageGenNamespace(rawInput any) bool {
+	input, ok := rawInput.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "additional_tools" {
+			continue
+		}
+		if toolsContainImageGenNamespace(item["tools"]) {
+			return true
+		}
+	}
+	return false
+}
+
 func toolsContainImageGeneration(rawTools any) bool {
 	if rawTools == nil {
 		return false
@@ -838,6 +879,10 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
+	// 新版 Codex 由本地 extension 执行 namespace 工具并负责落盘，不能再注入旧工具抢占调用。
+	if hasOpenAIImageGenNamespaceTool(reqBody) {
+		return false
+	}
 
 	tool := map[string]any{
 		"type":          "image_generation",
@@ -894,6 +939,10 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool {
 		return false
 	}
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
+		return false
+	}
+	// namespace 工具自带完整调用契约，旧桥接提示会错误地引导模型改走原生 image_generation。
+	if hasOpenAIImageGenNamespaceTool(reqBody) {
 		return false
 	}
 

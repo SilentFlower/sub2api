@@ -617,6 +617,32 @@ func TestEnsureOpenAIResponsesImageGenerationTool_PreservesExistingImageTool(t *
 	require.Equal(t, "webp", tool["output_format"])
 }
 
+func TestEnsureOpenAIResponsesImageGenerationTool_PreservesNamespaceTool(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"tools": []any{
+			map[string]any{
+				"type": "namespace",
+				"name": "image_gen",
+				"tools": []any{
+					map[string]any{"type": "function", "name": "imagegen"},
+				},
+			},
+		},
+	}
+
+	modified := ensureOpenAIResponsesImageGenerationTool(reqBody)
+	require.False(t, modified)
+
+	tools, ok := reqBody["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 1)
+	tool, ok := tools[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "namespace", tool["type"])
+	require.Equal(t, "image_gen", tool["name"])
+}
+
 func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -753,6 +779,26 @@ func TestApplyCodexImageGenerationBridgeInstructions_SkipsWithoutImageTool(t *te
 		"instructions": "existing instructions",
 		"tools": []any{
 			map[string]any{"type": "web_search"},
+		},
+	}
+
+	modified := applyCodexImageGenerationBridgeInstructions(reqBody)
+	require.False(t, modified)
+	require.Equal(t, "existing instructions", reqBody["instructions"])
+}
+
+func TestApplyCodexImageGenerationBridgeInstructions_SkipsNamespaceTool(t *testing.T) {
+	reqBody := map[string]any{
+		"model":        "gpt-5.4",
+		"instructions": "existing instructions",
+		"tools": []any{
+			map[string]any{
+				"type": "namespace",
+				"name": "image_gen",
+				"tools": []any{
+					map[string]any{"type": "function", "name": "imagegen"},
+				},
+			},
 		},
 	}
 
