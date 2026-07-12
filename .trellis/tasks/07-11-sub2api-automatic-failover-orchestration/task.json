@@ -24,10 +24,10 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-12T10:01:23+08:00",
+    "snapshot_at": "2026-07-12T11:01:01+08:00",
     "branch": "build",
     "pushed_commits": {
-      "root": "771765f9"
+      "root": "0f1c4a6b"
     },
     "push_mode": "push",
     "completed_steps": [
@@ -39,8 +39,8 @@
       "阶段 5：现有主备脚本自动化适配",
       "阶段 6：钉钉告警与人工控制"
     ],
-    "partial_step": "阶段 7：隔离测试与观察模式部署（新版本待部署，24 小时观察待重新计时）",
-    "next_step": "依次部署 Worker、B Agent、A Agent 和 A release-sync timer，并完成线上验证",
-    "notes": "当前生产控制面保持 observe，automatic 尚未启用；部署验证后重新开始 24 小时观察，再安排维护窗口全周期演练。"
+    "partial_step": "阶段 7：10 秒心跳与 45 秒租约已完成实现和本地验证，待线上部署并重新观察",
+    "next_step": "依次部署 Worker、B Agent、A Agent，验证 10 秒心跳、45 秒租约和实际调用频率",
+    "notes": "控制面继续保持 observe；理论控制面基线约 17,280 次请求/天，线上验证后重新开始观察计时。"
   }
 }
