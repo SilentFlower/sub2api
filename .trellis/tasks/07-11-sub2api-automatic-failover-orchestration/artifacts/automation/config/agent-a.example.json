@@ -1,0 +1,51 @@
+{
+  "node": "A",
+  "control_url": "https://REPLACE_WITH_WORKER_DOMAIN",
+  "secret_file": "/etc/sub2api-ha/node-secret",
+  "state_command": [
+    "/root/sub2api-ha-export/scripts/switch-mode.sh",
+    "status",
+    "--machine"
+  ],
+  "app_container": "sub2api",
+  "stop_app_command": ["docker", "stop", "sub2api"],
+  "start_app_command": ["docker", "start", "sub2api"],
+  "ensure_restart_policy_command": ["docker", "update", "--restart=no", "sub2api"],
+  "app_health_url": "http://127.0.0.1:8080/health",
+  "public_health_url": "https://api.havefun.eu.cc/health",
+  "tunnel_service": "cloudflared-sub2api-ha-a.service",
+  "expected_restart_policy": "no",
+  "actions": {
+    "A_REBUILDING": {
+      "command": ["/root/sub2api-ha-export/scripts/switch-mode.sh", "prepare-from-b"],
+      "stdin": "STOP_AND_REBUILD_A_FROM_B\n",
+      "timeout_seconds": 7200
+    },
+    "B_FREEZING": {
+      "command": ["/root/sub2api-ha-export/scripts/switch-mode.sh", "prepare-handoff"],
+      "stdin": "FREEZE_B_WRITES_FOR_HANDOFF\n",
+      "timeout_seconds": 1800
+    },
+    "A_PROMOTING": {
+      "command": ["/root/sub2api-ha-export/scripts/switch-mode.sh", "promote-after-handoff"],
+      "stdin": "PROMOTE_A_AFTER_LEASE_HANDOFF\n",
+      "timeout_seconds": 1800,
+      "enforce_restart_policy": true
+    },
+    "B_REBUILDING": {
+      "command": ["/root/sub2api-ha-export/scripts/switch-mode.sh", "restore-b-standby"],
+      "stdin": "A_IS_PRIMARY_REBUILD_B_STANDBY\nSYNC_A_APP_DATA_TO_B\n",
+      "timeout_seconds": 7200
+    }
+  },
+  "interval_seconds": 5,
+  "request_timeout_seconds": 4,
+  "command_timeout_seconds": 30,
+  "public_health_timeout_seconds": 90,
+  "lock_file": "/run/sub2api-ha-agent.lock",
+  "checkpoint_file": "/var/lib/sub2api-ha-agent/checkpoint.json",
+  "pending_alert_file": "/var/lib/sub2api-ha-agent/pending-alerts.json",
+  "failback_stable_seconds": 1800,
+  "failback_window_start": "04:00",
+  "failback_window_end": "05:00"
+}

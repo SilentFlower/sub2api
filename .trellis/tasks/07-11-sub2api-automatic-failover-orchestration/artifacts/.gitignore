@@ -1,0 +1,5 @@
+automation/**/__pycache__/
+automation/**/*.py[cod]
+cloudflare-worker/node_modules/
+cloudflare-worker/.wrangler/
+

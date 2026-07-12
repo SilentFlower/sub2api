@@ -1,0 +1,19 @@
+[Unit]
+Description=Reconcile Sub2API HA release image from node A
+After=network-online.target docker.service sub2api-ha-agent.service
+Wants=network-online.target
+Requires=docker.service
+ConditionPathExists=/root/sub2api-ha-export/scripts/switch-mode.sh
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/libexec/sub2api-ha-sync-release-if-needed
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/root/sub2api-ha-export /run
+UMask=0077

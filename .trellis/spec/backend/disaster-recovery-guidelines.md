@@ -9,6 +9,7 @@
 ### 1. Scope / Trigger
 
 - Trigger: 修改 A/B 容灾目录、Compose 文件、切换脚本、复制参数、端口、卷、网络、SSH 编排或操作手册时，必须按本节检查。
+- Trigger: 修改 HA Agent 续租门禁、Worker 节点报告门禁、A 发布镜像自动同步 timer 或同标签更新流程时，也必须按本节检查。
 - Scope: 两台服务器、Docker Compose、PostgreSQL 物理流复制、Redis 主从复制、应用数据同步，以及人工入口切换。
 - Normal topology: A 是唯一写入主节点；B 的容灾 PostgreSQL 和 Redis 持续复制，B 容灾应用停止。
 - Failure topology: 人工确认 A 已停止且不会继续写入后，提升 B 的容灾数据库并启动 B 容灾应用。
@@ -28,6 +29,8 @@ A 节点：
 /root/sub2api-ha-export/scripts/switch-mode.sh prepare-from-b [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh cutback-to-a [--dry-run]
 /root/sub2api-ha-export/scripts/switch-mode.sh restore-b-standby [--dry-run]
+/usr/local/libexec/sub2api-ha-sync-release-if-needed
+systemctl status sub2api-ha-release-sync.timer
 ```
 
 B 节点：
@@ -183,6 +186,18 @@ release_synced_at
 - B 已接管后，A `prepare-from-b` 必须以 B 当前活动配置 digest 为权威，在停止 A 旧服务前确保 A 已缓存并使用同一 digest。
 - `PREVIOUS_APP_IMAGE_DIGEST` 只用于诊断。数据库迁移可能不向后兼容，保留旧镜像不能被描述为可保证成功的应用回滚。
 
+##### 3.2.2 A 发布镜像自动调和与租约门禁
+
+- A 活动 owner 的续租门禁只判断 A 自身是否仍可安全写入：本地模式、应用 HTTP 健康、PostgreSQL/Redis 主库角色、restart policy 和 A HA Tunnel。`image_sync!=ok` 只表示 B 暂不可接管，不得单独撤销健康 A 的租约或触发 A self-fencing。
+- B 的接管和 B_ACTIVE 续租门禁仍必须要求精确 digest、镜像缓存和发布记录一致。B 不得因为 A 仍在运行就跳过镜像门禁，也不得独立拉取 `latest`、`build-latest` 等可变标签。
+- A 使用独立 `sub2api-ha-release-sync.timer` 每 60 秒触发一次 oneshot；timer 只安装在 A，不安装在 B。脚本使用 `/run/sub2api-ha-release-sync.lock` 非阻塞文件锁，禁止并发同步。
+- 自动调和只接受 A `legacy-active` 或 `active-recovered`，要求应用容器运行且自本次 `StartedAt` 起稳定至少 120 秒。未达到稳定窗口时成功退出并等待下一轮，不得提前拉取或改配置。
+- 达到稳定窗口后必须依次执行 `sync-release --dry-run` 和 `sync-release`，最后再次读取 `status --machine` 并要求 `image_sync=ok`。任何步骤失败都由 oneshot 返回非零，timer 后续周期幂等重试。
+- timer 与 5 秒 HA Agent 心跳必须是独立进程。镜像拉取或 SSH 较慢时不能阻塞 A 续租，也不能为了完成同步延长 30 秒租约 TTL。
+- `observe` 模式允许该受限调和动作修改镜像缓存、A/B 容灾 `SUB2API_IMAGE` 和发布状态文件，因为它不改变写入拓扑。它不得启动应用、重启 A、改变数据库/Redis 角色、修改卷、Tunnel、DNS、owner 或 `epoch`。
+- 同步失败时 A 继续服务并续租，B 的 `b_failover_eligible()` 保持 false；修复网络、镜像仓库或配置后由同一 timer 自动重试，禁止自动回退 A 当前运行镜像。
+- 应用 Compose healthcheck 必须使用镜像内真实存在的工具。修改 Compose 不会改变已创建容器的 healthcheck；只有容器重建后才会加载新命令。Docker healthcheck 工具缺失但外部 HTTP 健康时，应修复 Compose 并在正常更新窗口生效，不能仅为刷新 healthcheck 强制重启活动 A。
+
 #### 3.3 人工 fencing 与入口切换
 
 - 本方案没有自动 fencing。SSH 超时、健康检查失败或网络不可达都不能证明 A 已停止写入。
@@ -290,6 +305,11 @@ legacy-active
 | A 应用不健康、B 不是健康 `standby` 或复制未追平 | `sync-release` 拒绝执行，不拉取镜像或修改 `.env` |
 | B 拉取或验证精确 digest 失败 | 停止同步，双端 `.env` 保持原值，不在故障窗口退回可变标签 |
 | 双端配置、缓存或发布记录不一致 | `status` 显示 `drift` 或 `unknown`；B `enable` 在提升 PostgreSQL 前失败 |
+| A 自身应用、角色、restart policy 和 Tunnel 健康，但 `image_sync=drift` | A 继续续租；B 接管门禁关闭；A timer 等待稳定窗口后自动调和 |
+| A 新容器运行不足 120 秒 | timer 成功跳过，不执行 dry-run、拉取或配置写入 |
+| 自动调和 dry-run、SSH、B 拉取或配置更新失败 | oneshot 返回非零，A 和入口保持不变，B 应用保持停止，下一 timer 周期幂等重试 |
+| 自动调和执行时间超过一次心跳周期 | A Agent 独立续租；同步进程不得持有 Agent 主循环锁或阻塞心跳 |
+| Docker healthcheck 使用镜像内不存在的命令 | Docker 可显示 `unhealthy`；以真实 HTTP 检查确认业务，修复 Compose 后等待正常容器更新加载，不为此强制重启活动 A |
 | 跨节点同步只完成 B 侧后失败 | 保持 B 应用停止，不自动回滚；修复故障后幂等重跑 `sync-release` |
 | 来源受限出口只能从本机监听、另一节点协议验证失败 | 不停止旧服务、不删除卷、不开始基础备份 |
 | B 未报告 NTP 同步 | `enable` 明确警告；真实演练前必须人工处理或确认时间同步，追平判断仍以 LSN/offset 为准 |
@@ -299,14 +319,18 @@ legacy-active
 
 - Good: A 正常提供服务，B 显示 `standby`，PostgreSQL 为 `streaming`，Redis 链路为 `up` 且同步完成，B 容灾应用和 `18080` 均未运行。
 - Good: A 更新后即使继续使用同一标签，也执行 `sync-release --dry-run` 和 `sync-release`；A/B 状态最终显示同一 digest 且 `image_sync=ok`。
+- Good: A 同标签更新产生新 digest 时继续稳定续租，B 暂时不可接管；A 容器稳定 120 秒后 timer 自动同步精确 digest，A/B 业务容器均不重启。
 - Good: A 故障时先在控制台确认 A 已停止，再执行 B `enable --dry-run` 和 `enable`，最后人工切换公共入口。
 - Good: A 修复后使用新恢复卷从 B 重建，冻结 B 后按 LSN/offset 等待完全追平，再提升 A 并从新 A 全量重建 B。
 - Base: 只修改 SSH 目标或外部端口时，同步修改两端环境文件并重新验证 Compose、SSH、协议连接和 `status --machine`。
 - Base: `status` 可以长期执行；B 容灾数据库可以常开复制，但备用应用必须停止。
+- Base: `image_sync=ok` 时 timer 只读取状态并成功退出；重复执行不拉取镜像或改写配置。
 - Bad: 因为 A ping 不通或 SSH 超时就直接提升 B，这不构成 fencing，可能造成双主写入。
 - Bad: 只改 `B_DR_ROOT` 后移动 B 目录，却不更新 README、远程命令、预检和服务器部署文件。
 - Bad: 手工运行 `docker compose down`、删除卷、启动 B 容灾应用或绕过统一脚本修改数据库角色。
 - Bad: 把 `build-latest` 等标签文本直接写入 B 容灾配置，或在 A 故障提升现场才临时拉取可变标签。
+- Bad: 把 B 镜像未同步视为 A 自身不健康并停止 A 续租，这会把“备机暂不可接管”放大为主节点主动停机。
+- Bad: 在 HA Agent 心跳线程内同步大镜像，导致 30 秒租约因下载或 SSH 延迟而过期。
 - Bad: 在 B 本机用 `127.0.0.1` 自测只允许 A 来源的恢复出口，并把被拒绝误判为出口故障。
 - Bad: A 提升后直接让 B 使用旧数据目录连接新时间线，或在创建新物理槽前先执行 B 恢复源预检。
 
@@ -319,6 +343,17 @@ bash -n /root/sub2api-ha-export/scripts/*.sh
 bash -n /root/sub2api-dr/scripts/*.sh
 shellcheck -S warning /root/sub2api-ha-export/scripts/*.sh
 shellcheck -S warning /root/sub2api-dr/scripts/*.sh
+bash -n /usr/local/libexec/sub2api-ha-sync-release-if-needed
+systemd-analyze verify /etc/systemd/system/sub2api-ha-release-sync.service /etc/systemd/system/sub2api-ha-release-sync.timer
+```
+
+自动化产物至少执行：
+
+```bash
+PYTHONPATH=. python3 -m unittest discover -s test -p 'test_*.py'
+./test/test_release_sync.sh
+npm test -- --run
+npm run check
 ```
 
 Compose 修改至少执行：
@@ -359,6 +394,10 @@ docker compose --project-name deploy --env-file /root/sub2api/deploy/.env --env-
 - 用包含反斜杠和冒号的测试密码验证 `.pgpass` 结果符合 PostgreSQL 转义规则，但不得把真实密码写入测试输出。
 - 来源限制出口的 PostgreSQL 和 Redis 协议测试必须从真实允许的另一节点执行。
 - 修改部署产物后，对比本地受管文件与服务器文件 SHA256，确保两端部署内容没有漂移。
+- Python Agent 测试必须断言：A `image_sync=drift` 且其它门禁健康时不停止 A；B 镜像记录漂移时 `owner_healthy` 和 `b_failover_eligible` 均为 false。
+- Worker 测试必须断言：A 节点报告 `imageSyncHealthy=false` 时仍可续租；B_ACTIVE 报告同字段为 false 时拒绝续租。
+- timer shell 测试必须覆盖 `image_sync=ok` 无动作、新容器不足 120 秒跳过、稳定后按 dry-run→实际同步顺序执行、最终 `image_sync=ok`。
+- 服务器验证必须确认 timer 只存在于 A，B 不存在同名 timer；手工启动 oneshot 时 `image_sync=ok` 路径不修改双端文件或容器。
 
 实际提升、删除卷、改变复制方向和入口切换只允许在独立维护窗口演练，不能作为普通静态修改的自动测试。
 
@@ -425,4 +464,27 @@ A 更新并健康
 -> B 预缓存精确 digest
 -> 双端 status 显示 image_sync=ok
 -> B enable --dry-run 验证镜像门禁
+```
+
+#### Wrong
+
+```text
+A 使用同一标签更新到新 digest
+-> image_sync=drift
+-> A 因 B 镜像未就绪停止续租
+-> 健康 A 在租约到期后被 self-fencing
+```
+
+问题：发布接管就绪度与主节点自身健康被错误合并，备机准备失败会主动制造业务中断。
+
+#### Correct
+
+```text
+A 使用同一标签更新到新 digest
+-> A 自身健康，继续续租
+-> B 接管门禁关闭
+-> A 独立 timer 等待容器稳定 120 秒
+-> sync-release --dry-run
+-> sync-release 精确同步 digest
+-> image_sync=ok，B 恢复接管资格
 ```

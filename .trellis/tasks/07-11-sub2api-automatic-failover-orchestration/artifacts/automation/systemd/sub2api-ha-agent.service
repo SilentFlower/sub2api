@@ -1,0 +1,23 @@
+[Unit]
+Description=Sub2API HA Agent
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/sub2api-ha-agent
+ExecStart=/usr/bin/python3 -m sub2api_ha.cli run --config /etc/sub2api-ha/agent.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sub2api-ha-agent /run -/root/sub2api-ha-export -/root/sub2api-dr
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

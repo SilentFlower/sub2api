@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sub2api-ha-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-11",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COORDINATOR",
+        "class_name": "Coordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Coordinator"]
+    }
+  ],
+  "vars": {
+    "API_HOSTNAME": "api.havefun.eu.cc",
+    "LEASE_TTL_SECONDS": "30",
+    "CONTROL_REQUEST_DAILY_LIMIT": "100000"
+  }
+}

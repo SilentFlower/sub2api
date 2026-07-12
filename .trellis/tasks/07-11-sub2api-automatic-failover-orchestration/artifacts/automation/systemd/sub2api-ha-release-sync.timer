@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically reconcile Sub2API HA release image
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=sub2api-ha-release-sync.service
+
+[Install]
+WantedBy=timers.target

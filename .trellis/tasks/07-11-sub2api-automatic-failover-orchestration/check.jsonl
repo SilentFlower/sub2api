@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"检查自动化没有破坏现有状态机、人工入口、资源隔离和不可逆操作边界"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 PostgreSQL 18 数据卷、物理复制、迁移和数据库角色处理"}
+{"file":".trellis/tasks/07-11-sub2api-automatic-failover-orchestration/research/cloudflare-and-ingress-evidence.md","reason":"检查免费额度、Tunnel 端口映射、DNS 切换和现有 Tunnel 隔离"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/infrastructure-evidence.md","reason":"核对 A/B 原容器、端口、卷、网络和 B 原单机部署没有被修改"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/postgresql18-volume-root-cause.md","reason":"防止自动重建重新引入 PostgreSQL 18 父级卷和匿名卷问题"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/replication-establishment-result.md","reason":"核对 PostgreSQL/Redis 复制健康、应用数据同步和备用应用停止的运行态证据"}

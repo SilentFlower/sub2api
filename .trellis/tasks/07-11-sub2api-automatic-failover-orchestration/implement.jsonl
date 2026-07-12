@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"复用并扩展现有 A/B 主备状态、脚本接口、卷边界、镜像门禁和回切契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"约束 PostgreSQL 18 卷布局、迁移与数据库操作安全边界"}
+{"file":".trellis/tasks/07-11-sub2api-automatic-failover-orchestration/research/cloudflare-and-ingress-evidence.md","reason":"提供 Worker/DO 免费额度、Cloudflare 代理端口、Tunnel、DNS 委派和现有 Tunnel 的设计证据"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/infrastructure-evidence.md","reason":"提供 A/B 真实 Compose、容器、端口、卷和不可触碰资源基线"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/mode-control-and-cutback-preparation-result.md","reason":"提供现有人工提升、冻结、A 重建和回切脚本的实际部署状态"}
+{"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/release-image-sync-deployment-result.md","reason":"提供固定镜像 digest 同步、提升镜像门禁和双端当前运行状态"}
