@@ -6,7 +6,7 @@
 
 ## Scope
 
-- 创建 Cloudflare Worker + SQLite Durable Object 控制面，维护 `owner`、`epoch`、30 秒租约、状态机、事件和人工控制。
+- 创建 Cloudflare Worker + SQLite Durable Object 控制面，维护 `owner`、`epoch`、45 秒租约、状态机、事件和人工控制。
 - 在 A/B 部署独立 Python HA agent 与 systemd 服务，复用现有 `switch-mode.sh status --machine` 和主备切换脚本。
 - 把 A 应用启动纳入租约门禁，在线收敛 `restart: unless-stopped`，避免 A 重启后旧应用抢跑。
 - A 新增 `sub2api-ha-a` Tunnel -> `127.0.0.1:8080`；B 新增 `sub2api-ha-b` Tunnel -> `127.0.0.1:18080`。
@@ -27,10 +27,10 @@
 
 - 当前正常状态：A `legacy-active`、B `standby`、`image_sync=ok`；B 容灾应用停止。
 - PostgreSQL/Redis 为异步复制，继续接受故障瞬间最近数秒写入可能丢失的 RPO。
-- 租约 TTL 30 秒、节点间隔 5 秒、fail-closed；Cloudflare 不可达超过 TTL 时当前应用停止，B 无租约不得提升。
+- 租约 TTL 45 秒、节点间隔 10 秒、fail-closed；Cloudflare 不可达超过 TTL 时当前应用停止，B 无租约不得提升。
 - 正常故障接管 RTO 目标 2 至 5 分钟，任何复制、镜像、角色或 Tunnel 门禁失败时进入 `PAUSED_NEEDS_OPERATOR`。
 - A 回切前必须连续健康并追平 30 分钟，只在每日维护窗口执行；A PostgreSQL 提升后不得自动切回 B。
-- 免费版只承担控制面，理论基线约 34,560 次请求/天；业务流量通过 Tunnel，不逐请求经过 Worker。
+- 免费版只承担控制面，理论基线约 17,280 次请求/天；业务流量通过 Tunnel，不逐请求经过 Worker。
 - A/B 自动化必须复用旧任务的数据库角色、PostgreSQL 18 卷布局、镜像 digest 和资源身份契约。
 - B NTP 在旧任务中尚未同步，进入自动模式或生产演练前必须处理或确认。
 - 真实 Cloudflare、Tunnel、节点和钉钉 Token 只放受限密钥配置，不进入仓库。

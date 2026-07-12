@@ -19,7 +19,7 @@
   ],
   "vars": {
     "API_HOSTNAME": "api.havefun.eu.cc",
-    "LEASE_TTL_SECONDS": "30",
+    "LEASE_TTL_SECONDS": "45",
     "CONTROL_REQUEST_DAILY_LIMIT": "100000"
   }
 }

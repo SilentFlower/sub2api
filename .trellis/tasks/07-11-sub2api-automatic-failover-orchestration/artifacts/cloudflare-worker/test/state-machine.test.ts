@@ -23,7 +23,7 @@ afterEach(() => {
 /** 创建已经完成 A 初始化的测试状态。 */
 function activeA(mode: CoordinatorState["mode"] = "automatic"): CoordinatorState {
   const initial = createInitialState(NOW);
-  const bootstrapped = bootstrapA(initial, NOW, 30, "bootstrap-1").state;
+  const bootstrapped = bootstrapA(initial, NOW, 45, "bootstrap-1").state;
   return setControlMode(bootstrapped, mode, NOW).state;
 }
 
@@ -84,13 +84,13 @@ describe("HA 状态机", () => {
 
   it("初始化时只允许确认一次 A 主节点", () => {
     const initial = createInitialState(NOW);
-    const result = bootstrapA(initial, NOW, 30, "bootstrap-1");
+    const result = bootstrapA(initial, NOW, 45, "bootstrap-1");
 
     expect(result.state.owner).toBe("A");
     expect(result.state.epoch).toBe(1);
     expect(result.state.mode).toBe("observe");
     expect(result.state.state).toBe("A_ACTIVE");
-    expect(() => bootstrapA(result.state, NOW, 30, "bootstrap-2")).toThrowError(HaError);
+    expect(() => bootstrapA(result.state, NOW, 45, "bootstrap-2")).toThrowError(HaError);
   });
 
   it("相同状态事件重试只返回一次待发送告警", async () => {
@@ -100,7 +100,7 @@ describe("HA 状态机", () => {
       owner: "B",
       epoch: 8,
       state: "B_PROMOTING",
-      leaseUntil: new Date(NOW.getTime() + 30_000).toISOString(),
+      leaseUntil: new Date(NOW.getTime() + 45_000).toISOString(),
       transitionId: "failover-1",
       transitionStep: "service-ready",
       entryTunnel: "A",
@@ -116,7 +116,7 @@ describe("HA 状态机", () => {
     };
     const coordinator = new Coordinator(
       durableState as never,
-      { LEASE_TTL_SECONDS: "30", CONTROL_REQUEST_DAILY_LIMIT: "100000" } as never,
+      { LEASE_TTL_SECONDS: "45", CONTROL_REQUEST_DAILY_LIMIT: "100000" } as never,
     );
     const request = (nonce: string): Request => new Request("https://coordinator/internal/entry/commit", {
       method: "POST",
@@ -139,12 +139,12 @@ describe("HA 状态机", () => {
 
   it("只有当前 owner 和 epoch 可以续租", () => {
     const state = activeA();
-    const renewed = renewLease(state, "A", 1, new Date(NOW.getTime() + 5_000), 30);
+    const renewed = renewLease(state, "A", 1, new Date(NOW.getTime() + 5_000), 45);
 
-    expect(Date.parse(renewed.state.leaseUntil)).toBe(NOW.getTime() + 35_000);
+    expect(Date.parse(renewed.state.leaseUntil)).toBe(NOW.getTime() + 50_000);
     expect(renewed.state.transitionStepAt).toBe(state.transitionStepAt);
-    expect(() => renewLease(state, "B", 1, NOW, 30)).toThrowError(/不是当前租约所有者/);
-    expect(() => renewLease(state, "A", 0, NOW, 30)).toThrowError(/STALE_EPOCH|请求 epoch/);
+    expect(() => renewLease(state, "B", 1, NOW, 45)).toThrowError(/不是当前租约所有者/);
+    expect(() => renewLease(state, "A", 0, NOW, 45)).toThrowError(/STALE_EPOCH|请求 epoch/);
   });
 
   it("节点报告只有满足门禁时才能合并续租", () => {
@@ -177,7 +177,7 @@ describe("HA 状态机", () => {
   it("observe 模式只返回拟接管结果，不改变 owner", () => {
     const state = activeA("observe");
     const expired = { ...state, leaseUntil: new Date(NOW.getTime() - 1).toISOString() };
-    const result = acquireForB(expired, 1, NOW, 30, "failover-1", true);
+    const result = acquireForB(expired, 1, NOW, 45, "failover-1", true);
 
     expect(result.simulated).toBe(true);
     expect(result.state.owner).toBe("A");
@@ -187,26 +187,26 @@ describe("HA 状态机", () => {
   it("automatic 模式下 B 原子取得新 epoch", () => {
     const state = activeA();
     const expired = { ...state, leaseUntil: new Date(NOW.getTime() - 1).toISOString() };
-    const result = acquireForB(expired, 1, NOW, 30, "failover-1", true);
+    const result = acquireForB(expired, 1, NOW, 45, "failover-1", true);
 
     expect(result.state.owner).toBe("B");
     expect(result.state.epoch).toBe(2);
     expect(result.state.state).toBe("B_PROMOTING");
     expect(result.event?.level).toBe("CRITICAL");
-    expect(() => acquireForB(result.state, 1, NOW, 30, "failover-2", true)).toThrowError(/epoch/);
+    expect(() => acquireForB(result.state, 1, NOW, 45, "failover-2", true)).toThrowError(/epoch/);
   });
 
   it("复制或镜像门禁失败时 B 不能取得租约", () => {
     const state = activeA();
     const expired = { ...state, leaseUntil: new Date(NOW.getTime() - 1).toISOString() };
 
-    expect(() => acquireForB(expired, 1, NOW, 30, "failover-1", false)).toThrowError(/门禁未通过/);
+    expect(() => acquireForB(expired, 1, NOW, 45, "failover-1", false)).toThrowError(/门禁未通过/);
   });
 
   it("B 只能按白名单推进到 active", () => {
     const state = activeA();
     const expired = { ...state, leaseUntil: new Date(NOW.getTime() - 1).toISOString() };
-    const promoting = acquireForB(expired, 1, NOW, 30, "failover-1", true).state;
+    const promoting = acquireForB(expired, 1, NOW, 45, "failover-1", true).state;
     const active = advanceTransition(
       promoting,
       "B",
@@ -240,12 +240,12 @@ describe("HA 状态机", () => {
       owner: "B",
       epoch: 8,
       state: "B_FREEZING",
-      leaseUntil: new Date(NOW.getTime() + 30_000).toISOString(),
+      leaseUntil: new Date(NOW.getTime() + 45_000).toISOString(),
       transitionId: "failback-1",
     };
-    expect(() => commitHandoffToA(bFreezing, 8, NOW, 30, "handoff-1", false)).toThrowError(/尚未达到/);
+    expect(() => commitHandoffToA(bFreezing, 8, NOW, 45, "handoff-1", false)).toThrowError(/尚未达到/);
 
-    const result = commitHandoffToA(bFreezing, 8, NOW, 30, "handoff-1", true);
+    const result = commitHandoffToA(bFreezing, 8, NOW, 45, "handoff-1", true);
     expect(result.state.owner).toBe("A");
     expect(result.state.epoch).toBe(9);
     expect(result.state.state).toBe("A_PROMOTING");
@@ -258,7 +258,7 @@ describe("HA 状态机", () => {
       epoch: 4,
       state: "B_ACTIVE",
       transitionId: "recovery-1",
-      leaseUntil: new Date(NOW.getTime() + 30_000).toISOString(),
+      leaseUntil: new Date(NOW.getTime() + 45_000).toISOString(),
     };
     const rebuilding = advanceTransition(
       state,
@@ -294,7 +294,7 @@ describe("HA 状态机", () => {
       epoch: 4,
       state: "A_REBUILDING",
       transitionId: "recovery-1",
-      leaseUntil: new Date(NOW.getTime() + 30_000).toISOString(),
+      leaseUntil: new Date(NOW.getTime() + 45_000).toISOString(),
     };
 
     const paused = advanceTransition(
@@ -319,7 +319,7 @@ describe("HA 状态机", () => {
       epoch: 4,
       state: "A_REBUILDING",
       transitionId: "recovery-1",
-      leaseUntil: new Date(NOW.getTime() + 30_000).toISOString(),
+      leaseUntil: new Date(NOW.getTime() + 45_000).toISOString(),
     };
     const waiting = advanceTransition(
       state,
@@ -372,7 +372,7 @@ describe("HA 状态机", () => {
       "resume-1",
       "已确认 A 是唯一主节点",
       new Date(NOW.getTime() + 5_000),
-      30,
+      45,
     );
 
     expect(resumed.state.owner).toBe("A");
@@ -389,7 +389,7 @@ describe("HA 状态机", () => {
         "resume-invalid",
         "错误 owner",
         NOW,
-        30,
+        45,
       ),
     ).toThrowError(/必须由节点 B/);
   });

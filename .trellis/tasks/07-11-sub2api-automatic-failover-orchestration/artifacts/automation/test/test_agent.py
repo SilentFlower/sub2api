@@ -347,6 +347,13 @@ class AgentTest(unittest.TestCase):
                 }
             )
 
+    def test_config_defaults_to_ten_second_interval(self) -> None:
+        """未显式配置时应使用十秒心跳间隔。"""
+        agent_config = config("A", Path("/tmp/sub2api-ha-test-checkpoint.json"))
+
+        self.assertEqual(agent_config.interval_seconds, 10)
+        self.assertEqual(agent_config.request_timeout_seconds, 4)
+
     def test_process_lock_rejects_second_agent(self) -> None:
         """同一节点不得并发运行两个 HA agent 循环。"""
         with tempfile.TemporaryDirectory() as directory:

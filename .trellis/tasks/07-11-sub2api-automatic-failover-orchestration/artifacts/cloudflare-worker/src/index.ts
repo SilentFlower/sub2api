@@ -830,9 +830,9 @@ export class Coordinator {
 
   /** 返回租约 TTL。 */
   private leaseTtlSeconds(): number {
-    const value = Number.parseInt(this.env.LEASE_TTL_SECONDS || "30", 10);
-    if (value !== 30) {
-      throw new HaError("INVALID_TTL", "LEASE_TTL_SECONDS 必须固定为 30", 500);
+    const value = Number.parseInt(this.env.LEASE_TTL_SECONDS || "45", 10);
+    if (value !== 45) {
+      throw new HaError("INVALID_TTL", "LEASE_TTL_SECONDS 必须固定为 45", 500);
     }
     return value;
   }

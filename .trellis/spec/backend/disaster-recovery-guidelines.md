@@ -193,7 +193,7 @@ release_synced_at
 - A 使用独立 `sub2api-ha-release-sync.timer` 每 60 秒触发一次 oneshot；timer 只安装在 A，不安装在 B。脚本使用 `/run/sub2api-ha-release-sync.lock` 非阻塞文件锁，禁止并发同步。
 - 自动调和只接受 A `legacy-active` 或 `active-recovered`，要求应用容器运行且自本次 `StartedAt` 起稳定至少 120 秒。未达到稳定窗口时成功退出并等待下一轮，不得提前拉取或改配置。
 - 达到稳定窗口后必须依次执行 `sync-release --dry-run` 和 `sync-release`，最后再次读取 `status --machine` 并要求 `image_sync=ok`。任何步骤失败都由 oneshot 返回非零，timer 后续周期幂等重试。
-- timer 与 5 秒 HA Agent 心跳必须是独立进程。镜像拉取或 SSH 较慢时不能阻塞 A 续租，也不能为了完成同步延长 30 秒租约 TTL。
+- timer 与 10 秒 HA Agent 心跳必须是独立进程。镜像拉取或 SSH 较慢时不能阻塞 A 续租，也不能为了完成同步延长 45 秒租约 TTL。
 - `observe` 模式允许该受限调和动作修改镜像缓存、A/B 容灾 `SUB2API_IMAGE` 和发布状态文件，因为它不改变写入拓扑。它不得启动应用、重启 A、改变数据库/Redis 角色、修改卷、Tunnel、DNS、owner 或 `epoch`。
 - 同步失败时 A 继续服务并续租，B 的 `b_failover_eligible()` 保持 false；修复网络、镜像仓库或配置后由同一 timer 自动重试，禁止自动回退 A 当前运行镜像。
 - 应用 Compose healthcheck 必须使用镜像内真实存在的工具。修改 Compose 不会改变已创建容器的 healthcheck；只有容器重建后才会加载新命令。Docker healthcheck 工具缺失但外部 HTTP 健康时，应修复 Compose 并在正常更新窗口生效，不能仅为刷新 healthcheck 强制重启活动 A。
@@ -330,7 +330,7 @@ legacy-active
 - Bad: 手工运行 `docker compose down`、删除卷、启动 B 容灾应用或绕过统一脚本修改数据库角色。
 - Bad: 把 `build-latest` 等标签文本直接写入 B 容灾配置，或在 A 故障提升现场才临时拉取可变标签。
 - Bad: 把 B 镜像未同步视为 A 自身不健康并停止 A 续租，这会把“备机暂不可接管”放大为主节点主动停机。
-- Bad: 在 HA Agent 心跳线程内同步大镜像，导致 30 秒租约因下载或 SSH 延迟而过期。
+- Bad: 在 HA Agent 心跳线程内同步大镜像，导致 45 秒租约因下载或 SSH 延迟而过期。
 - Bad: 在 B 本机用 `127.0.0.1` 自测只允许 A 来源的恢复出口，并把被拒绝误判为出口故障。
 - Bad: A 提升后直接让 B 使用旧数据目录连接新时间线，或在创建新物理槽前先执行 B 恢复源预检。
 

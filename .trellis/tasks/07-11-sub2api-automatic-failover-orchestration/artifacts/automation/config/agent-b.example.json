@@ -28,7 +28,7 @@
       "timeout_seconds": 600
     }
   },
-  "interval_seconds": 5,
+  "interval_seconds": 10,
   "request_timeout_seconds": 4,
   "command_timeout_seconds": 30,
   "public_health_timeout_seconds": 90,

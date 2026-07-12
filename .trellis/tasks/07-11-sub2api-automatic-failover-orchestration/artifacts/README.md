@@ -77,7 +77,7 @@ B 同理使用 `--node B`。记录两个 `<UUID>.cfargotunnel.com`，但不要�
 
 ## 3. 准备 Worker
 
-`wrangler.jsonc` 已固定 `api.havefun.eu.cc`、30 秒 TTL 和免费版每日 100,000 次请求估算。部署前需要设置：
+`wrangler.jsonc` 已固定 `api.havefun.eu.cc`、45 秒 TTL 和免费版每日 100,000 次请求估算。部署前需要设置：
 
 ```text
 NODE_A_SECRET
@@ -190,7 +190,7 @@ automation/bin/install-agent.sh \
 
 B 使用自己的配置重复执行。实际安装不会启用服务，也不会修改应用 restart policy。先手工执行状态采集和单轮观察，再安装独立 Tunnel unit，最后才允许启动 `sub2api-ha-agent.service`。
 
-安装器还会部署 `/usr/local/libexec/sub2api-ha-verify-action`。长时间数据库动作执行期间，Agent 每 5 秒续租或复核委托 owner；授权变化时会终止动作进程组并进入人工暂停。`run` 和 `once` 共用 `/run/sub2api-ha-agent.lock` 非阻塞进程锁，禁止同一节点并发执行两个编排循环。
+安装器还会部署 `/usr/local/libexec/sub2api-ha-verify-action`。长时间数据库动作执行期间，Agent 每 10 秒续租或复核委托 owner；授权变化时会终止动作进程组并进入人工暂停。`run` 和 `once` 共用 `/run/sub2api-ha-agent.lock` 非阻塞进程锁，禁止同一节点并发执行两个编排循环。
 
 A 安装器还会安装但不启用 `sub2api-ha-release-sync.timer`。该 timer 每 60 秒检查 A 当前运行容器的精确 digest；只有 A 为活动模式、`image_sync` 不为 `ok` 且容器已稳定至少 120 秒时，才依次执行 `sync-release --dry-run` 和 `sync-release`。它不会部署到 B，也不会让 B 跟随可变标签。Agent 稳定续租后单独启用：
 
@@ -203,7 +203,7 @@ systemctl list-timers sub2api-ha-release-sync.timer
 
 `observe` 模式仍使用完整健康门禁决定是否续租，但只记录拟执行的拓扑动作、原始状态和门禁证据，不停止应用或发送“已完成隔离”的误导性告警。精确发布镜像调和是唯一例外：它可以拉取镜像并更新 A/B 容灾镜像配置和发布记录，但不能启动应用或修改数据库、Redis、卷、Tunnel、DNS 和租约 owner。
 
-正常循环把状态报告和 owner 续租合并为一次心跳，A/B 理论基线约 34,560 次 Worker 请求/天；Agent 仅在启动或恢复状态时额外调用一次 `status`。
+正常循环把状态报告和 owner 续租合并为一次心跳，A/B 理论基线约 17,280 次 Worker 请求/天；Agent 仅在启动或恢复状态时额外调用一次 `status`。10 秒间隔在 45 秒租约内保留约四次完整重试机会；代价是故障确认最多比原 30 秒租约增加约 15 秒。
 
 Tunnel Token 放在 `/etc/sub2api-ha/tunnel-a.env` 或 `tunnel-b.env`：
 
@@ -219,7 +219,7 @@ TUNNEL_TOKEN=<真实 Tunnel Token>
 2. 创建 Worker、A/B 独立 HA Tunnel、`api` DNS 和 Worker Secrets，但暂不 bootstrap。
 3. B 安装受管入口、应用启动门禁和 agent，保持容灾应用停止；A 安装受管入口、在线收敛应用启动门禁并安装 agent。此时两个 agent 服务仍保持停止。
 4. 核验 A 应用、数据库、Redis、镜像和 Tunnel 健康，B 为健康 `standby`、NTP 已同步、容灾应用停止；确认两个 agent 的本地 `status` 均符合门禁。
-5. Worker bootstrap 到 `owner=A`、`state=A_ACTIVE`、`mode=observe`。bootstrap 创建的初始租约只有 30 秒，必须在 10 秒内先启动 A agent，并确认租约剩余时间连续保持在 20 秒以上。
+5. Worker bootstrap 到 `owner=A`、`state=A_ACTIVE`、`mode=observe`。bootstrap 创建的初始租约为 45 秒，必须在 15 秒内先启动 A agent，并确认租约剩余时间连续保持在 30 秒以上。
 6. A 已稳定续租后再启动 B agent，确认 B 不记录模拟接管、容灾应用仍停止且公共入口仍指向 A；随后在 A 启用 `sub2api-ha-release-sync.timer`。
 7. 连续观察至少 24 小时；期间不得修改 owner、DNS、数据库角色、卷或应用状态。
 8. 重新检查免费额度、误判、复制、镜像 digest、Tunnel 和钉钉告警。
@@ -233,6 +233,6 @@ TUNNEL_TOKEN=<真实 Tunnel Token>
 - B 已提升：B 数据成为权威，A 必须从 B 新卷重建。
 - A 已提升：不得自动恢复 B 写入，先修复 A，再从新 A 全量重建 B。
 - 回滚 agent 前先暂停控制面并人工确认唯一主节点；不能只停 agent 后恢复应用 `unless-stopped`。
-- bootstrap 后若 A agent 未在初始 30 秒租约内开始续租，不要让运行中的 agent 直接进入 `paused`。先停止 A/B agent，管理员执行 `pause`，再以已确认的唯一 A 主节点执行 `resume` 回到 `observe`；随后先启动 A 并确认续租，最后启动 B。
+- bootstrap 后若 A agent 未在初始 45 秒租约内开始续租，不要让运行中的 agent 直接进入 `paused`。先停止 A/B agent，管理员执行 `pause`，再以已确认的唯一 A 主节点执行 `resume` 回到 `observe`；随后先启动 A 并确认续租，最后启动 B。
 
 真实 Cloudflare 资源创建、钉钉测试、A restart policy 在线收敛、生产演练和 `automatic` 启用都需要分别确认。

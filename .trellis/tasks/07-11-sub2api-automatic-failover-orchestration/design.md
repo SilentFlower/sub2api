@@ -22,7 +22,7 @@
         |   -> DingTalk Webhook                      |
         +----------------------+---------------------+
                                |
-             5s heartbeat      |      5s observer
+            10s heartbeat      |     10s observer
                       +--------+--------+
                       |                 |
                       v                 v
@@ -97,11 +97,11 @@ agent 职责：
 - 调用现有 `switch-mode.sh status --machine`，解析稳定字段。
 - 检查应用容器、重启策略、数据库角色、复制、镜像和 HA Tunnel 服务。
 - B 申请租约前必须确认 PostgreSQL WAL receiver 为 `streaming` 且 NTP 明确同步，不能只检查 recovery 标志。
-- 每 5 秒续租或观察权威状态。
+- 每 10 秒续租或观察权威状态。
 - 失去租约时先停止应用，再记录 self-fencing 结果。
 - 按 Durable Object 状态调用现有 A/B 辅助脚本。
 - 每次不可逆动作前后重新读取真实状态，不只依赖本地阶段文件。
-- 长时间动作执行期间每 5 秒续租或复核委托 owner；授权变化时终止动作进程组。
+- 长时间动作执行期间每 10 秒续租或复核委托 owner；授权变化时终止动作进程组。
 - 保存不含密钥的本地 checkpoint，重启后与 Durable Object 对账。
 - Worker 不可达时把关键告警写入 `0600` 本地队列，恢复后按稳定事件 ID 补发。
 
@@ -205,7 +205,7 @@ B 原单机应用完全排除。agent 只控制 `sub2api-dr-app`，正常 standb
 
 活动 A 的续租门禁只判断 A 自身是否仍可安全写入：本地模式、应用 HTTP 健康、PostgreSQL/Redis 主库角色、restart policy 和 A HA Tunnel。A 当前运行镜像与 B 容灾镜像不一致时，A 仍续租并提供服务，但 Worker 报告中的 `imageSyncHealthy=false` 会使 B 的接管门禁保持关闭。
 
-A 使用独立 oneshot + timer 执行发布调和，避免镜像拉取阻塞 5 秒心跳：
+A 使用独立 oneshot + timer 执行发布调和，避免镜像拉取阻塞 10 秒心跳：
 
 ```text
 每 60 秒检查 A status --machine
@@ -346,7 +346,7 @@ epoch: 42
 
 ## 12. 免费额度控制
 
-- A/B 每 5 秒各一次合并状态报告与续租的心跳，理论基线约 34,560 次/天；`status` 只在 Agent 启动或状态恢复时额外调用。
+- A/B 每 10 秒各一次合并状态报告与续租的心跳，理论基线约 17,280 次/天；`status` 只在 Agent 启动或状态恢复时额外调用。
 - 状态查询、DNS 切换、告警和重试共享剩余额度。
 - agent 使用指数退避和请求熔断，禁止错误时无上限重试。
 - Worker 记录当日请求估算；达到 70% 发送 `WARNING`，达到 85% 禁止非必要观察请求，达到 95% 自动暂停新的故障编排并 `CRITICAL` 告警。

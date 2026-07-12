@@ -40,7 +40,7 @@ class AgentConfig:
     tunnel_service: str
     expected_restart_policy: str
     actions: dict[str, ActionCommand]
-    interval_seconds: int = 5
+    interval_seconds: int = 10
     request_timeout_seconds: int = 4
     command_timeout_seconds: int = 30
     public_health_timeout_seconds: int = 90
@@ -80,7 +80,7 @@ class AgentConfig:
         control_url = cls._required_string(raw, "control_url").rstrip("/")
         if not control_url.startswith("https://"):
             raise ConfigError("control_url 必须使用 https://")
-        interval = cls._positive_int(raw, "interval_seconds", 5)
+        interval = cls._positive_int(raw, "interval_seconds", 10)
         request_timeout = cls._positive_int(raw, "request_timeout_seconds", 4)
         if request_timeout >= interval:
             raise ConfigError("request_timeout_seconds 必须小于 interval_seconds")
