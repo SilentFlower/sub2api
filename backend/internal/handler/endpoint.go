@@ -18,6 +18,7 @@ const (
 	EndpointMessages          = "/v1/messages"
 	EndpointChatCompletions   = "/v1/chat/completions"
 	EndpointEmbeddings        = "/v1/embeddings"
+	EndpointAlphaSearch       = "/v1/alpha/search"
 	EndpointResponses         = "/v1/responses"
 	EndpointResponsesCompact  = "/v1/responses/compact"
 	EndpointImagesGenerations = "/v1/images/generations"
@@ -36,23 +37,17 @@ const (
 // Normalization functions
 // ──────────────────────────────────────────────────────────
 
-// NormalizeInboundEndpoint maps a raw request path (which may carry
-// prefixes like /antigravity, /openai) to its canonical form.
+// NormalizeInboundEndpoint 将可能携带 /antigravity、/openai 等前缀的原始请求路径归一化为标准端点。
 //
 //	"/antigravity/v1/messages"   → "/v1/messages"
 //	"/v1/chat/completions"       → "/v1/chat/completions"
 //	"/openai/v1/responses/foo"   → "/v1/responses"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
 //
-// The OpenAI Responses API is also exposed via a few bare/alias
-// routes that do not carry a "/v1/" prefix (top-level bare route and
-// the Codex direct route). "/responses/compact" (and "/backend-api/
-// codex/responses/compact") is a distinct client endpoint — the
-// "compact" client — and is normalized to its OWN canonical inbound
-// endpoint, EndpointResponsesCompact, rather than being folded into
-// the root Responses endpoint. Any other subpath under the bare/alias
-// roots (i.e. not "compact" itself or nested under it) remains a
-// subresource suffix of the root Responses endpoint:
+// OpenAI Responses API 还通过若干不带 /v1/ 前缀的裸路径或别名路径暴露。
+// /responses/compact 与 /backend-api/codex/responses/compact 是独立的 compact
+// 客户端端点，必须归一化为 EndpointResponsesCompact，不能折叠到根 Responses 端点。
+// 裸路径或别名路径下其它非 compact 子路径仍归属于根 Responses 端点：
 //
 //	"/v1/responses/compact"                         → EndpointResponsesCompact
 //	"/v1/responses/compact/detail"                  → EndpointResponsesCompact
@@ -67,14 +62,17 @@ const (
 //	"/responses"                                    → EndpointResponses
 //	"/backend-api/codex/responses"                  → EndpointResponses
 //
-// The compact check MUST be evaluated before the root Responses check,
-// otherwise "/v1/responses" (a prefix of "/v1/responses/compact")
-// would erroneously match first.
+// compact 检查必须先于根 Responses 检查，否则作为前缀的 /v1/responses 会被错误地优先命中。
+//
+// @param path 原始请求路径。
+// @return 归一化后的标准入站端点。
 func NormalizeInboundEndpoint(path string) string {
 	path = strings.TrimSpace(path)
 	switch {
 	case strings.Contains(path, EndpointEmbeddings):
 		return EndpointEmbeddings
+	case strings.Contains(path, EndpointAlphaSearch) || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/alpha/search") || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/backend-api/codex/alpha/search"):
+		return EndpointAlphaSearch
 	case strings.Contains(path, EndpointChatCompletions):
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
@@ -151,23 +149,24 @@ func isBareOrSubpathOf(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+"/")
 }
 
-// DeriveUpstreamEndpoint determines the upstream endpoint from the
-// account platform and the normalized inbound endpoint.
+// DeriveUpstreamEndpoint 根据账号平台和归一化入站端点确定上游端点。
 //
-// Platform-specific rules:
-//   - OpenAI always forwards to /v1/responses (with optional subpath
-//     such as /v1/responses/compact preserved from the raw URL).
-//   - Anthropic  → /v1/messages
-//   - Gemini     → /v1beta/models
-//   - Antigravity → /v1/messages (Claude) or gemini (Gemini)
-//   - Antigravity routes may target either Claude or Gemini, so the
-//     inbound endpoint is used to distinguish.
+// 平台规则：
+//   - OpenAI 文本兼容路由转发到 /v1/responses，embeddings、alpha search 等原生端点保留路径。
+//   - Anthropic 转发到 /v1/messages。
+//   - Gemini 转发到 /v1beta/models。
+//   - Antigravity 可能指向 Claude 或 Gemini，需要根据入站端点区分。
+//
+// @param inbound 已归一化的入站端点。
+// @param rawRequestPath 原始请求路径，用于保留 Responses 子路径。
+// @param platform 目标账号平台。
+// @return 对应的上游端点。
 func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	inbound = strings.TrimSpace(inbound)
 
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok:
-		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideos {
+		if inbound == EndpointEmbeddings || inbound == EndpointAlphaSearch || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideos {
 			return inbound
 		}
 		// OpenAI forwards everything to the Responses API.
