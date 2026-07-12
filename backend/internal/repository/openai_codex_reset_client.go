@@ -29,7 +29,7 @@ type openAICodexResetClient struct {
 //
 // @return ChatGPT backend 客户端实例。
 func NewOpenAICodexResetClient() service.OpenAICodexResetClient {
-	return &openAICodexResetClient{baseURL: openAICodexResetBackendBaseURL}
+	return newOpenAICodexResetClientWithBaseURL(openAICodexResetBackendBaseURL)
 }
 
 func newOpenAICodexResetClientWithBaseURL(baseURL string) *openAICodexResetClient {

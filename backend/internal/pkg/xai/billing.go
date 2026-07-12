@@ -412,7 +412,7 @@ func normalizeFloatPtr(value any) *float64 {
 		if trimmed == "" {
 			return nil
 		}
-		var parsed json.Number = json.Number(trimmed)
+		parsed := json.Number(trimmed)
 		if f, err := parsed.Float64(); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
 			return &f
 		}
