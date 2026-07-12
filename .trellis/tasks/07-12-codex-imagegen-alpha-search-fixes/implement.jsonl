@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Codex/OpenAI 协议桥接、请求归一化和跨路径一致性。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束上游错误透传、故障切换和响应写入边界。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束后端测试、格式化、静态检查和差异范围。"}
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"约束 GitHub Actions 镜像发布后 A 更新、固定 digest 同步 B 与 HA 状态门禁。"}
+{"file":".trellis/tasks/07-12-codex-imagegen-alpha-search-fixes/research/issue-pr-action-evidence.md","reason":"记录 issue #4018、PR #4063、GitHub Actions 和生产基线的已验证证据。"}

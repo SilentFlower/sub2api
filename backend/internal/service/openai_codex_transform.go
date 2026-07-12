@@ -876,7 +876,13 @@ func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) 
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
-	if _, ok := reqBody["tool_choice"]; ok {
+	choice, ok := reqBody["tool_choice"]
+	if !ok {
+		reqBody["tool_choice"] = "auto"
+		return true
+	}
+	choiceValue, isString := choice.(string)
+	if !isString || !strings.EqualFold(strings.TrimSpace(choiceValue), "none") {
 		return false
 	}
 	reqBody["tool_choice"] = "auto"

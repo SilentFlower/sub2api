@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 Alpha Search 与生图桥接协议行为、HTTP/WS 一致性和兼容边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查 4xx/5xx、failover、已写响应和错误归属是否符合约定。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行后端质量门并核对新增测试覆盖。"}
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"检查生产发布只更新 A 应用并以固定 digest 同步 B，最终 image_sync=ok。"}
+{"file":".trellis/tasks/07-12-codex-imagegen-alpha-search-fixes/research/issue-pr-action-evidence.md","reason":"对照已确认的上游提交、构建标签和生产回滚基线。"}

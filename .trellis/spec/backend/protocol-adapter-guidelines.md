@@ -947,3 +947,225 @@ const (
 ```
 
 所有内置身份从一个生产版本字面量派生；显式 UA、显式模型目录版本和入站版本门控仍保持各自独立契约。
+
+---
+
+## Scenario: Codex Alpha Search 独立端点转发
+
+### 1. Scope / Trigger
+
+- Trigger: 新增或修改 Codex Responses Lite 的 standalone `alpha/search` 路由、OpenAI 账号调度、模型映射、上游 URL、query/body 透传、响应头过滤或 failover 行为时，必须按本节检查。
+- 适用后端路径：
+  - `backend/internal/handler/endpoint.go`
+  - `backend/internal/handler/openai_alpha_search.go`
+  - `backend/internal/server/routes/gateway.go`
+  - `backend/internal/service/openai_alpha_search.go`
+- 目标：把仍在演进的 alpha 请求和响应作为不透明 JSON 转发，只读取调度必需的 `model` 和会话粘性使用的 `id`，避免复制未稳定 schema。
+
+### 2. Signatures
+
+```go
+const EndpointAlphaSearch = "/v1/alpha/search"
+
+func NormalizeInboundEndpoint(path string) string
+func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string
+func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context)
+func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Context, account *Account, body []byte) error
+```
+
+必须注册的 HTTP 路径：
+
+```text
+POST /v1/alpha/search
+POST /alpha/search
+POST /backend-api/codex/alpha/search
+```
+
+### 3. Contracts
+
+- 三个入站路径都必须归一化为 `EndpointAlphaSearch`，且只允许 OpenAI 分组进入 handler。
+- 请求体必须是合法 JSON，`model` 必须是 trim 后非空的字符串；`id` 可缺失，只用于生成 session hash。
+- channel model mapping 先在 handler 应用，账号级 model mapping 再由 service 应用；除最终模型名外，不重建请求体。
+- 入站 query 参数逐值追加到目标 URL，未知 JSON 字段和请求结构原样保留。
+- OpenAI OAuth 账号固定转发到 `https://chatgpt.com/backend-api/codex/alpha/search`。
+- OpenAI API Key 账号使用已校验的账号 base URL，并通过 `buildOpenAIEndpointURL(base, "/v1/alpha/search")` 构造目标；未配置 base URL 时使用 `https://api.openai.com/v1/alpha/search`。
+- OAuth 请求缺少入站 `Version` 时使用 `codexCLIVersion`；显式 `Version` 原样保留。客户端未提供 `OpenAI-Beta` 时不得额外注入该头。
+- 调度必须复用用户并发、账号并发、session sticky、模型限制、账号健康、最大切换次数和现有 failover 副作用。
+- 上游非切换错误原样返回状态、body 和白名单响应头；可切换错误必须先返回 `UpstreamFailoverError`，不得提前写下游响应。
+- 不修改 `/responses`、hosted web search、web search emulation 或数据库结构。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 必须结果 |
+|---|---|
+| API Key 缺失或无分组 | `401 authentication_error` |
+| 分组平台不是 OpenAI | `404 not_found_error`，不调度账号 |
+| 请求体为空、非法 JSON 或读取失败 | 对应 `400`；超过限制时 `413` |
+| `model` 缺失、非字符串或 trim 后为空 | `400 invalid_request_error` |
+| 无可用账号且未发生切换 | 复用现有 no-account 分类结果 |
+| 上游响应满足 failover 条件且尚未写响应 | 返回 `UpstreamFailoverError`，handler 切换账号 |
+| failover 已耗尽 | 复用 `handleFailoverExhausted` 输出最终错误 |
+| API Key base URL 校验失败 | 不发上游请求，按普通转发失败处理 |
+| 上游普通 4xx/5xx 不满足 failover | 原样透传状态、JSON body 和允许的响应头 |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `/backend-api/codex/alpha/search?feature=standalone` 使用 OAuth 账号时，query 和未知 JSON 字段都到达 ChatGPT Codex standalone search。
+- Good: API Key 账号配置 `https://compat.example/v4` 时，目标为 `https://compat.example/v4/alpha/search`，模型映射只替换 `model`。
+- Base: 请求没有 `id` 时仍可调度，由现有 session hash fallback 决定粘性。
+- Base: 上游返回不可切换的 `400` 时，客户端收到上游状态和 JSON 错误体，不把它改造成内部 envelope。
+- Bad: 把 alpha 请求绑定到本地 DTO 后重新序列化，会丢失上游新加的未知字段。
+- Bad: 把 standalone search 折叠进 `/responses` 或 hosted web search，会改变 URL、调度能力和 wire contract。
+- Bad: 收到 `429` 后先 `c.Data` 再尝试 failover，会导致响应已经提交，无法安全切换账号。
+
+### 6. Tests Required
+
+- endpoint 单测必须覆盖三个入站路径都归一化为 `EndpointAlphaSearch`，以及 OpenAI 上游端点推导保持 `/v1/alpha/search`。
+- route 单测必须覆盖三个 `POST` 路径已注册，非 OpenAI 分组返回 `404`。
+- service 单测必须覆盖：
+  - OAuth URL、Authorization、账号头、`Version`、query 和未知 body 字段透传。
+  - API Key 自定义 base URL、Authorization 和模型映射。
+  - 可切换上游错误返回 `UpstreamFailoverError`，且下游 writer 尚未写入。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/handler ./internal/server/routes ./internal/service \
+  -run 'AlphaSearch|NormalizeInboundEndpoint|DeriveUpstreamEndpoint' -count=1
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+var req AlphaSearchRequest
+if err := c.ShouldBindJSON(&req); err != nil {
+	return
+}
+body, _ := json.Marshal(req)
+```
+
+问题：alpha schema 仍在演进，本地 DTO 会静默丢弃未知字段，并使代理行为依赖发布节奏。
+
+#### Correct
+
+```go
+body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+if err != nil || !gjson.ValidBytes(body) {
+	// 在边界返回兼容错误。
+}
+model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+```
+
+只读取调度所需字段，转发原始 JSON，并由既有 model replacement 精确替换模型名。
+
+---
+
+## Scenario: Codex 生图桥接 tool_choice 归一化
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 Codex 图片工具注入、`tool_choice`、账号显式图片工具策略、HTTP Responses 或 WebSocket Responses 入站归一化时，必须按本节检查。
+- 适用后端路径：
+  - `backend/internal/service/openai_codex_transform.go`
+  - `backend/internal/service/openai_gateway_forward.go`
+  - `backend/internal/service/openai_ws_forwarder_ingress.go`
+- 目标：桥接已经注入或已有 `image_generation` 工具时，解除客户端 `tool_choice: "none"` 对图片工具的阻断，同时保留所有其它显式选择和禁用策略。
+
+### 2. Signatures
+
+```go
+func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) bool
+```
+
+HTTP 与 WebSocket 必须调用同一归一化函数：
+
+```go
+if codexImageGenerationBridgeEnabled && ensureOpenAIResponsesImageGenerationToolChoiceAuto(decoded) {
+	markDecodedModified()
+}
+
+if codexBridgeEnabled && ensureOpenAIResponsesImageGenerationToolChoiceAuto(payloadMap) {
+	bridgeModified = true
+}
+```
+
+### 3. Contracts
+
+- 函数只处理已经包含 `image_generation` 工具、且模型不是 Codex Spark 的请求。
+- `tool_choice` 缺失时写入字符串 `"auto"` 并返回 `true`。
+- `tool_choice` 是字符串，且忽略大小写和首尾空白后等于 `"none"` 时，改写为 `"auto"` 并返回 `true`。
+- `"auto"`、`"required"`、其它字符串、明确工具选择对象和其它非字符串值必须保持，并返回 `false`。
+- HTTP 只在 `codexImageGenerationBridgeEnabled` 为真时调用；WebSocket 只在 `codexBridgeEnabled` 为真时调用。
+- group 禁止图片、全局/频道/账号未启用桥接、账号显式工具策略为 `strip`、compact 请求或 Spark 模型时，不得通过本归一化重新开放图片工具。
+- HTTP 与 WebSocket 不得复制一份独立的 `none` 判断逻辑，避免协议分支漂移。
+
+### 4. Validation & Error Matrix
+
+| 条件 | `tool_choice` 结果 | modified |
+|---|---|---|
+| 有图片工具，字段缺失 | `"auto"` | `true` |
+| 有图片工具，值为 `"none"` | `"auto"` | `true` |
+| 有图片工具，值为 `"  NONE  "` | `"auto"` | `true` |
+| 有图片工具，值为 `"auto"` | 保持 | `false` |
+| 有图片工具，值为 `"required"` | 保持 | `false` |
+| 有图片工具，值为明确工具对象 | 保持 | `false` |
+| 无图片工具 | 保持原值或缺失 | `false` |
+| Codex Spark | 保持原值或缺失 | `false` |
+| bridge 关闭或账号策略为 `strip` | 调用点不得执行归一化 | 不适用 |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
+- Good: WebSocket `response.create` 携带 `" NONE "` 时，发往上游的 payload 使用 `"auto"`，行为与 HTTP 一致。
+- Base: 客户端明确使用 `"required"` 或图片工具对象时，桥接尊重其选择，不覆盖。
+- Base: 管理员关闭桥接后，文本请求不会被注入图片工具，也不会因为 `none` 被改写。
+- Bad: 只判断字段是否存在并直接返回，会让 `tool_choice: "none"` 永久禁止已注入的图片工具。
+- Bad: 无条件把所有 `tool_choice` 写成 `"auto"`，会破坏 `required` 和明确工具选择。
+- Bad: 在 HTTP 和 WebSocket 各自实现不同的字符串判断，会再次形成协议分支行为漂移。
+
+### 6. Tests Required
+
+- 纯函数表驱动测试至少覆盖：缺失、`none`、带空白/大小写的 `none`、`auto`、`required`、明确工具对象、无图片工具和 Spark。
+- HTTP service 回归测试必须断言桥接启用时 `none -> auto`，同时保留现有 bridge disabled、group disabled、`strip` 和明确工具选择测试。
+- 真实 WebSocket ingress 测试必须发送带 `tool_choice: "none"` 的 `response.create`，并断言上游 payload 包含图片工具和 `tool_choice: "auto"`。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service \
+  -run 'ImageGenerationToolChoice|ImageGenerationBridge|ProxyResponsesWebSocketFromClient_InjectsCodexImage' \
+  -count=1
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+if _, ok := reqBody["tool_choice"]; ok {
+	return false
+}
+reqBody["tool_choice"] = "auto"
+```
+
+问题：把字段“存在”误当成“允许工具选择”，无法处理客户端显式发送的阻断值 `none`。
+
+#### Correct
+
+```go
+choice, ok := reqBody["tool_choice"]
+if !ok {
+	reqBody["tool_choice"] = "auto"
+	return true
+}
+choiceValue, isString := choice.(string)
+if !isString || !strings.EqualFold(strings.TrimSpace(choiceValue), "none") {
+	return false
+}
+reqBody["tool_choice"] = "auto"
+return true
+```
+
+只解除 `none` 的阻断语义，并保留所有其它显式选择。
