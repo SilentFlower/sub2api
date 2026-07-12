@@ -22,5 +22,22 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-12T12:55:41+08:00",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "b5a51fd0"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "阶段 1：移植 PR #4063 并新增 Codex Alpha Search 独立转发",
+      "阶段 2：修复 issue #4018 的 tool_choice none 生图阻断",
+      "阶段 3：定向测试、完整 unit、go vet、golangci-lint v2.9、gofmt 与 check-all 全部通过",
+      "阶段 4.1：提交 d390f057 与 b5a51fd0 并推送 origin/build"
+    ],
+    "partial_step": "阶段 4：GitHub Actions 已触发，等待 backend-ci 与 Build Image 完成并校验镜像 revision",
+    "next_step": "等待目标 commit 的 Actions 成功，校验 GHCR latest/revision/digest 后仅更新 A 应用容器，再同步固定 digest 到 B",
+    "notes": "生产回滚点仍为 ghcr.io/silentflower/sub2api@sha256:e30acd8618135cc5598b91590c0d27365fe35a94fa0c5f2eb48b78e76bc0b0fa；A 使用 latest 拉取，容灾配置只记录 A 实际运行镜像的固定 digest。"
+  }
 }
