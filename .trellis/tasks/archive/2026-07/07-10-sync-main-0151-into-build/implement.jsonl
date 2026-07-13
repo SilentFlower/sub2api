@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Anthropic/Chat 直连桥接、Grok effort、GPT-5.6 max 与 Codex 身份语义"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"约束 migration 173 合入方式及禁止修改已发布迁移"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束网关错误、failover 和敏感信息处理"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束 Fast/Flex user_ids 与设置字段的前后端类型一致性"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"用于复核 DTO、service、middleware、前端和 usage 跨层数据链路"}
+{"file":".trellis/tasks/07-10-sync-main-0151-into-build/research/merge-evidence.md","reason":"提供当前分叉、4 个文本冲突、21 个自动合并文件及预定处理证据"}
