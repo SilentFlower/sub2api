@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Alpha Search、Grok effort、Anthropic Messages 直连、实际上游端点和 Codex 身份语义"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"约束 migration 174、Ent schema 与生成代码，禁止修改已发布迁移"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 OpenAI 兼容错误、failover、响应提交时机和敏感信息处理"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束 web_search_price_per_call、Grok extra 和前后端 snake_case 类型一致性"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"用于复核 Alpha Search 价格、usage、DTO、cache、前端和 migration 跨层闭环"}
+{"file":".trellis/tasks/07-13-sync-main-0152-into-build/research/merge-evidence.md","reason":"提供固定提交、12 个文本冲突、31 个自动合并文件和隐藏语义风险证据"}

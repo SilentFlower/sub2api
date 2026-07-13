@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行 Go 单测、gofmt、lint、分层、生成代码和 migration 质量检查"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行 Vitest、typecheck、lint 与前端行为复核"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 Alpha Search、Grok、Anthropic、Codex、缓存、effort 和实际上游端点契约未回退"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 migration 174、Ent schema/生成代码及已发布迁移未被改写"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查价格、DTO、API key cache、usage、前端和数据库跨层闭环"}
+{"file":".trellis/tasks/07-13-sync-main-0152-into-build/research/merge-evidence.md","reason":"对照全部文本冲突、自动合并复核范围、隐藏风险和固定提交"}
