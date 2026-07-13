@@ -24,12 +24,7 @@
   "notes": "",
   "meta": {},
   "last_push_snapshot": {
-    "snapshot_at": "2026-07-13T17:10:08+08:00",
     "branch": "build",
-    "pushed_commits": {
-      "root": "1fdfe9dc"
-    },
-    "push_mode": "push",
     "completed_steps": [
       "阶段 0：基线与密钥准备",
       "阶段 1：Cloudflare Worker 与 Durable Object",
@@ -41,8 +36,13 @@
       "规范同步：补充 10 秒心跳、4 秒超时、45 秒租约、在线变更顺序和调用量验证契约",
       "事故修复：租约关键探测与详细探测隔离，缓存租约过期后立即 self-fencing"
     ],
-    "partial_step": "阶段 7：首轮 24 小时观察发现租约续期被跨节点详细探测阻塞；代码修复和本地验证完成，待线上部署并重新观察",
     "next_step": "按 B→A 部署修复后的 Agent 与真实配置，恢复 owner=A/mode=observe 的有效租约并重新开始完整 24 小时观察",
-    "notes": "修复提交 1fdfe9dc 已推送；线上尚未部署，控制面继续保持 observe。部署时确认 A 的 lease_state_command 不包含对端 SSH，并核对 5 秒租约探测与 20 秒详细探测预算。"
+    "notes": "修复提交 1fdfe9dc 已推送；线上尚未部署，控制面继续保持 observe。部署时确认 A 的 lease_state_command 不包含对端 SSH，并核对 5 秒租约探测与 20 秒详细探测预算。已同步 flower-trellis 0.4.12-beta.0 的提交/推送流程强化。",
+    "partial_step": "阶段 7：首轮 24 小时观察发现租约续期被跨节点详细探测阻塞；代码修复和本地验证完成，待线上部署并重新观察",
+    "push_mode": "push",
+    "pushed_commits": {
+      "root": "c37d3b7c"
+    },
+    "snapshot_at": "2026-07-13T21:30:00+08:00"
   }
 }
