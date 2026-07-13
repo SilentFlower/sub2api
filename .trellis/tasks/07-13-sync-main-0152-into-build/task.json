@@ -1,0 +1,45 @@
+{
+  "id": "sync-main-0152-into-build",
+  "name": "sync-main-0152-into-build",
+  "title": "同步 main 0.1.152 到 build",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-13",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "last_push_snapshot": {
+    "snapshot_at": "2026-07-13T13:31:05+08:00",
+    "branch": "build",
+    "pushed_commits": {
+      "root": "80679de9"
+    },
+    "push_mode": "push",
+    "completed_steps": [
+      "固定远端引用、创建备份分支并选择性隔离用户已有改动",
+      "合并 main 0.1.152，解决 12 个文本冲突及 Git 未报告的隐性兼容问题",
+      "复核 31 个自动合并文件，保留 build 的 Codex、Anthropic、Grok、容灾与 Trellis 定制",
+      "完成 Alpha Search 按次计费、migration 174、Ent、DTO、cache、usage 和前端管理字段跨层闭环",
+      "后端全量 unit、golangci-lint、Ent 生成检查及前端 952 项测试、typecheck、lint 全部通过",
+      "Phase 2.2：Check All 三个维度通过",
+      "Phase 3.4：双父 merge commit 80679de9 已普通推送 origin/build"
+    ],
+    "next_step": "Phase 3.5：等待用户决定是否执行 trellis-finish-work 与任务归档",
+    "notes": "merge commit 80679de9 已同步 main 0.1.152，并保留 build 定制能力；普通 push 已完成，未 force push，未修改 origin/main。用户原有容灾规范、上一任务材料及当前任务除 task.json 外的规划研究文件均保留未提交。"
+  }
+}
