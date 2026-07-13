@@ -132,7 +132,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		upstreamDebug,
 	)
 
-	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, true, apiKey, customUA)
+	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, true, apiKey, customUA, "")
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
-			s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+			s.updateGrokUsageSnapshot(ctx, account, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -168,7 +168,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	}
 
 	if account.Platform == PlatformGrok {
-		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+		s.updateGrokUsageSnapshot(ctx, account, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 	}
 
 	if clientStream {

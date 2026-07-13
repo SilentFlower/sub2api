@@ -152,7 +152,9 @@ func isBareOrSubpathOf(path, root string) bool {
 // DeriveUpstreamEndpoint 根据账号平台和归一化入站端点确定上游端点。
 //
 // 平台规则：
-//   - OpenAI 文本兼容路由转发到 /v1/responses，embeddings、alpha search 等原生端点保留路径。
+//   - OpenAI 和 Grok 文本兼容路由默认转发到 /v1/responses，并保留 compact 等子路径；
+//     embeddings、alpha search、图片和视频等原生端点保留路径。Grok raw Chat 的实际端点
+//     由转发结果或运行时上下文覆盖，避免仅根据入站路径猜测。
 //   - Anthropic 转发到 /v1/messages。
 //   - Gemini 转发到 /v1beta/models。
 //   - Antigravity 可能指向 Claude 或 Gemini，需要根据入站端点区分。

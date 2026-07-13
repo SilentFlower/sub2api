@@ -171,7 +171,7 @@ typed content part array 是该桥接路径的稳定输出形态。
   ```
 - usage endpoint 记录：
   ```go
-  func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account) string
+  func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account, result *service.OpenAIForwardResult) string
   ```
 - 前端 extra 写入必须保持字段名和值：
   ```typescript
@@ -196,6 +196,7 @@ typed content part array 是该桥接路径的稳定输出形态。
   - Grok `/v1/messages` + `force_chat_completions` -> `/v1/chat/completions`。
   - Grok `/v1/messages` + 默认/`auto` -> `/v1/responses`。
   - Grok 原生 `/v1/chat/completions` -> `/v1/chat/completions`。
+- 实际端点解析优先级固定为：`OpenAIForwardResult.UpstreamEndpoint` > 当前请求 runtime context > 账号和入站端点 fallback。转发结果必须优先于可能陈旧的 runtime context；错误路径没有 result 时使用 runtime context。
 - 前端创建/编辑 Grok 账号时，保存 `openai_responses_mode` 必须基于现有 `extra` 复制后只增删该键，保留 `email`、`grok_usage_snapshot`、`quota_*`、限额和通知配置等其它键。
 
 ### 4. Validation & Error Matrix
@@ -970,7 +971,7 @@ const EndpointAlphaSearch = "/v1/alpha/search"
 func NormalizeInboundEndpoint(path string) string
 func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string
 func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context)
-func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Context, account *Account, body []byte) error
+func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error)
 ```
 
 必须注册的 HTTP 路径：
@@ -992,7 +993,11 @@ POST /backend-api/codex/alpha/search
 - OAuth 请求缺少入站 `Version` 时使用 `codexCLIVersion`；显式 `Version` 原样保留。客户端未提供 `OpenAI-Beta` 时不得额外注入该头。
 - 调度必须复用用户并发、账号并发、session sticky、模型限制、账号健康、最大切换次数和现有 failover 副作用。
 - 上游非切换错误原样返回状态、body 和白名单响应头；可切换错误必须先返回 `UpstreamFailoverError`，不得提前写下游响应。
-- 不修改 `/responses`、hosted web search、web search emulation 或数据库结构。
+- 仅上游 2xx 表示一次真实成功的搜索：返回非 nil `OpenAIForwardResult`，并设置 `WebSearchCalls=1`。已原样透传的非 2xx 或重定向返回 `(nil, nil)`，不得计费；failover 和传输错误继续通过 error 返回。
+- handler 只在 result 非 nil 时使用 mandatory usage 池记录用量；池满时同步兜底，避免成功搜索漏扣费。请求体哈希、channel mapping、账号、订阅和 quota platform 必须进入现有 `RecordUsage` 链路。
+- 按次价格来自 `groups.web_search_price_per_call`；null 使用默认 `0.01 USD/次`，显式 `0` 表示免费。最终费用为调用次数 × 单次价格 × 分组倍率。
+- `web_search_price_per_call` 必须在 migration、Ent schema/生成代码、Group service/DTO、API key cache snapshot、前端 Group/Create/Update 类型和管理页之间保持 snake_case 契约一致。
+- 不修改 `/responses`、hosted web search 或 web search emulation 的 wire contract；按次计费只由 Alpha Search 成功结果的 `WebSearchCalls` 触发。
 
 ### 4. Validation & Error Matrix
 
@@ -1007,6 +1012,9 @@ POST /backend-api/codex/alpha/search
 | failover 已耗尽 | 复用 `handleFailoverExhausted` 输出最终错误 |
 | API Key base URL 校验失败 | 不发上游请求，按普通转发失败处理 |
 | 上游普通 4xx/5xx 不满足 failover | 原样透传状态、JSON body 和允许的响应头 |
+| 上游返回 2xx | 返回 `WebSearchCalls=1` 的 result，并提交一次 mandatory usage 记录 |
+| 上游返回普通非 2xx 或重定向 | 响应原样透传，result 为 nil，不产生按次费用 |
+| 分组单价为 null / 0 / 正数 | 分别使用默认 0.01 / 免费 / 显式单价，并应用分组倍率 |
 
 ### 5. Good/Base/Bad Cases
 
@@ -1026,12 +1034,19 @@ POST /backend-api/codex/alpha/search
   - OAuth URL、Authorization、账号头、`Version`、query 和未知 body 字段透传。
   - API Key 自定义 base URL、Authorization 和模型映射。
   - 可切换上游错误返回 `UpstreamFailoverError`，且下游 writer 尚未写入。
+  - 2xx 返回 `WebSearchCalls=1`；普通错误透传返回 nil result，不计费。
+- billing/cache 单测必须覆盖默认价格、显式价格、免费价格、倍率、零调用和 API key cache snapshot round-trip。
+- contract 与前端检查必须覆盖 `web_search_price_per_call` 的 null 字段、创建/编辑 payload 和价格预览。
 - 建议运行：
 
 ```bash
 cd backend
 go test -tags=unit ./internal/handler ./internal/server/routes ./internal/service \
-  -run 'AlphaSearch|NormalizeInboundEndpoint|DeriveUpstreamEndpoint' -count=1
+  -run 'AlphaSearch|WebSearch|NormalizeInboundEndpoint|DeriveUpstreamEndpoint' -count=1
+go test -tags=unit ./internal/server ./internal/repository -count=1
+cd ../frontend
+pnpm vitest run src/i18n/__tests__/opsLocaleKeys.spec.ts
+pnpm typecheck
 ```
 
 ### 7. Wrong vs Correct
