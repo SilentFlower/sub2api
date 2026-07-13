@@ -8,6 +8,7 @@
 
 - 创建 Cloudflare Worker + SQLite Durable Object 控制面，维护 `owner`、`epoch`、45 秒租约、状态机、事件和人工控制。
 - 在 A/B 部署独立 Python HA agent 与 systemd 服务，复用现有 `switch-mode.sh status --machine` 和主备切换脚本。
+- 把 Agent 探测拆为 5 秒本地租约关键探测和 20 秒详细探测；A 稳态续租不得访问 B，详细探测失败时跳过本轮编排。
 - 把 A 应用启动纳入租约门禁，在线收敛 `restart: unless-stopped`，避免 A 重启后旧应用抢跑。
 - A 新增 `sub2api-ha-a` Tunnel -> `127.0.0.1:8080`；B 新增 `sub2api-ha-b` Tunnel -> `127.0.0.1:18080`。
 - 使用 `api.havefun.eu.cc` 作为唯一承诺 HA 的入口，控制面按权威租约切换 Tunnel CNAME。
@@ -28,6 +29,8 @@
 - 当前正常状态：A `legacy-active`、B `standby`、`image_sync=ok`；B 容灾应用停止。
 - PostgreSQL/Redis 为异步复制，继续接受故障瞬间最近数秒写入可能丢失的 RPO。
 - 租约 TTL 45 秒、节点间隔 10 秒、fail-closed；Cloudflare 不可达超过 TTL 时当前应用停止，B 无租约不得提升。
+- A 的租约关键命令固定为本地 `verify-cutback.sh --machine`；包含 B SSH 的完整状态只用于非稳态详细编排，不能阻塞合并心跳。
+- 缓存租约过期后禁止再次探测；即使本地状态不可用，`automatic` 也直接尝试停止应用。
 - 正常故障接管 RTO 目标 2 至 5 分钟，任何复制、镜像、角色或 Tunnel 门禁失败时进入 `PAUSED_NEEDS_OPERATOR`。
 - A 回切前必须连续健康并追平 30 分钟，只在每日维护窗口执行；A PostgreSQL 提升后不得自动切回 B。
 - 免费版只承担控制面，理论基线约 17,280 次请求/天；业务流量通过 Tunnel，不逐请求经过 Worker。
@@ -43,9 +46,10 @@
 - 回切完成后 A 恢复唯一主节点，B 从新 A 全量重建为 PostgreSQL 备库和 Redis 从库。
 - A 现有 `3000` Tunnel、B 原单机栈、`biz`、原容器、卷和端口基线保持不变。
 - 观察模式连续 24 小时无破坏性变更，全周期演练通过后才允许自动模式。
+- A 到 B SSH 或详细状态脚本卡满 20 秒时，健康 A 仍完成本地门禁和单次 report，不触发 self-fencing、B acquire 或其它状态机动作。
 - 钉钉告警分级、去重正确；免费额度接近上限时告警并安全暂停新编排。
 - 演练通过后生产客户端迁移到 `api.havefun.eu.cc`；仍使用 `www` 的客户端不计入 HA 验收。
 
 ## Next Step
 
-- 用户确认本 brief 和三件套后运行 `task.py start`，再通过 `trellis-route(implement)` 选择实施方式；实际生产演练仍需要独立维护窗口和再次确认。
+- 完成全面检查后，单独确认线上部署与租约恢复方案；先部署 Agent 和真实配置，再以新 epoch 恢复 `observe` 并重新开始连续 24 小时观察。实际生产演练仍需要独立维护窗口和再次确认。

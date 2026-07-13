@@ -94,14 +94,18 @@ started_at, completed_at, result, error_code
 
 agent 职责：
 
-- 调用现有 `switch-mode.sh status --machine`，解析稳定字段。
+- 每轮先调用不依赖对端 SSH 的租约关键状态命令，在 5 秒总预算内完成本地模式、数据库/Redis 角色、应用、restart policy 和 HA Tunnel 门禁。
+- 合并状态报告成功后，只有非稳态编排才调用现有 `switch-mode.sh status --machine` 获取跨节点详细字段，详细探测总预算为 20 秒。
+- A `owner=A/state=A_ACTIVE` 稳态不调用 B SSH；A/B 镜像调和继续由独立 release-sync timer 负责。
 - 检查应用容器、重启策略、数据库角色、复制、镜像和 HA Tunnel 服务。
 - B 申请租约前必须确认 PostgreSQL WAL receiver 为 `streaming` 且 NTP 明确同步，不能只检查 recovery 标志。
 - 每 10 秒续租或观察权威状态。
 - 失去租约时先停止应用，再记录 self-fencing 结果。
+- 租约到期后的 fail-closed 不读取详细状态；本地状态不可用时直接执行停止命令，避免 fencing 被 SSH 或 Docker 检查继续拖延。
 - 按 Durable Object 状态调用现有 A/B 辅助脚本。
 - 每次不可逆动作前后重新读取真实状态，不只依赖本地阶段文件。
 - 长时间动作执行期间每 10 秒续租或复核委托 owner；授权变化时终止动作进程组。
+- 详细探测失败时，本轮只执行租约关键本地门禁并跳过 acquire、重建、提升、回切和入口切换；不得使用不完整字段继续状态机。
 - 保存不含密钥的本地 checkpoint，重启后与 Durable Object 对账。
 - Worker 不可达时把关键告警写入 `0600` 本地队列，恢复后按稳定事件 ID 补发。
 

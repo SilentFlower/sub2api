@@ -208,29 +208,78 @@ class HaAgent:
         @param now: 测试可覆盖的当前时间。
         @return: 本轮权威状态，控制面不可达时返回 None。
         """
-        current_time = now or datetime.now(timezone.utc)
-        local = self._probe.collect()
+        lease_local = self._probe.collect_lease_state()
         try:
             control = self._last_control or self._client.status()
-            control = self._client.report(local.report_payload(control.epoch))
+            control = self._client.report(lease_local.report_payload(control.epoch))
             self._last_control = control
             self._flush_pending_alerts()
-            self._reconcile(local, control, current_time)
-            effective = self._last_control or control
-            checkpoint = Checkpoint.from_control(effective, current_time)
-            write_checkpoint(self._config.checkpoint_file, checkpoint)
-            self._checkpoint = checkpoint
-            self._checkpoint_invalid = False
-            return effective
         except ControlPlaneError as exc:
+            current_time = now or datetime.now(timezone.utc)
             self._logger.warning("控制面不可达：%s", exc)
             self._fence_if_cached_lease_expired(
-                current_time, local, control_unreachable=True
+                current_time, lease_local, control_unreachable=True
             )
             return None
 
+        local = lease_local
+        if self._requires_detailed_state(control):
+            try:
+                local = self._probe.collect()
+            except Exception as exc:
+                current_time = now or datetime.now(timezone.utc)
+                self._logger.warning(
+                    "详细状态探测失败；本轮租约心跳已完成，跳过状态编排：%s",
+                    exc,
+                )
+                self._reconcile(
+                    lease_local,
+                    control,
+                    current_time,
+                    allow_orchestration=False,
+                )
+                return self._persist_checkpoint(control, current_time)
+
+        current_time = now or datetime.now(timezone.utc)
+        self._reconcile(local, control, current_time)
+        effective = self._last_control or control
+        return self._persist_checkpoint(effective, current_time)
+
+    def _persist_checkpoint(
+        self, control: ControlState, current_time: datetime
+    ) -> ControlState:
+        """持久化最近一次成功取得的权威状态。
+
+        @param control: 本轮最终权威状态。
+        @param current_time: checkpoint 记录时间。
+        @return: 原样返回权威状态。
+        """
+        checkpoint = Checkpoint.from_control(control, current_time)
+        write_checkpoint(self._config.checkpoint_file, checkpoint)
+        self._checkpoint = checkpoint
+        self._checkpoint_invalid = False
+        return control
+
+    def _requires_detailed_state(self, control: ControlState) -> bool:
+        """判断本轮是否需要包含跨节点信息的详细状态。
+
+        @param control: 合并心跳后的权威状态。
+        @return: 需要执行迁移或非稳态判断时返回 True。
+        """
+        if self._config.lease_state_command == self._config.state_command:
+            return False
+        return not (
+            self._config.node == "A"
+            and control.owner == "A"
+            and control.state == "A_ACTIVE"
+        )
+
     def _reconcile(
-        self, local: LocalState, control: ControlState, now: datetime
+        self,
+        local: LocalState,
+        control: ControlState,
+        now: datetime,
+        allow_orchestration: bool = True,
     ) -> None:
         if control.owner == self._config.node:
             if control.expired(now):
@@ -281,7 +330,8 @@ class HaAgent:
                     )
                 return
             self._last_control = control
-            self._orchestrate(local, control, now)
+            if allow_orchestration:
+                self._orchestrate(local, control, now)
             return
 
         if local.app_running:
@@ -300,6 +350,9 @@ class HaAgent:
                         "立即检查双主风险和应用停止结果",
                         now,
                     )
+
+        if not allow_orchestration:
+            return
 
         self._orchestrate(local, control, now)
 
@@ -746,10 +799,9 @@ class HaAgent:
                     if checkpoint.owner != self._config.node
                     else "控制面不可达且缓存租约已经到期"
                 )
-        current = local or self._probe.collect()
         self._logger.critical("%s，执行 fail-closed", reason)
         try:
-            self._fence(current, mode)
+            self._fence(local, mode)
         finally:
             self._queue_alert(
                 create_pending_alert(
@@ -784,12 +836,13 @@ class HaAgent:
             local.image_sync_healthy(),
         )
 
-    def _fence(self, local: LocalState, mode: str) -> None:
+    def _fence(self, local: LocalState | None, mode: str) -> None:
         # observe 模式必须完整计算风险，但不能执行任何可变更动作。
         if mode == "observe":
             self._logger.warning("observe：若为 automatic 将停止应用")
             return
-        if local.app_running:
+        # 租约已经失效时不能再用可能阻塞的状态探测确认容器是否存在。
+        if local is None or local.app_running:
             self._executor.stop_app()
 
     def _emit_alert(

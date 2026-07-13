@@ -43,6 +43,8 @@
 6. 实现 observe 模式：计算真实决策但只记录拟执行动作。
 7. 创建独立 systemd unit、日志轮转、配置模板和无密钥 README。
 8. 为所有状态转换、超时、非法响应和重启恢复添加 fixture 测试。
+9. 把探测拆为 5 秒本地租约关键探测和 20 秒详细探测；先发送合并心跳，再按权威状态决定是否执行详细探测。
+10. A 稳态 `A_ACTIVE` 禁止调用 B SSH；详细探测失败时保留本轮心跳并跳过状态编排。
 
 验证：
 
@@ -50,6 +52,8 @@
 - mock Worker 下覆盖续租、过期、自隔离、并发、暂停和恢复。
 - observe 模式不执行任何 Docker、数据库、卷、Tunnel 或 DNS 变更。
 - agent 重启后从 Durable Object 对账，不使用旧 checkpoint 自行认主。
+- mock 详细探测超时后 A 仍完成单次 report，且不触发 self-fencing、B acquire 或任何状态机动作。
+- mock 租约关键探测失败且缓存租约过期时，fail-closed 不调用详细探测并直接尝试停止应用。
 
 ## 阶段 3：独立 HA Tunnel
 

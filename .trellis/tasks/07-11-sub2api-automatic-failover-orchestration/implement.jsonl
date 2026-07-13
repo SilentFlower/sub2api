@@ -4,3 +4,4 @@
 {"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/infrastructure-evidence.md","reason":"提供 A/B 真实 Compose、容器、端口、卷和不可触碰资源基线"}
 {"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/mode-control-and-cutback-preparation-result.md","reason":"提供现有人工提升、冻结、A 重建和回切脚本的实际部署状态"}
 {"file":".trellis/tasks/archive/2026-07/07-11-sub2api-primary-standby-dr/research/release-image-sync-deployment-result.md","reason":"提供固定镜像 digest 同步、提升镜像门禁和双端当前运行状态"}
+{"file":".trellis/tasks/07-11-sub2api-automatic-failover-orchestration/research/observer-lease-expiry-analysis.md","reason":"记录观察模式中慢详细探测阻塞心跳、租约误过期的线上证据和修复契约"}

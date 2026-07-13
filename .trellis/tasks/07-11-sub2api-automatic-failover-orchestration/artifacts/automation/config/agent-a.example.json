@@ -7,6 +7,10 @@
     "status",
     "--machine"
   ],
+  "lease_state_command": [
+    "/root/sub2api-ha-export/scripts/verify-cutback.sh",
+    "--machine"
+  ],
   "app_container": "sub2api",
   "stop_app_command": ["docker", "stop", "sub2api"],
   "start_app_command": ["docker", "start", "sub2api"],
@@ -40,6 +44,8 @@
   },
   "interval_seconds": 10,
   "request_timeout_seconds": 4,
+  "lease_probe_timeout_seconds": 5,
+  "detailed_probe_timeout_seconds": 20,
   "command_timeout_seconds": 30,
   "public_health_timeout_seconds": 90,
   "lock_file": "/run/sub2api-ha-agent.lock",

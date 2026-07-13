@@ -31,6 +31,7 @@ class AgentConfig:
     control_url: str
     secret_file: Path
     state_command: tuple[str, ...]
+    lease_state_command: tuple[str, ...]
     app_container: str
     stop_app_command: tuple[str, ...]
     start_app_command: tuple[str, ...]
@@ -42,6 +43,8 @@ class AgentConfig:
     actions: dict[str, ActionCommand]
     interval_seconds: int = 10
     request_timeout_seconds: int = 4
+    lease_probe_timeout_seconds: int = 5
+    detailed_probe_timeout_seconds: int = 20
     command_timeout_seconds: int = 30
     public_health_timeout_seconds: int = 90
     lock_file: Path = Path("/run/sub2api-ha-agent.lock")
@@ -84,6 +87,15 @@ class AgentConfig:
         request_timeout = cls._positive_int(raw, "request_timeout_seconds", 4)
         if request_timeout >= interval:
             raise ConfigError("request_timeout_seconds 必须小于 interval_seconds")
+        lease_probe_timeout = cls._positive_int(raw, "lease_probe_timeout_seconds", 5)
+        if lease_probe_timeout >= interval:
+            raise ConfigError("lease_probe_timeout_seconds 必须小于 interval_seconds")
+        state_command = cls._command(raw, "state_command")
+        lease_state_command = (
+            cls._command(raw, "lease_state_command")
+            if "lease_state_command" in raw
+            else state_command
+        )
         public_health_url = cls._required_string(raw, "public_health_url")
         if not public_health_url.startswith("https://"):
             raise ConfigError("public_health_url 必须使用 https://")
@@ -91,7 +103,8 @@ class AgentConfig:
             node=node,
             control_url=control_url,
             secret_file=Path(cls._required_string(raw, "secret_file")),
-            state_command=cls._command(raw, "state_command"),
+            state_command=state_command,
+            lease_state_command=lease_state_command,
             app_container=cls._required_string(raw, "app_container"),
             stop_app_command=cls._command(raw, "stop_app_command"),
             start_app_command=cls._command(raw, "start_app_command"),
@@ -107,6 +120,10 @@ class AgentConfig:
             actions=cls._actions(raw.get("actions", {})),
             interval_seconds=interval,
             request_timeout_seconds=request_timeout,
+            lease_probe_timeout_seconds=lease_probe_timeout,
+            detailed_probe_timeout_seconds=cls._positive_int(
+                raw, "detailed_probe_timeout_seconds", 20
+            ),
             command_timeout_seconds=cls._positive_int(
                 raw, "command_timeout_seconds", 30
             ),

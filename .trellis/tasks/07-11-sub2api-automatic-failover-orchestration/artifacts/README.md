@@ -178,6 +178,10 @@ PostgreSQL、Redis 和 B 原单机部署不会被修改。这些步骤尚未在�
 
 从 `config/agent-a.example.json`、`config/agent-b.example.json` 生成真实配置，权限设为 `0600`。Worker 地址必须使用 HTTPS；节点 HMAC 密钥单独保存到 `/etc/sub2api-ha/node-secret`，权限同样为 `0600`。
 
+A 的 `lease_state_command` 固定使用本地 `/root/sub2api-ha-export/scripts/verify-cutback.sh --machine`，不得包含 A 到 B SSH。B 的租约命令继续使用本机 `switch-mode.sh status --machine`。租约关键探测总预算为 5 秒，详细探测总预算为 20 秒；Agent 先完成本地门禁和合并心跳，再执行需要跨节点信息的详细编排检查。
+
+安装前后都应只读核验真实配置中的 `lease_state_command`、`lease_probe_timeout_seconds` 和 `detailed_probe_timeout_seconds`，确认 A 的租约关键命令没有对端地址或 SSH 参数。不得只检查示例配置。
+
 `public_health_url` 必须是 `https://api.havefun.eu.cc/health`，`public_health_timeout_seconds` 默认 90 秒。提升流程会先验证本地应用，再切换 Tunnel，最后从公共域名验证健康；公共验证超时会进入 `PAUSED_NEEDS_OPERATOR`，不会标记为 ACTIVE。
 
 ```bash
@@ -204,6 +208,10 @@ systemctl list-timers sub2api-ha-release-sync.timer
 `observe` 模式仍使用完整健康门禁决定是否续租，但只记录拟执行的拓扑动作、原始状态和门禁证据，不停止应用或发送“已完成隔离”的误导性告警。精确发布镜像调和是唯一例外：它可以拉取镜像并更新 A/B 容灾镜像配置和发布记录，但不能启动应用或修改数据库、Redis、卷、Tunnel、DNS 和租约 owner。
 
 正常循环把状态报告和 owner 续租合并为一次心跳，A/B 理论基线约 17,280 次 Worker 请求/天；Agent 仅在启动或恢复状态时额外调用一次 `status`。10 秒间隔在 45 秒租约内保留约四次完整重试机会；代价是故障确认最多比原 30 秒租约增加约 15 秒。
+
+A 为稳定 `A_ACTIVE` owner 时不执行 B SSH 详细探测。非稳态详细探测超时只记录警告并跳过本轮编排，不会用不完整状态申请租约、提升或回切；下一轮仍从全新的本地关键探测开始。
+
+缓存租约已经过期时，fail-closed 路径不再执行任何状态脚本或 B SSH。若本轮拿不到本地状态，`automatic` 仍直接尝试停止应用；不能为了确认容器状态而延迟 self-fencing。
 
 Tunnel Token 放在 `/etc/sub2api-ha/tunnel-a.env` 或 `tunnel-b.env`：
 

@@ -495,10 +495,10 @@ A 使用同一标签更新到新 digest
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 HA Agent 的 `interval_seconds`、`request_timeout_seconds`，或 Worker 的 `LEASE_TTL_SECONDS` 时，必须按本节同步代码、示例配置、测试、运行配置和额度估算。
+- Trigger: 修改 HA Agent 的 `interval_seconds`、`request_timeout_seconds`、`lease_state_command`、`lease_probe_timeout_seconds`、`detailed_probe_timeout_seconds`，或 Worker 的 `LEASE_TTL_SECONDS` 时，必须按本节同步代码、示例配置、测试、运行配置和额度估算。
 - Trigger: 在线部署 Worker/Agent、切换 `observe`/`automatic`、轮换 `ADMIN_TOKEN` 或核对 Cloudflare 调用量时，也必须按本节执行。
 - Scope: Cloudflare Worker + Durable Object、A/B HA Agent、管理员控制令牌、systemd Agent 服务和免费额度验证。
-- 当前生产契约是：两个 Agent 每 10 秒各发送一次合并心跳，请求超时 4 秒，租约 TTL 固定为 45 秒。
+- 当前生产契约是：两个 Agent 每 10 秒各发送一次合并心跳，请求超时 4 秒，租约关键探测总预算 5 秒，详细探测总预算 20 秒，租约 TTL 固定为 45 秒。
 
 ### 2. Signatures
 
@@ -507,7 +507,13 @@ Agent 真实配置和示例配置必须包含：
 ```json
 {
   "interval_seconds": 10,
-  "request_timeout_seconds": 4
+  "request_timeout_seconds": 4,
+  "lease_state_command": [
+    "/root/sub2api-ha-export/scripts/verify-cutback.sh",
+    "--machine"
+  ],
+  "lease_probe_timeout_seconds": 5,
+  "detailed_probe_timeout_seconds": 20
 }
 ```
 
@@ -533,7 +539,20 @@ python3 -m sub2api_ha.cli automatic \
 运行配置只读核验：
 
 ```bash
-python3 -c 'import json; c=json.load(open("/etc/sub2api-ha/agent.json")); print(c["interval_seconds"], c["request_timeout_seconds"])'
+python3 - <<'PY'
+import json
+
+with open("/etc/sub2api-ha/agent.json", encoding="utf-8") as config_file:
+    config = json.load(config_file)
+for key in (
+    "interval_seconds",
+    "request_timeout_seconds",
+    "lease_state_command",
+    "lease_probe_timeout_seconds",
+    "detailed_probe_timeout_seconds",
+):
+    print(f"{key}={config[key]}")
+PY
 stat -c '%a %U:%G' /etc/sub2api-ha/agent.json /etc/sub2api-ha/admin-token
 ```
 
@@ -544,6 +563,11 @@ Cloudflare 调用量使用账户 GraphQL Analytics 的 `workersInvocationsAdapti
 #### 3.1 心跳、租约与调用量
 
 - `request_timeout_seconds` 必须严格小于 `interval_seconds`；当前 `4 < 10`。
+- 租约关键探测必须使用不依赖对端 SSH 的本地命令，当前总预算为 5 秒；A 使用 `verify-cutback.sh --machine`，不能使用会读取 B 状态的完整 `switch-mode.sh status --machine`。
+- 租约关键探测、本地 HTTP 门禁和合并 report 必须发生在跨节点详细探测之前。A 稳态 `owner=A/state=A_ACTIVE` 不执行 B SSH。
+- 非稳态详细探测总预算为 20 秒。超时后必须保留已完成的心跳，只执行本地写入门禁并跳过 acquire、提升、重建、回切和入口切换。
+- 所有子命令共享同一个探测总预算，禁止把 5 秒或 20 秒分别应用到状态脚本、systemd、Docker 和 HTTP 后累加成更长阻塞。
+- 缓存租约确认过期后，fail-closed 路径不得调用租约探测、详细探测或 B SSH。没有可用 `LocalState` 时必须直接尝试停止应用，不能为了确认容器是否运行而推迟 fencing。
 - 当前租约必须满足至少四次完整失败重试的时间预算：`LEASE_TTL_SECONDS >= 4 * interval_seconds + request_timeout_seconds`，即 `45 >= 4 * 10 + 4`。
 - 10 秒心跳配 30 秒租约只剩约三次机会，公网连续抖动时余量偏小；60 秒租约虽然更稳，但会把故障确认延长到约 50–60 秒。当前选择 45 秒，故障确认约为 35–45 秒。
 - 健康稳态中，每个 Agent 每轮只发送一次合并状态报告；owner 的租约续期由该报告合并完成，不得再额外发送独立 `renew`。
@@ -592,6 +616,9 @@ Cloudflare 调用量使用账户 GraphQL Analytics 的 `workersInvocationsAdapti
 | 条件 | 必须行为 |
 |---|---|
 | `request_timeout_seconds >= interval_seconds` | Agent 配置加载失败，不启动循环 |
+| `lease_probe_timeout_seconds >= interval_seconds` | Agent 配置加载失败，避免单次本地探测耗尽整个心跳周期 |
+| A 稳态租约探测命令包含 B SSH | 视为错误配置，不进入线上观察计时 |
+| 详细探测超时 | 本轮 report 保持有效，只执行本地租约门禁并跳过所有状态机动作 |
 | `LEASE_TTL_SECONDS` 不是当前固定值 `45` | Worker 返回 `INVALID_TTL`，不得用非预期 TTL 运行 |
 | Worker 已部署但 A 续租后 TTL 仍接近旧值 | 停止 Agent 参数部署，先排查 Worker 版本、变量和 Durable Object 请求 |
 | 先把 A 改为 10 秒、Worker 仍是 30 秒 | 视为错误部署顺序；恢复 A 快心跳或立即先完成 Worker TTL 部署 |
@@ -636,6 +663,9 @@ npm run deploy:dry-run
 断言点：
 
 - Agent 未显式配置时默认 `interval_seconds=10`，`request_timeout_seconds=4`；超时不小于间隔时拒绝配置。
+- Agent 未显式配置时默认租约探测预算 5 秒、详细探测预算 20 秒；租约探测预算不小于心跳间隔时拒绝配置。
+- A 稳态心跳测试必须断言详细探测不会被调用；非稳态详细探测超时测试必须断言 report 已完成且未执行任何状态机动作。
+- 缓存租约过期测试必须在不提供本地状态时断言：详细探测调用次数为零，应用停止动作执行一次。
 - Worker 使用 `LEASE_TTL_SECONDS=45` 时，bootstrap、续租、B acquire、handoff 和 resume 都写入 45 秒租约；其它固定值返回 `INVALID_TTL`。
 - 健康 owner 每轮只调用一次合并 report，不额外调用 renew。
 - 两节点理论日请求数按公式得到 `17280`，`observe`/`automatic` 不改变稳态频率。

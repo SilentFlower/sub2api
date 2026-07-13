@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import time
 import unittest
@@ -9,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from sub2api_ha.agent import HaAgent
 from sub2api_ha.alerts import AlertQueue
@@ -24,7 +25,7 @@ from sub2api_ha.cli import _agent_process_lock, verify_action_state
 from sub2api_ha.config import ActionCommand, AgentConfig, ConfigError
 from sub2api_ha.executor import SystemExecutor
 from sub2api_ha.model import Checkpoint, ControlState, LocalState
-from sub2api_ha.probe import parse_machine_state, restart_policy_is_safe
+from sub2api_ha.probe import SystemProbe, parse_machine_state, restart_policy_is_safe
 
 
 NOW = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
@@ -60,7 +61,7 @@ class FakeClient:
     def renew(self, epoch: int) -> ControlState:
         """记录续租。"""
         self.renewed.append(epoch)
-        self.state = replace(self.state, lease_until=NOW + timedelta(seconds=86_400))
+        self.state = replace(self.state, lease_until=NOW + timedelta(days=36_500))
         return self.state
 
     def acquire_for_b(
@@ -175,17 +176,34 @@ class FakeHttpResponse:
 class FakeProbe:
     """返回固定本地状态。"""
 
-    def __init__(self, state: LocalState, public_healthy: bool = True) -> None:
+    def __init__(
+        self,
+        state: LocalState,
+        public_healthy: bool = True,
+        detailed_error: Exception | None = None,
+    ) -> None:
         """创建测试探测器。
 
         @param state: 本地节点状态。
         @param public_healthy: 公共入口是否健康。
+        @param detailed_error: 详细探测时抛出的可选异常。
         """
         self.state = state
         self.public_healthy = public_healthy
+        self.detailed_error = detailed_error
+        self.lease_collect_count = 0
+        self.detailed_collect_count = 0
+
+    def collect_lease_state(self) -> LocalState:
+        """返回租约关键状态。"""
+        self.lease_collect_count += 1
+        return self.state
 
     def collect(self) -> LocalState:
         """返回固定状态。"""
+        self.detailed_collect_count += 1
+        if self.detailed_error is not None:
+            raise self.detailed_error
         return self.state
 
     def public_entry_healthy(self) -> bool:
@@ -280,7 +298,9 @@ def control(
     return ControlState(
         owner=owner,
         epoch=7,
-        lease_until=NOW + timedelta(seconds=-1 if expired else 86_400),
+        lease_until=NOW + timedelta(seconds=-1)
+        if expired
+        else NOW + timedelta(days=36_500),
         state=state or ("A_ACTIVE" if owner == "A" else "B_ACTIVE"),
         mode=mode,
         transition_id="transition-1",
@@ -353,6 +373,90 @@ class AgentTest(unittest.TestCase):
 
         self.assertEqual(agent_config.interval_seconds, 10)
         self.assertEqual(agent_config.request_timeout_seconds, 4)
+        self.assertEqual(agent_config.lease_probe_timeout_seconds, 5)
+        self.assertEqual(agent_config.detailed_probe_timeout_seconds, 20)
+        self.assertEqual(agent_config.lease_state_command, agent_config.state_command)
+
+    def test_config_rejects_lease_probe_timeout_not_less_than_interval(self) -> None:
+        """租约关键探测预算不得耗尽整个心跳周期。"""
+        with self.assertRaisesRegex(ConfigError, "lease_probe_timeout_seconds"):
+            AgentConfig.from_mapping(
+                {
+                    "node": "A",
+                    "control_url": "https://ha.example.com",
+                    "secret_file": "/tmp/not-used",
+                    "state_command": ["true"],
+                    "app_container": "app",
+                    "stop_app_command": ["true"],
+                    "start_app_command": ["true"],
+                    "ensure_restart_policy_command": ["true"],
+                    "app_health_url": "http://127.0.0.1/health",
+                    "public_health_url": "https://api.example.com/health",
+                    "tunnel_service": "cloudflared-ha.service",
+                    "expected_restart_policy": "no",
+                    "interval_seconds": 10,
+                    "lease_probe_timeout_seconds": 10,
+                }
+            )
+
+    def test_system_probe_uses_independent_lease_command_and_budget(self) -> None:
+        """租约关键探测必须使用独立命令和更短的总预算。"""
+        agent_config = replace(
+            config("A", Path("/tmp/sub2api-ha-test-checkpoint.json")),
+            lease_state_command=("lease-status",),
+            state_command=("detailed-status",),
+            lease_probe_timeout_seconds=5,
+            detailed_probe_timeout_seconds=20,
+        )
+        local = active_local("A", "legacy-active")
+        probe = SystemProbe(agent_config)
+
+        with patch.object(probe, "_collect_state", return_value=local) as collect_state:
+            self.assertIs(probe.collect_lease_state(), local)
+            self.assertIs(probe.collect(), local)
+
+        self.assertEqual(
+            collect_state.call_args_list,
+            [call(("lease-status",), 5), call(("detailed-status",), 20)],
+        )
+
+    def test_system_probe_shares_one_total_timeout_budget(self) -> None:
+        """状态脚本、systemd、Docker 和 HTTP 必须共享同一探测预算。"""
+        agent_config = replace(
+            config("A", Path("/tmp/sub2api-ha-test-checkpoint.json")),
+            lease_state_command=("lease-status",),
+            lease_probe_timeout_seconds=5,
+        )
+        probe = SystemProbe(agent_config)
+        status = subprocess.CompletedProcess(
+            ("lease-status",),
+            0,
+            stdout="mode=legacy-active\napp_container=running\n",
+            stderr="",
+        )
+        active = subprocess.CompletedProcess(("systemctl",), 0)
+        restart_policy = subprocess.CompletedProcess(
+            ("docker",), 0, stdout="no\n", stderr=""
+        )
+
+        with (
+            patch(
+                "sub2api_ha.probe.time.monotonic",
+                side_effect=[100.0, 101.0, 102.0, 103.0, 104.0],
+            ),
+            patch(
+                "sub2api_ha.probe.subprocess.run",
+                side_effect=[status, active, restart_policy],
+            ) as run,
+            patch.object(probe, "_http_healthy", return_value=True) as http_healthy,
+        ):
+            local = probe.collect_lease_state()
+
+        self.assertTrue(local.owner_healthy(control("A", "automatic")))
+        self.assertEqual(
+            [item.kwargs["timeout"] for item in run.call_args_list], [4, 3, 2]
+        )
+        http_healthy.assert_called_once_with("http://127.0.0.1/health", 1)
 
     def test_process_lock_rejects_second_agent(self) -> None:
         """同一节点不得并发运行两个 HA agent 循环。"""
@@ -485,6 +589,78 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(len(client.reported), 1)
             self.assertEqual(client.renewed, [])
 
+    def test_a_active_heartbeat_skips_cross_node_detailed_probe(self) -> None:
+        """A 稳态续租不得执行可能阻塞的跨节点详细探测。"""
+        with tempfile.TemporaryDirectory() as directory:
+            local = active_local("A", "legacy-active")
+            probe = FakeProbe(local, detailed_error=TimeoutError("B SSH 超时"))
+            client = FakeClient(control("A", "automatic"))
+            executor = FakeExecutor()
+            agent_config = replace(
+                config("A", Path(directory) / "checkpoint.json"),
+                lease_state_command=("lease-status",),
+                state_command=("detailed-status",),
+            )
+            agent = HaAgent(
+                agent_config,
+                client,
+                probe,
+                executor,
+            )
+
+            agent.run_once(NOW)
+
+            self.assertEqual(probe.lease_collect_count, 1)
+            self.assertEqual(probe.detailed_collect_count, 0)
+            self.assertEqual(len(client.reported), 1)
+            self.assertEqual(executor.stop_count, 0)
+
+    def test_matching_state_commands_reuse_lease_probe_result(self) -> None:
+        """B 的租约命令已是完整状态时不得重复执行详细探测。"""
+        with tempfile.TemporaryDirectory() as directory:
+            local = LocalState("B", {"mode": "standby"}, False, False, True, True)
+            probe = FakeProbe(local)
+            agent = HaAgent(
+                config("B", Path(directory) / "checkpoint.json"),
+                FakeClient(control("A", "observe")),
+                probe,
+                FakeExecutor(),
+            )
+
+            agent.run_once(NOW)
+
+            self.assertEqual(probe.lease_collect_count, 1)
+            self.assertEqual(probe.detailed_collect_count, 0)
+
+    def test_detailed_probe_timeout_after_heartbeat_skips_orchestration(self) -> None:
+        """非稳态详细探测超时后应保留心跳并跳过破坏性编排。"""
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "checkpoint.json"
+            local = LocalState("A", {"mode": "offline"}, False, False, True, True)
+            probe = FakeProbe(local, detailed_error=TimeoutError("B SSH 超时"))
+            client = FakeClient(control("B", "automatic", state="B_ACTIVE"))
+            executor = FakeExecutor()
+            agent_config = replace(
+                config("A", checkpoint, action_states=("A_REBUILDING",)),
+                lease_state_command=("lease-status",),
+                state_command=("detailed-status",),
+            )
+            agent = HaAgent(
+                agent_config,
+                client,
+                probe,
+                executor,
+            )
+
+            with self.assertLogs("sub2api-ha-agent", level="WARNING") as logs:
+                result = agent.run_once(NOW)
+
+            self.assertIsNotNone(result)
+            self.assertEqual(len(client.reported), 1)
+            self.assertEqual(probe.detailed_collect_count, 1)
+            self.assertEqual(executor.action_count, 0)
+            self.assertIn("本轮租约心跳已完成", "\n".join(logs.output))
+
     def test_a_owner_stays_healthy_during_release_image_drift(self) -> None:
         """B 发布镜像未同步时，健康 A 仍应保持 owner 资格。"""
         with tempfile.TemporaryDirectory() as directory:
@@ -588,6 +764,25 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(
                 len(AlertQueue(agent_config.pending_alert_file).pending()), 1
             )
+
+    def test_expired_cached_lease_fences_without_detailed_probe(self) -> None:
+        """租约过期后的 fail-closed 不得再等待跨节点详细探测。"""
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            agent_config = config("A", checkpoint_path)
+            expired = control("A", "automatic", expired=True)
+            write_checkpoint(checkpoint_path, Checkpoint.from_control(expired, NOW))
+            probe = FakeProbe(
+                active_local("A", "legacy-active"),
+                detailed_error=TimeoutError("B SSH 超时"),
+            )
+            executor = FakeExecutor()
+            agent = HaAgent(agent_config, FakeClient(expired), probe, executor)
+
+            agent._fence_if_cached_lease_expired(NOW)
+
+            self.assertEqual(executor.stop_count, 1)
+            self.assertEqual(probe.detailed_collect_count, 0)
 
     def test_observe_mode_does_not_stop_non_owner_app(self) -> None:
         """观察模式只记录风险，不停止应用。"""
