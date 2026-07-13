@@ -488,3 +488,227 @@ A 使用同一标签更新到新 digest
 -> sync-release 精确同步 digest
 -> image_sync=ok，B 恢复接管资格
 ```
+
+---
+
+## Scenario: HA 控制面心跳、租约与在线参数变更
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 HA Agent 的 `interval_seconds`、`request_timeout_seconds`，或 Worker 的 `LEASE_TTL_SECONDS` 时，必须按本节同步代码、示例配置、测试、运行配置和额度估算。
+- Trigger: 在线部署 Worker/Agent、切换 `observe`/`automatic`、轮换 `ADMIN_TOKEN` 或核对 Cloudflare 调用量时，也必须按本节执行。
+- Scope: Cloudflare Worker + Durable Object、A/B HA Agent、管理员控制令牌、systemd Agent 服务和免费额度验证。
+- 当前生产契约是：两个 Agent 每 10 秒各发送一次合并心跳，请求超时 4 秒，租约 TTL 固定为 45 秒。
+
+### 2. Signatures
+
+Agent 真实配置和示例配置必须包含：
+
+```json
+{
+  "interval_seconds": 10,
+  "request_timeout_seconds": 4
+}
+```
+
+Worker 变量必须包含：
+
+```text
+LEASE_TTL_SECONDS=45
+CONTROL_REQUEST_DAILY_LIMIT=100000
+```
+
+管理员模式切换入口：
+
+```bash
+python3 -m sub2api_ha.cli observe \
+  --config /etc/sub2api-ha/agent.json \
+  --admin-token-file /etc/sub2api-ha/admin-token
+
+python3 -m sub2api_ha.cli automatic \
+  --config /etc/sub2api-ha/agent.json \
+  --admin-token-file /etc/sub2api-ha/admin-token
+```
+
+运行配置只读核验：
+
+```bash
+python3 -c 'import json; c=json.load(open("/etc/sub2api-ha/agent.json")); print(c["interval_seconds"], c["request_timeout_seconds"])'
+stat -c '%a %U:%G' /etc/sub2api-ha/agent.json /etc/sub2api-ha/admin-token
+```
+
+Cloudflare 调用量使用账户 GraphQL Analytics 的 `workersInvocationsAdaptive` 数据集核对，过滤目标 `scriptName`，至少汇总 `requests`、`errors` 和时间戳。
+
+### 3. Contracts
+
+#### 3.1 心跳、租约与调用量
+
+- `request_timeout_seconds` 必须严格小于 `interval_seconds`；当前 `4 < 10`。
+- 当前租约必须满足至少四次完整失败重试的时间预算：`LEASE_TTL_SECONDS >= 4 * interval_seconds + request_timeout_seconds`，即 `45 >= 4 * 10 + 4`。
+- 10 秒心跳配 30 秒租约只剩约三次机会，公网连续抖动时余量偏小；60 秒租约虽然更稳，但会把故障确认延长到约 50–60 秒。当前选择 45 秒，故障确认约为 35–45 秒。
+- 健康稳态中，每个 Agent 每轮只发送一次合并状态报告；owner 的租约续期由该报告合并完成，不得再额外发送独立 `renew`。
+- 理论日请求基线按 `节点数 * 86400 / interval_seconds` 计算。当前为 `2 * 86400 / 10 = 17280` 次/天；启动时的 `status`、管理员操作、告警和真实迁移动作属于少量附加请求。
+- `observe` 和 `automatic` 使用相同心跳频率。切回观察模式不会降低调用量；A 的 `sub2api-ha-release-sync.timer` 不调用 Worker，不计入控制面请求基线。
+- 不得仅通过延长租约降低请求量。请求量由心跳间隔决定，租约只决定失联后的 fail-closed 和接管等待时间。
+
+#### 3.2 在线变更顺序
+
+从 `5 秒心跳 / 30 秒租约` 在线调整到 `10 秒心跳 / 45 秒租约` 时，顺序固定为：
+
+```text
+部署 Worker 45 秒 TTL
+-> 确认 owner/epoch/state/mode 不变且 A 新租约已接近 45 秒
+-> 更新并重启 B Agent 为 10 秒
+-> 确认 B 仍为 standby、容灾应用停止、B 原单机容器不变
+-> 更新并快速重启 A Agent 为 10 秒
+-> 确认 A 继续持有租约、应用容器 ID/StartedAt 不变
+-> 核对公共健康、DNS、timer 和 Cloudflare 调用节奏
+```
+
+- Worker 必须先扩大租约余量，再降低 Agent 心跳频率；不得先把 A 调慢后继续使用旧的短租约。
+- 非 owner 的 B 先更新，活动 owner A 最后更新，降低变更期间丢租约的风险。
+- Worker 部署后不得重新执行 bootstrap。必须读取现有 Durable Object 状态，并确认 `owner`、`epoch`、`state`、`mode` 和入口没有被重置。
+- Agent 安装和重启只影响 `sub2api-ha-agent.service`，不得重启 A 业务容器、数据库、Redis、Tunnel 或 B 原单机栈。
+- 回滚到更短租约时顺序相反：先把 B、A Agent 恢复为更快心跳，确认稳定后，最后再缩短 Worker TTL。
+
+#### 3.3 真实配置原子更新
+
+- `/etc/sub2api-ha/agent.json` 必须使用 JSON 解析器更新单键，禁止用 `sed`、正则或字符串替换修改结构化配置。
+- 更新时在 `/etc/sub2api-ha/` 同目录创建临时文件，完整解析并序列化 JSON，设置 `0600 root:root`，再使用原子 `rename`/`mv` 替换。
+- 不能假设 A/B 都安装了 `jq`。有 `jq` 时可使用 `jq '.interval_seconds = 10'`；缺少时使用 Python 标准库 `json` + `tempfile` + `os.replace`，不得为了单次部署临时安装额外软件。
+- 任一步在原子替换前失败时，原配置必须保持不变；产生的空临时文件应在核对路径和大小后清理。
+- `install-agent.sh` 只安装传入的真实配置，不负责推导新的心跳参数。安装前后的配置文件都必须单独解析核验，不能只看到“安装完成”就认为运行参数已更新。
+
+#### 3.4 管理员令牌与模式切换
+
+- Cloudflare Worker Secret 写入后不可读取。创建或轮换 `ADMIN_TOKEN` 时，必须在同一操作中把相同值写入 A `/etc/sub2api-ha/admin-token`，权限为 `0600`；不得只写 Worker 后丢失本地副本。
+- 轮换 `ADMIN_TOKEN` 只影响管理员控制命令，会使旧管理员令牌失效；不得改动 A/B 节点 HMAC 密钥或 Tunnel Token。
+- 执行 `observe` 或 `automatic` 前先验证管理员令牌文件存在且权限正确。缺失时应轮换新令牌，而不是从日志、shell history 或版本库尝试恢复明文。
+- `observe`/`automatic` 正常切换只改变 `mode`；`owner`、`epoch`、`state`、`entry_tunnel` 和当前租约持有者不得变化。
+- `automatic` 开关本身不会立即把业务切到 B。只有后续租约过期且 B 全部门禁通过时，才允许进入故障接管状态机。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 必须行为 |
+|---|---|
+| `request_timeout_seconds >= interval_seconds` | Agent 配置加载失败，不启动循环 |
+| `LEASE_TTL_SECONDS` 不是当前固定值 `45` | Worker 返回 `INVALID_TTL`，不得用非预期 TTL 运行 |
+| Worker 已部署但 A 续租后 TTL 仍接近旧值 | 停止 Agent 参数部署，先排查 Worker 版本、变量和 Durable Object 请求 |
+| 先把 A 改为 10 秒、Worker 仍是 30 秒 | 视为错误部署顺序；恢复 A 快心跳或立即先完成 Worker TTL 部署 |
+| B Agent 更新后数据库/Redis 角色改变或容灾应用启动 | 立即停止部署并按现场状态排查，不继续更新 A |
+| A Agent 重启后 owner、epoch、state 或入口变化 | 停止部署，保持 `observe`，核对 Worker 事件和两端角色 |
+| A 应用容器 ID、StartedAt 或 restart policy 因 Agent 更新变化 | 视为越界变更，停止并调查安装/重启命令 |
+| JSON 更新工具不存在或解析失败 | 原配置保持不变；改用现有结构化解析器，不使用字符串替换 |
+| 配置或管理员令牌权限不是 `0600` | 不重启 Agent，不执行模式切换 |
+| Worker 中有 `ADMIN_TOKEN` 但 A 本地文件缺失 | 轮换新令牌并同时写入两端，不尝试读取 Worker Secret |
+| 稳态调用量持续显著高于约 12 次/分钟 | 检查重复 Agent、额外 `status`/重试、错误循环和人工查询 |
+| Cloudflare Analytics `errors > 0` | 检查 Worker 日志、节点认证、超时和控制面响应，不以请求总量正常掩盖错误 |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Worker 先切到 45 秒 TTL，A 仍按 5 秒续租；随后 B、A 依次切到 10 秒，整个过程 owner=A、mode=observe、业务入口不变。
+- Good: 两个 Agent 稳态约每分钟 12 次请求，Analytics 错误为 0，人工状态查询只造成少量可解释增量。
+- Good: B 没有 `jq`，部署使用 Python JSON 解析器原子更新单键，最终配置仍是 `0600 root:root`。
+- Good: 从 `automatic` 切回 `observe` 后 A 继续持有同一 epoch 和租约，B 保持 standby，DNS 仍指向 A。
+- Base: 只重新部署 Worker 代码但不改变 TTL 时，仍要验证 Durable Object 状态和现有 Secrets 没有被重置或遗漏。
+- Base: 只重启 B Agent 时允许短暂缺少 B 心跳，但不得启动 B 应用或改变复制角色。
+- Bad: 为省调用量把心跳直接改为 30 秒并继续使用 45 秒租约，导致一次超时就接近租约边界。
+- Bad: 先停止 A Agent，再慢慢修改配置和上传文件，导致活动 owner 在维护动作中主动丢租约。
+- Bad: 用 `sed -i 's/5/10/'` 修改 JSON，误改其它数值或产生无效配置。
+- Bad: 只在 Worker 中轮换管理员令牌，之后因为没有本地副本而无法执行 pause、observe 或 resume。
+
+### 6. Tests Required
+
+本地自动化至少执行：
+
+```bash
+cd .trellis/tasks/07-11-sub2api-automatic-failover-orchestration/artifacts/automation
+python3 -m unittest discover -s test -v
+python3 -m ruff check sub2api_ha test
+python3 -m ruff format --check sub2api_ha test
+
+cd ../cloudflare-worker
+npm test
+npm run check
+npm run deploy:dry-run
+```
+
+断言点：
+
+- Agent 未显式配置时默认 `interval_seconds=10`，`request_timeout_seconds=4`；超时不小于间隔时拒绝配置。
+- Worker 使用 `LEASE_TTL_SECONDS=45` 时，bootstrap、续租、B acquire、handoff 和 resume 都写入 45 秒租约；其它固定值返回 `INVALID_TTL`。
+- 健康 owner 每轮只调用一次合并 report，不额外调用 renew。
+- 两节点理论日请求数按公式得到 `17280`，`observe`/`automatic` 不改变稳态频率。
+- A/B 示例配置、Python 默认值、Worker 变量、README、PRD/design 和本规范中的心跳/TTL 数值一致。
+
+线上部署验证至少覆盖：
+
+```text
+Worker deploy dry-run 显示 LEASE_TTL_SECONDS=45
+Worker 实际部署后 A TTL 大于 30 秒且持续刷新
+B 配置解析为 interval=10、timeout=4，仍为 standby
+A 配置解析为 interval=10、timeout=4，仍为唯一 owner
+A 应用容器 ID、StartedAt、health 和 restart policy 不变
+B 原单机容器 ID、StartedAt 和 restart policy 不变
+A release-sync timer enabled/active，B 不存在该 timer
+公共健康返回 200，DNS 仍指向当前 owner Tunnel
+Cloudflare Analytics 呈现约 10 秒心跳节奏且 errors=0
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+A Agent 先从 5 秒改为 10 秒并重启
+-> Worker 仍使用 30 秒 TTL
+-> 再慢慢部署 Worker 和 B
+```
+
+问题：活动 owner 先降低续租频率，变更窗口内只保留很少的重试机会。
+
+#### Correct
+
+```text
+Worker 先部署 45 秒 TTL并验证 A 新租约
+-> B Agent 改为 10 秒并验证 standby
+-> A Agent 改为 10 秒并快速重启
+-> 验证 owner/epoch/入口、业务容器和请求节奏
+```
+
+#### Wrong
+
+```bash
+sed -i 's/"interval_seconds": 5/"interval_seconds": 10/' /etc/sub2api-ha/agent.json
+chmod 644 /etc/sub2api-ha/agent.json
+```
+
+问题：字符串替换不能保证 JSON 结构正确，且权限放宽会暴露真实运行配置。
+
+#### Correct
+
+```text
+用 jq 或 Python json 完整解析配置
+-> 在同目录写临时文件
+-> 设置 0600 root:root
+-> 原子替换 agent.json
+-> 重新解析并打印 interval/timeout 验证
+```
+
+#### Wrong
+
+```text
+wrangler secret put ADMIN_TOKEN
+-> 不保存本地副本
+-> 之后尝试从 Cloudflare 读取 Secret 明文
+```
+
+#### Correct
+
+```text
+生成新的随机 ADMIN_TOKEN
+-> 同一次操作写入 Worker Secret
+-> 同一次操作写入 A /etc/sub2api-ha/admin-token
+-> 验证权限为 0600
+-> 执行模式切换并确认只有 mode 改变
+```
