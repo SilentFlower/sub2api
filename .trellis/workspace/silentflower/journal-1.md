@@ -408,3 +408,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: 同步 main 0.1.152、发布风险复核与任务归档
+
+**Date**: 2026-07-13
+**Task**: 同步 main 0.1.152、发布风险复核与任务归档
+**Branch**: `build`
+
+### Summary
+
+完成 main 0.1.152 合入 build、冲突解决、全量质量验证和普通推送；补充 0.1.151、Codex 生图/Alpha Search、0.1.152 三个任务的 release 记录并归档。残余风险：0.1.152 尚未生产部署，migration 174 会让空单价按默认 0.01 USD/次计费；latest 当前指向 snapshot revision daca269f，生产应固定不可变 digest；migration 173 的生产库状态需人工核验。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `80679de9` | (see git log) |
+| `daca269f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
