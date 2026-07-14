@@ -2964,6 +2964,34 @@
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </p>
+        <div
+          v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+          class="flex items-center justify-between gap-4"
+        >
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.jsonSchemaDowngrade') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.jsonSchemaDowngradeDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-json-schema-downgrade-toggle"
+            :aria-pressed="openAIJSONSchemaDowngradeEnabled"
+            @click="openAIJSONSchemaDowngradeEnabled = !openAIJSONSchemaDowngradeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAIJSONSchemaDowngradeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAIJSONSchemaDowngradeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
         <div v-if="form.platform === 'openai' && accountCategory === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -3697,6 +3725,7 @@ const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
+const openAIJSONSchemaDowngradeEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -4188,6 +4217,9 @@ watch(
       codexCLIOnlyAppServerEnabled.value = false
       codexCLIOnlyCustomUserAgentInput.value = ''
     }
+    if (platform !== 'openai' || category !== 'apikey') {
+      openAIJSONSchemaDowngradeEnabled.value = false
+    }
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
@@ -4566,6 +4598,7 @@ const resetForm = () => {
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAIJSONSchemaDowngradeEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -4683,6 +4716,11 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   applyResponsesModeExtra(extra, accountCategory.value === 'apikey' && openAITextGenerationCapabilityEnabled.value)
+  if (accountCategory.value === 'apikey' && openAIJSONSchemaDowngradeEnabled.value) {
+    extra.openai_json_schema_to_json_object = true
+  } else {
+    delete extra.openai_json_schema_to_json_object
+  }
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }

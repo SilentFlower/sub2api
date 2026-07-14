@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 OpenAI Responses/Chat 协议转换、账号 extra 保存和工具调用生命周期。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"约束降级日志的结构化字段和敏感信息保护。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 OpenAI 兼容错误形态和边界失败处理。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束账号表单组件、i18n、可访问性和现有后台 UI 风格。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束 extra 字段的 unknown 收窄和 snake_case 合约。"}
+{"file":".trellis/tasks/07-14-account-json-schema-downgrade/research.md","reason":"记录 OpenAI custom tool、Codex request_permissions 和现有桥接行为的证据。"}

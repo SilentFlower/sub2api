@@ -432,6 +432,9 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
+        jsonSchemaDowngrade: 'JSON Schema compatibility downgrade',
+        jsonSchemaDowngradeDesc:
+          'For upstreams without json_schema support, sends json_object and preserves the original schema as a best-effort output constraint. Tool parameter schemas are unchanged.',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',

@@ -590,6 +590,57 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_supported).toBe(true)
   })
 
+  it('submits OpenAI APIKey JSON Schema compatibility downgrade and preserves extra', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_responses_supported: false,
+      compatibility_note: 'keep'
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_json_schema_to_json_object).toBe(true)
+    expect(extra?.openai_responses_supported).toBe(false)
+    expect(extra?.compatibility_note).toBe('keep')
+  })
+
+  it('clears OpenAI APIKey JSON Schema compatibility downgrade without touching other extra', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_json_schema_to_json_object: true,
+      openai_responses_supported: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('openai_json_schema_to_json_object')
+    expect(extra?.openai_responses_supported).toBe(true)
+  })
+
+  it('does not show the JSON Schema downgrade toggle for OpenAI OAuth', () => {
+    const wrapper = mountModal(buildOpenAIOAuthAccount())
+
+    expect(wrapper.find('[data-testid="openai-json-schema-downgrade-toggle"]').exists()).toBe(false)
+  })
+
   it('submits OpenAI APIKey endpoint capabilities from credentials', async () => {
     const account = buildAccount()
     account.credentials.openai_capabilities = ['chat_completions']

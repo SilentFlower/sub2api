@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -1543,6 +1544,16 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 		return enabled
 	}
 	return false
+}
+
+// IsOpenAIJSONSchemaToJSONObjectEnabled 返回账号是否启用 JSON Schema 到 JSON Object 的兼容降级。
+//
+// 返回值：仅 OpenAI API Key 账号且 extra 中严格配置为 true 时返回 true；其它账号类型均返回 false。
+func (a *Account) IsOpenAIJSONSchemaToJSONObjectEnabled() bool {
+	if a == nil || !a.IsOpenAIApiKey() {
+		return false
+	}
+	return openai_compat.JSONSchemaToJSONObjectEnabled(a.Extra)
 }
 
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。
