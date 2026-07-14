@@ -58,24 +58,6 @@ const ExtraKeyResponsesMode = "openai_responses_mode"
 // 值类型为 bool：true=支持、false=不支持、键缺失=未探测。
 const ExtraKeyResponsesSupported = "openai_responses_supported"
 
-// ExtraKeyJSONSchemaToJSONObject 是 accounts.extra 中控制结构化输出兼容降级的键名。
-// 值类型必须为 bool；仅由 OpenAI API Key 账号读取。
-const ExtraKeyJSONSchemaToJSONObject = "openai_json_schema_to_json_object"
-
-// JSONSchemaToJSONObjectEnabled 从账号 extra 中严格读取结构化输出兼容开关。
-//
-// 参数：
-//   - extra：账号的 accounts.extra 数据。
-//
-// 返回值：仅当目标键存在且值为 bool true 时返回 true；缺失或类型错误均返回 false。
-func JSONSchemaToJSONObjectEnabled(extra map[string]any) bool {
-	if extra == nil {
-		return false
-	}
-	enabled, ok := extra[ExtraKeyJSONSchemaToJSONObject].(bool)
-	return ok && enabled
-}
-
 // NormalizeResponsesSupportMode 归一化账号级 Responses API 路由覆盖模式。
 // 缺失或非法值按 auto 处理，以保持存量行为。
 func NormalizeResponsesSupportMode(mode string) ResponsesSupportMode {

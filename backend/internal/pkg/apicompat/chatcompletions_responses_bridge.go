@@ -129,25 +129,6 @@ func HasToolSearchTool(tools []ResponsesTool) bool {
 	return false
 }
 
-// HasFunctionTool 判断 Responses 请求是否声明了指定名称的普通 function 工具。
-//
-// 参数：
-//   - tools：Responses 请求中的工具列表。
-//   - name：需要查找的 function 工具名。
-//
-// 返回值：仅当存在同名且 type=function 的工具时返回 true。
-func HasFunctionTool(tools []ResponsesTool, name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, tool := range tools {
-		if tool.Type == "function" && tool.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 // responsesInputToChatMessages converts a Responses request's instructions +
 // input[] into Chat Completions messages. It is a three-stage pipeline:
 //
@@ -802,18 +783,13 @@ func extractCustomToolCallInput(arguments string) string {
 	return trimmed
 }
 
-// ChatCompletionsResponseToResponses 将非流式 Chat Completions 响应转换为 Responses 响应。
-//
-// 参数：
-//   - resp：上游 Chat Completions 响应。
-//   - model：下游 Responses 响应使用的模型名。
-//   - customTools：客户端声明的 custom/freeform 工具名集合。
-//   - toolSearch：客户端是否声明 tool_search 工具。
-//   - namespaceTools：namespace 子工具摊平名到原始归属的映射。
-//   - requestPermissionsDeclared：客户端是否声明 request_permissions function 工具。
-//
-// 返回值：转换后的 Responses 响应；当权限工具已声明且文本标记严格合法时恢复为 function_call。
-func ChatCompletionsResponseToResponses(resp *ChatCompletionsResponse, model string, customTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName, requestPermissionsDeclared bool) *ResponsesResponse {
+// ChatCompletionsResponseToResponses converts a non-streaming Chat Completions
+// response into a Responses API response. customTools 是客户端请求中 custom 工具
+// 的名字集合（见 CustomToolNames），命中的调用会还原为 custom_tool_call 项；
+// toolSearch 表示客户端声明了 tool_search 工具（见 HasToolSearchTool），代理工具
+// 的调用会还原为 tool_search_call 项；namespaceTools 是 namespace 子工具的摊平名
+// 映射（见 NamespaceToolNames），命中的调用还原为带 namespace 字段的 function_call 项。
+func ChatCompletionsResponseToResponses(resp *ChatCompletionsResponse, model string, customTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName) *ResponsesResponse {
 	id := ""
 	if resp != nil {
 		id = resp.ID
@@ -838,13 +814,6 @@ func ChatCompletionsResponseToResponses(resp *ChatCompletionsResponse, model str
 
 	if len(resp.Choices) > 0 {
 		choice := resp.Choices[0]
-		if requestPermissionsDeclared && len(choice.Message.ToolCalls) == 0 {
-			var recovered bool
-			choice.Message, recovered = recoverRequestPermissionsMessage(choice.Message)
-			if recovered {
-				choice.FinishReason = "tool_calls"
-			}
-		}
 		out.Output = chatMessageToResponsesOutput(choice.Message, customTools, toolSearch, namespaceTools)
 		if choice.FinishReason == "length" {
 			out.Status = "incomplete"
@@ -1070,15 +1039,6 @@ type ChatCompletionsToResponsesStreamState struct {
 	// codex 按 namespace+name 路由。
 	NamespaceTools map[string]NamespacedToolName
 
-	// RequestPermissionsDeclared 表示客户端声明了 request_permissions function 工具。
-	// 仅在该条件成立时，才会尝试把 DeepSeek 的权限 XML 文本恢复为工具调用。
-	RequestPermissionsDeclared bool
-
-	requestPermissionsPending          strings.Builder
-	requestPermissionsCandidate        strings.Builder
-	requestPermissionsCandidateActive  bool
-	requestPermissionsRecoveryDisabled bool
-
 	// toolIsCustom 记录每个工具调用宣告时的类型判定，保证 added/done 事件的
 	// 项类型一致。
 	toolIsCustom map[int]bool
@@ -1157,12 +1117,18 @@ func ChatCompletionsChunkToResponsesEvents(
 			}))
 		}
 		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
-			events = append(events, routeChatContentDelta(state, *choice.Delta.Content)...)
-		}
-		if len(choice.Delta.ToolCalls) > 0 {
-			// 上游真实 tool_calls 优先级最高；此前为权限标记候选而暂存的文本必须
-			// 原样补发，避免同时合成第二个 request_permissions 调用。
-			events = append(events, disableRequestPermissionsRecovery(state)...)
+			// First real content closes the reasoning item, then opens the
+			// message item and its output_text content part.
+			events = append(events, closeChatReasoningItem(state)...)
+			events = append(events, ensureChatToResponsesMessageItem(state)...)
+			events = append(events, ensureChatToResponsesTextPart(state)...)
+			_, _ = state.Text.WriteString(*choice.Delta.Content)
+			events = append(events, chatToResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
+				OutputIndex:  state.MessageIndex,
+				ContentIndex: 0,
+				Delta:        *choice.Delta.Content,
+				ItemID:       state.MessageItemID,
+			}))
 		}
 		for _, toolCall := range choice.Delta.ToolCalls {
 			idx := 0
@@ -1230,7 +1196,6 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	}
 	var events []ResponsesStreamEvent
 	events = append(events, ensureChatToResponsesCreated(state)...)
-	events = append(events, finalizeRequestPermissionsRecovery(state)...)
 
 	// Close a reasoning item that never transitioned to content (reasoning-only
 	// or empty completion).

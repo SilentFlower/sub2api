@@ -581,9 +581,6 @@ export default {
         responsesModeForceResponses: '强制 Responses',
         responsesModeForceChatCompletions: '强制 Chat Completions',
         responsesModeTextDisabledHint: '未启用 Responses / Chat Completions 端点时，此设置不适用。',
-        jsonSchemaDowngrade: 'JSON Schema 兼容降级',
-        jsonSchemaDowngradeDesc:
-          '上游不支持 json_schema 时，将响应格式改为 json_object，并把原 Schema 作为尽力遵循的输出约束。不会修改工具参数 Schema。',
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。文本端点会跟随上方 Responses API 支持显示为 Responses、Chat Completions 或自动模式；Embeddings 独立控制 /v1/embeddings。',

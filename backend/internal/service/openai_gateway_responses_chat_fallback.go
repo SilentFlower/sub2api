@@ -46,7 +46,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	customTools := apicompat.CustomToolNames(responsesReq.Tools)
 	toolSearch := apicompat.HasToolSearchTool(responsesReq.Tools)
 	namespaceTools := apicompat.NamespaceToolNames(responsesReq.Tools)
-	requestPermissionsDeclared := apicompat.HasFunctionTool(responsesReq.Tools, "request_permissions")
 
 	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
 	if err != nil {
@@ -109,9 +108,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, requestPermissionsDeclared, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
-	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, requestPermissionsDeclared, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
@@ -121,7 +120,6 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	customTools map[string]bool,
 	toolSearch bool,
 	namespaceTools map[string]apicompat.NamespacedToolName,
-	requestPermissionsDeclared bool,
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
@@ -133,7 +131,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	if err != nil {
 		return nil, err
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools, requestPermissionsDeclared)
+	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -160,7 +158,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	customTools map[string]bool,
 	toolSearch bool,
 	namespaceTools map[string]apicompat.NamespacedToolName,
-	requestPermissionsDeclared bool,
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
@@ -174,7 +171,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	state.CustomTools = customTools
 	state.ToolSearchDeclared = toolSearch
 	state.NamespaceTools = namespaceTools
-	state.RequestPermissionsDeclared = requestPermissionsDeclared
 	clientDisconnected := false
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {

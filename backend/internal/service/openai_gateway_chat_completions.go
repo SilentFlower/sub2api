@@ -66,25 +66,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
-	// Cursor 等客户端可能把 Responses 形态请求发到 Chat Completions 端点；兼容
-	// 降级必须按实际 body 形态处理，避免把 text.format 当成 response_format。
-	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
-	requestShape := openAIJSONSchemaRequestShapeChat
-	if isResponsesShape {
-		requestShape = openAIJSONSchemaRequestShapeResponses
-	}
-	preparedBody, prepareErr := applyOpenAIJSONSchemaDowngrade(
-		c,
-		account,
-		body,
-		requestShape,
-		resolveOpenAIJSONSchemaUpstreamEndpoint(account),
-	)
-	if prepareErr != nil {
-		return nil, prepareErr
-	}
-	body = preparedBody
-
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {
@@ -139,6 +120,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Detect that shape and forward the raw body as-is, only rewriting `model`
 	// to the resolved upstream model. The downstream codex OAuth transform will
 	// still normalize store/stream/instructions/etc.
+	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte

@@ -1,6 +1,0 @@
-{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查协议转换是否保持 function/custom/tool_search/namespace 既有契约。"}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查单测层级、回归覆盖和 Go 质量门禁。"}
-{"file":".trellis/spec/backend/logging-guidelines.md","reason":"检查日志不包含 Schema、请求体或凭据。"}
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 pnpm、Vitest、typecheck、lint 和 i18n 质量门禁。"}
-{"file":".trellis/spec/frontend/type-safety.md","reason":"检查前后端 extra 键名和类型没有漂移。"}
-{"file":".trellis/tasks/07-14-account-json-schema-downgrade/research.md","reason":"反向核对实现没有把 request_permissions 误当 custom tool。"}
