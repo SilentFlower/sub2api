@@ -1,0 +1,38 @@
+{
+  "id": "sync-main-0155-into-build",
+  "name": "sync-main-0155-into-build",
+  "title": "同步 main 0.1.155 到 build 并保留特性",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-14",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-14T18:42:12+08:00",
+    "completedSteps": [
+      "已合并 main 0.1.155 并完成冲突处理",
+      "已收敛重叠功能并保留 build 独立特性",
+      "已通过后端、前端和 Git 完整质量检查",
+      "已修正 merge-aware 提交校验并推送 build"
+    ],
+    "partialStep": null,
+    "nextStep": "用户复核合并结果；确认后运行 trellis-finish-work 归档任务",
+    "notes": "合并前备份分支仍保留；DeepSeek JSON Schema 任务未修改、未提交。"
+  }
+}
