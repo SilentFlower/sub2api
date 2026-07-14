@@ -585,6 +585,9 @@ export default {
         responsesModeForceResponses: '强制 Responses',
         responsesModeForceChatCompletions: '强制 Chat Completions',
         responsesModeTextDisabledHint: '未启用 Responses / Chat Completions 端点时，此设置不适用。',
+        jsonSchemaDowngrade: 'JSON Schema 兼容模式',
+        jsonSchemaDowngradeDesc:
+          '上游不支持 json_schema 时，将格式改为 json_object，并把原 Schema 作为尽力遵循的输出约束；不保证 strict Schema，也不会修改工具参数 Schema。',
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。文本端点会跟随上方 Responses API 支持显示为 Responses、Chat Completions 或自动模式；Embeddings 独立控制 /v1/embeddings。',
@@ -659,7 +662,7 @@ export default {
         apiKeyAuthSchemeBearer: 'Authorization: Bearer',
         webSearchEmulation: 'Web Search 模拟',
         webSearchEmulationDesc:
-          '为该 API Key 账号启用 web search 模拟。客户端发送纯 web_search 请求时，由网关调用第三方搜索 API 并构造响应返回。默认跟随渠道配置。',
+          '对于纯 web_search 或明确强制搜索的请求，由网关调用已配置的搜索服务并在本地构造响应；默认跟随渠道配置。DeepSeek 原生搜索请使用独立的 Anthropic-compatible API Key 账号。',
         webSearchDefault: '默认',
         webSearchEnabled: '开启',
         webSearchDisabled: '关闭',

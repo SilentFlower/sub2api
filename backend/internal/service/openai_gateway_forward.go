@@ -30,6 +30,22 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
+	if result, handled, webSearchErr := s.handleOpenAIResponsesWebSearch(ctx, c, account, body); handled {
+		return result, webSearchErr
+	}
+
+	preparedBody, prepareErr := applyOpenAIJSONSchemaDowngrade(
+		c,
+		account,
+		body,
+		openAIJSONSchemaRequestShapeResponses,
+		resolveOpenAIJSONSchemaUpstreamEndpoint(account),
+	)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
+	body = preparedBody
+
 	normalizedBody, normalized, err := normalizeOpenAICodexCompactReasoningEffortForAccount(c, account, body)
 	if err != nil {
 		return nil, err

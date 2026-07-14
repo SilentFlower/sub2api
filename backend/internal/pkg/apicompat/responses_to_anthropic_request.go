@@ -37,9 +37,18 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.MaxTokens = 8192
 	}
 
-	// Convert tools
-	if len(req.Tools) > 0 {
-		out.Tools = convertResponsesToAnthropicTools(req.Tools)
+	// 新版 Responses 客户端可能把运行时工具放在 additional_tools 输入项中，
+	// 原生 Messages 桥必须与 Chat 桥使用同一份有效工具集合。
+	effectiveTools, err := EffectiveResponsesTools(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(effectiveTools) > 0 {
+		tools, err := convertResponsesToAnthropicToolsValidated(effectiveTools)
+		if err != nil {
+			return nil, fmt.Errorf("convert tools: %w", err)
+		}
+		out.Tools = tools
 	}
 
 	// Convert tool_choice (reverse of convertAnthropicToolChoiceToResponses)
@@ -522,14 +531,20 @@ func parseContentBlocks(raw json.RawMessage) []AnthropicContentBlock {
 // convertResponsesToAnthropicTools maps Responses API tools to Anthropic format.
 // Reverse of convertAnthropicToolsToResponses.
 func convertResponsesToAnthropicTools(tools []ResponsesTool) []AnthropicTool {
+	out, _ := convertResponsesToAnthropicToolsValidated(tools)
+	return out
+}
+
+func convertResponsesToAnthropicToolsValidated(tools []ResponsesTool) ([]AnthropicTool, error) {
 	var out []AnthropicTool
 	for _, t := range tools {
 		switch t.Type {
-		case "web_search", "google_search", "web_search_20250305":
-			out = append(out, AnthropicTool{
-				Type: "web_search_20250305",
-				Name: "web_search",
-			})
+		case "web_search", "web_search_preview", "google_search", "web_search_20250305":
+			tool, err := convertResponsesWebSearchTool(t)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, tool)
 		case "function":
 			out = append(out, AnthropicTool{
 				Name:        t.Name,
@@ -552,7 +567,43 @@ func convertResponsesToAnthropicTools(tools []ResponsesTool) []AnthropicTool {
 			})
 		}
 	}
-	return out
+	return out, nil
+}
+
+func convertResponsesWebSearchTool(tool ResponsesTool) (AnthropicTool, error) {
+	if tool.SearchContextSize != "" {
+		return AnthropicTool{}, fmt.Errorf("web search field search_context_size has no Anthropic equivalent")
+	}
+	if tool.ExternalWebAccess != nil {
+		return AnthropicTool{}, fmt.Errorf("web search field external_web_access has no Anthropic equivalent")
+	}
+	if tool.ReturnTokenBudget != nil {
+		return AnthropicTool{}, fmt.Errorf("web search field return_token_budget has no Anthropic equivalent")
+	}
+
+	out := AnthropicTool{
+		Type:    "web_search_20250305",
+		Name:    "web_search",
+		MaxUses: tool.MaxUses,
+	}
+	if tool.Filters != nil {
+		out.AllowedDomains = append([]string(nil), tool.Filters.AllowedDomains...)
+		out.BlockedDomains = append([]string(nil), tool.Filters.BlockedDomains...)
+	}
+	if tool.UserLocation != nil {
+		locationType := strings.TrimSpace(tool.UserLocation.Type)
+		if locationType != "" && locationType != "approximate" {
+			return AnthropicTool{}, fmt.Errorf("unsupported web search user_location type %q", locationType)
+		}
+		out.UserLocation = &AnthropicUserLocation{
+			Type:     "approximate",
+			City:     tool.UserLocation.City,
+			Region:   tool.UserLocation.Region,
+			Country:  tool.UserLocation.Country,
+			Timezone: tool.UserLocation.Timezone,
+		}
+	}
+	return out, nil
 }
 
 // normalizeAnthropicInputSchema ensures input_schema is a valid object schema.
@@ -614,7 +665,7 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 		}
 	}
 
-	// Try as object with type=function
+	// 尝试结构化工具选择。
 	var tc struct {
 		Type     string `json:"type"`
 		Name     string `json:"name"`
@@ -622,7 +673,13 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 			Name string `json:"name"`
 		} `json:"function"`
 	}
-	if err := json.Unmarshal(raw, &tc); err == nil && tc.Type == "function" {
+	if err := json.Unmarshal(raw, &tc); err == nil && (tc.Type == "web_search" || tc.Type == "web_search_preview" || tc.Type == "web_search_20250305") {
+		return json.Marshal(map[string]string{
+			"type": "tool",
+			"name": "web_search",
+		})
+	}
+	if tc.Type == "function" {
 		name := strings.TrimSpace(tc.Name)
 		if name == "" {
 			name = strings.TrimSpace(tc.Function.Name)

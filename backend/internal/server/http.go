@@ -66,7 +66,7 @@ func ProvideRouter(
 		}
 		configs := make([]websearch.ProviderConfig, 0, len(cfg.Providers))
 		for _, p := range cfg.Providers {
-			if p.APIKey == "" {
+			if p.Type != websearch.ProviderTypeAnySearch && p.APIKey == "" {
 				continue
 			}
 			pc := websearch.ProviderConfig{

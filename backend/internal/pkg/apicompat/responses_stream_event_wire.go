@@ -23,6 +23,22 @@ import "encoding/json"
 // events.
 func (e ResponsesStreamEvent) MarshalJSON() ([]byte, error) {
 	switch e.Type {
+	case "response.created", "response.completed", "response.done", "response.failed", "response.incomplete":
+		m := e.wireBase()
+		if e.Response != nil {
+			m["response"] = e.Response
+		}
+		if e.Usage != nil {
+			m["usage"] = e.Usage
+		}
+		if e.Code != "" {
+			m["code"] = e.Code
+		}
+		if e.Param != "" {
+			m["param"] = e.Param
+		}
+		return json.Marshal(m)
+
 	case "response.output_text.delta", "response.output_text.done":
 		m := e.wireBase()
 		e.putItemID(m)
@@ -41,6 +57,19 @@ func (e ResponsesStreamEvent) MarshalJSON() ([]byte, error) {
 		m["output_index"] = e.OutputIndex
 		m["content_index"] = e.ContentIndex
 		m["part"] = outputTextPartWire(e.Part)
+		return json.Marshal(m)
+
+	case "response.output_text.annotation.added":
+		m := e.wireBase()
+		e.putItemID(m)
+		m["output_index"] = e.OutputIndex
+		m["content_index"] = e.ContentIndex
+		annotationIndex := 0
+		if e.AnnotationIndex != nil {
+			annotationIndex = *e.AnnotationIndex
+		}
+		m["annotation_index"] = annotationIndex
+		m["annotation"] = responsesAnnotationWire(e.Annotation)
 		return json.Marshal(m)
 
 	case "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done":
@@ -129,13 +158,15 @@ func (e ResponsesStreamEvent) putItemID(m map[string]any) {
 // carrying text/annotations/logprobs (matching cc-switch's push_text_delta).
 func outputTextPartWire(part *ResponsesContentPart) map[string]any {
 	text := ""
+	annotations := []ResponsesAnnotation{}
 	if part != nil {
 		text = part.Text
+		annotations = part.Annotations
 	}
 	return map[string]any{
 		"type":        "output_text",
 		"text":        text,
-		"annotations": []any{},
+		"annotations": annotations,
 		"logprobs":    []any{},
 	}
 }
@@ -201,6 +232,10 @@ func responsesItemWire(item *ResponsesOutput) map[string]any {
 		m["call_id"] = item.CallID
 		m["execution"] = "client"
 		m["arguments"] = toolSearchCallArgumentsJSON(item.Arguments)
+	case "web_search_call":
+		if item.Action != nil {
+			m["action"] = item.Action
+		}
 	}
 	return m
 }
@@ -214,9 +249,26 @@ func messageContentWire(parts []ResponsesContentPart) []map[string]any {
 		if typ == "" {
 			typ = "output_text"
 		}
-		out = append(out, map[string]any{"type": typ, "text": p.Text})
+		part := map[string]any{"type": typ, "text": p.Text}
+		if len(p.Annotations) > 0 {
+			part["annotations"] = p.Annotations
+		}
+		out = append(out, part)
 	}
 	return out
+}
+
+func responsesAnnotationWire(annotation *ResponsesAnnotation) map[string]any {
+	if annotation == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"type":        annotation.Type,
+		"url":         annotation.URL,
+		"title":       annotation.Title,
+		"start_index": annotation.StartIndex,
+		"end_index":   annotation.EndIndex,
+	}
 }
 
 // reasoningSummaryWire renders a reasoning item's summary array; always an array.

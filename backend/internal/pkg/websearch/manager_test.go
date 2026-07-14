@@ -37,6 +37,11 @@ func TestManager_SearchWithBestProvider_SkipEmptyAPIKey(t *testing.T) {
 	require.ErrorContains(t, err, "no available provider")
 }
 
+func TestManager_AnySearchAllowsEmptyAPIKey(t *testing.T) {
+	m := NewManager([]ProviderConfig{{Type: ProviderTypeAnySearch}}, nil)
+	require.Len(t, m.filterAvailableProviders(context.Background(), ""), 1)
+}
+
 func TestManager_SearchWithBestProvider_SkipExpired(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour).Unix()
 	m := NewManager([]ProviderConfig{

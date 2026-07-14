@@ -435,6 +435,9 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
+        jsonSchemaDowngrade: 'JSON Schema compatibility mode',
+        jsonSchemaDowngradeDesc:
+          'For upstreams without json_schema support, sends json_object and keeps the original Schema as a best-effort output constraint. Strict Schema enforcement is not guaranteed, and tool parameter Schemas are unchanged.',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',
@@ -515,7 +518,7 @@ export default {
         apiKeyAuthSchemeBearer: 'Authorization: Bearer',
         webSearchEmulation: 'Web Search Emulation',
         webSearchEmulationDesc:
-          'Enable web search emulation for this API Key account. When a pure web_search request is detected, the gateway calls a third-party search API and constructs the response locally. Default follows channel config.',
+          'For pure or explicitly forced web_search requests, let the gateway call a configured search provider and construct the response locally. Default follows channel config. For native DeepSeek search, use a separate Anthropic-compatible API Key account.',
         webSearchDefault: 'Default',
         webSearchEnabled: 'Enabled',
         webSearchDisabled: 'Disabled',

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Responses、Chat、Anthropic Messages 工具、tool_choice、流式事件和 usage 的协议转换"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 OpenAI error envelope、上游错误脱敏、provider 错误和敏感凭据保护"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"约束能力决策日志不得记录 Schema、查询、结果正文或请求体"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束账号 extra、渠道 features_config 与全局 provider 的前后端字段一致性"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束账号与设置页面控件、状态和测试实现"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"优先复用现有 WebSearch Manager、计费、代理和 Responses 类型，避免平行实现"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查账号配置、渠道默认、转发决策、Responses 输出、usage 和管理端的跨层闭环"}
+{"file":".trellis/tasks/07-14-deepseek-response-format-json-schema-compat/research.md","reason":"提供 OpenAI/DeepSeek/Anthropic 官方协议、CPA/new-api 对照、许可证和现有计费链证据"}

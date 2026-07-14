@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { updateAccountMock, checkMixedChannelRiskMock, getWebSearchConfigMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
+  getWebSearchConfigMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
 
@@ -31,7 +32,7 @@ vi.mock('@/api/admin', () => ({
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
-      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
+      getWebSearchEmulationConfig: getWebSearchConfigMock,
       getSettings: vi.fn().mockResolvedValue({})
     },
     tlsFingerprintProfiles: {
@@ -341,6 +342,8 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    getWebSearchConfigMock.mockReset()
+    getWebSearchConfigMock.mockResolvedValue({ enabled: false, providers: [] })
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
@@ -687,6 +690,76 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_responses_mode')
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_supported).toBe(true)
+  })
+
+  it('submits OpenAI APIKey JSON Schema compatibility and preserves extra', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_responses_supported: false,
+      compatibility_note: 'keep'
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_json_schema_to_json_object).toBe(true)
+    expect(extra?.openai_responses_supported).toBe(false)
+    expect(extra?.compatibility_note).toBe('keep')
+  })
+
+  it('clears OpenAI APIKey JSON Schema compatibility without touching other extra', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_json_schema_to_json_object: true,
+      openai_responses_supported: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('openai_json_schema_to_json_object')
+    expect(extra?.openai_responses_supported).toBe(true)
+  })
+
+  it('submits OpenAI APIKey Web Search emulation mode and preserves extra', async () => {
+    getWebSearchConfigMock.mockResolvedValue({ enabled: true, providers: [{ type: 'anysearch' }] })
+    const account = buildAccount()
+    account.extra = { compatibility_note: 'keep' }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="web-search-emulation-mode-select"]').exists()).toBe(true)
+    })
+    await wrapper.get('[data-testid="web-search-emulation-mode-select"]').setValue('enabled')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.web_search_emulation).toBe('enabled')
+    expect(extra?.compatibility_note).toBe('keep')
+  })
+
+  it('does not show OpenAI compatibility controls for OAuth accounts', () => {
+    const wrapper = mountModal(buildOpenAIOAuthAccount())
+    expect(wrapper.find('[data-testid="openai-json-schema-downgrade-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="web-search-emulation-mode-select"]').exists()).toBe(false)
   })
 
   it('submits OpenAI APIKey endpoint capabilities from credentials', async () => {

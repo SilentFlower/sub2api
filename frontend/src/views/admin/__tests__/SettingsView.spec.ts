@@ -519,7 +519,17 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
-describe("admin SettingsView payment visible method controls", () => {
+async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
+  const gatewayTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
+
+  expect(gatewayTabButton).toBeDefined();
+  await gatewayTabButton?.trigger("click");
+  await flushPromises();
+}
+
+describe("admin SettingsView payment and Web Search controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();
@@ -921,6 +931,48 @@ describe("admin SettingsView payment visible method controls", () => {
     // supported_types should be normalized to an empty array, not null
     expect(Array.isArray(receivedProviders[0].supported_types)).toBe(true);
     expect(receivedProviders[0].supported_types).toEqual([]);
+  });
+
+  it("保存 AnySearch provider 时允许 API Key 留空", async () => {
+    getWebSearchEmulationConfig.mockResolvedValue({
+      enabled: true,
+      providers: [
+        {
+          type: "anysearch",
+          api_key: "",
+          api_key_configured: false,
+          quota_limit: 1000,
+          subscribed_at: null,
+          proxy_id: null,
+          expires_at: null,
+        },
+      ],
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const providerSelect = wrapper
+      .findAll(".select-stub")
+      .find((select) => select.findAll("option").some((option) => option.text() === "AnySearch"));
+    expect(providerSelect).toBeDefined();
+    expect((providerSelect?.element as HTMLSelectElement).value).toBe("anysearch");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateWebSearchEmulationConfig).toHaveBeenCalledTimes(1);
+    expect(updateWebSearchEmulationConfig).toHaveBeenCalledWith({
+      enabled: true,
+      providers: [
+        expect.objectContaining({
+          type: "anysearch",
+          api_key: "",
+          quota_limit: 1000,
+        }),
+      ],
+    });
   });
 });
 

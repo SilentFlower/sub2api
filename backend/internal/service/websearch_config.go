@@ -19,9 +19,9 @@ type WebSearchEmulationConfig struct {
 	Providers []WebSearchProviderConfig `json:"providers"`
 }
 
-// WebSearchProviderConfig describes a single search provider (Brave or Tavily).
+// WebSearchProviderConfig 描述单个网页搜索 provider 的持久化配置。
 type WebSearchProviderConfig struct {
-	Type             string `json:"type"`                    // websearch.ProviderTypeBrave | Tavily
+	Type             string `json:"type"`                    // Brave | Tavily | AnySearch
 	APIKey           string `json:"api_key,omitempty"`       // secret — omitted in API responses
 	APIKeyConfigured bool   `json:"api_key_configured"`      // read-only mask
 	QuotaLimit       *int64 `json:"quota_limit"`             // nil = unlimited, >0 = limited
@@ -36,8 +36,9 @@ type WebSearchProviderConfig struct {
 const maxWebSearchProviders = 10
 
 var validProviderTypes = map[string]bool{
-	websearch.ProviderTypeBrave:  true,
-	websearch.ProviderTypeTavily: true,
+	websearch.ProviderTypeBrave:     true,
+	websearch.ProviderTypeTavily:    true,
+	websearch.ProviderTypeAnySearch: true,
 }
 
 func validateWebSearchConfig(cfg *WebSearchEmulationConfig) error {
@@ -140,10 +141,10 @@ func (s *SettingService) SaveWebSearchEmulationConfig(ctx context.Context, cfg *
 	}
 	s.mergeExistingAPIKeys(ctx, cfg)
 
-	// After merge, validate all enabled providers have API keys
+	// AnySearch 的公开 MCP endpoint 允许无鉴权调用；其它 provider 必须配置密钥。
 	if cfg.Enabled {
 		for _, p := range cfg.Providers {
-			if p.APIKey == "" {
+			if p.Type != websearch.ProviderTypeAnySearch && p.APIKey == "" {
 				return infraerrors.BadRequest("MISSING_API_KEY",
 					fmt.Sprintf("provider %s has no API key configured", p.Type))
 			}

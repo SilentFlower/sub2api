@@ -56,7 +56,8 @@ type AnthropicContentBlock struct {
 	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
 
 	// type=text
-	Text string `json:"text,omitempty"`
+	Text      string              `json:"text,omitempty"`
+	Citations []AnthropicCitation `json:"citations,omitempty"`
 
 	// type=thinking
 	Thinking string `json:"thinking,omitempty"`
@@ -73,6 +74,15 @@ type AnthropicContentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // string or []AnthropicContentBlock
 	IsError   bool            `json:"is_error,omitempty"`
+}
+
+// AnthropicCitation 描述 Anthropic 文本块关联的网页搜索引用。
+type AnthropicCitation struct {
+	Type           string `json:"type,omitempty"`
+	URL            string `json:"url,omitempty"`
+	Title          string `json:"title,omitempty"`
+	EncryptedIndex string `json:"encrypted_index,omitempty"`
+	CitedText      string `json:"cited_text,omitempty"`
 }
 
 func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
@@ -106,11 +116,24 @@ type AnthropicImageSource struct {
 
 // AnthropicTool describes a tool available to the model.
 type AnthropicTool struct {
-	Type         string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description,omitempty"`
-	InputSchema  json.RawMessage        `json:"input_schema"` // JSON Schema object
-	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Type           string                 `json:"type,omitempty"` // e.g. "web_search_20250305" for server tools
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description,omitempty"`
+	InputSchema    json.RawMessage        `json:"input_schema,omitempty"` // JSON Schema object
+	CacheControl   *AnthropicCacheControl `json:"cache_control,omitempty"`
+	MaxUses        *int                   `json:"max_uses,omitempty"`
+	AllowedDomains []string               `json:"allowed_domains,omitempty"`
+	BlockedDomains []string               `json:"blocked_domains,omitempty"`
+	UserLocation   *AnthropicUserLocation `json:"user_location,omitempty"`
+}
+
+// AnthropicUserLocation 描述服务端网页搜索使用的近似用户位置。
+type AnthropicUserLocation struct {
+	Type     string `json:"type"`
+	City     string `json:"city,omitempty"`
+	Region   string `json:"region,omitempty"`
+	Country  string `json:"country,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 // AnthropicCacheControl 对应 Anthropic API 的 cache_control 字段。
@@ -134,10 +157,16 @@ type AnthropicResponse struct {
 
 // AnthropicUsage holds token counts in Anthropic format.
 type AnthropicUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	InputTokens              int                       `json:"input_tokens"`
+	OutputTokens             int                       `json:"output_tokens"`
+	CacheCreationInputTokens int                       `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                       `json:"cache_read_input_tokens"`
+	ServerToolUse            *AnthropicServerToolUsage `json:"server_tool_use,omitempty"`
+}
+
+// AnthropicServerToolUsage 记录 Anthropic 服务端工具的按次用量。
+type AnthropicServerToolUsage struct {
+	WebSearchRequests int `json:"web_search_requests,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +206,9 @@ type AnthropicDelta struct {
 
 	// signature_delta
 	Signature string `json:"signature,omitempty"`
+
+	// citations_delta
+	Citation *AnthropicCitation `json:"citation,omitempty"`
 
 	// message_delta fields
 	StopReason   string  `json:"stop_reason,omitempty"`
@@ -242,9 +274,19 @@ type ResponsesInputItem struct {
 
 // ResponsesContentPart is a typed content part in a Responses message.
 type ResponsesContentPart struct {
-	Type     string `json:"type"` // "input_text" | "output_text" | "input_image"
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"` // data URI for input_image
+	Type        string                `json:"type"` // "input_text" | "output_text" | "input_image"
+	Text        string                `json:"text,omitempty"`
+	ImageURL    string                `json:"image_url,omitempty"` // data URI for input_image
+	Annotations []ResponsesAnnotation `json:"annotations,omitempty"`
+}
+
+// ResponsesAnnotation 描述 Responses 输出文本上的 URL 引用。
+type ResponsesAnnotation struct {
+	Type       string `json:"type"`
+	URL        string `json:"url"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
 }
 
 // ResponsesTool describes a tool in the Responses API.
@@ -255,9 +297,32 @@ type ResponsesTool struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	Strict      *bool           `json:"strict,omitempty"`
 
+	// Web Search 服务端工具字段。
+	MaxUses           *int                            `json:"max_uses,omitempty"`
+	SearchContextSize string                          `json:"search_context_size,omitempty"`
+	Filters           *ResponsesWebSearchFilters      `json:"filters,omitempty"`
+	UserLocation      *ResponsesWebSearchUserLocation `json:"user_location,omitempty"`
+	ExternalWebAccess *bool                           `json:"external_web_access,omitempty"`
+	ReturnTokenBudget *int                            `json:"return_token_budget,omitempty"`
+
 	// type=namespace 的子工具列表（tools 与 children 二选一，语义相同）。
 	Tools    []ResponsesTool `json:"tools,omitempty"`
 	Children []ResponsesTool `json:"children,omitempty"`
+}
+
+// ResponsesWebSearchFilters 描述 Responses Web Search 的域名过滤条件。
+type ResponsesWebSearchFilters struct {
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
+	BlockedDomains []string `json:"blocked_domains,omitempty"`
+}
+
+// ResponsesWebSearchUserLocation 描述 Responses Web Search 的近似用户位置。
+type ResponsesWebSearchUserLocation struct {
+	Type     string `json:"type"`
+	City     string `json:"city,omitempty"`
+	Region   string `json:"region,omitempty"`
+	Country  string `json:"country,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 // UnmarshalJSON 容忍字符串形式的工具声明：codex 会以 "name" 简写声明 custom 工具，
@@ -551,6 +616,10 @@ type ResponsesStreamEvent struct {
 	// response.content_part.added / done and
 	// response.reasoning_summary_part.added / done
 	Part *ResponsesContentPart `json:"part,omitempty"`
+
+	// response.output_text.annotation.added
+	Annotation      *ResponsesAnnotation `json:"annotation,omitempty"`
+	AnnotationIndex *int                 `json:"annotation_index,omitempty"`
 
 	// error event fields
 	Code  string `json:"code,omitempty"`

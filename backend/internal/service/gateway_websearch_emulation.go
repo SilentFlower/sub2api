@@ -155,8 +155,7 @@ func (s *GatewayService) handleWebSearchEmulation(
 		return nil, fmt.Errorf("web search emulation: no query found in messages")
 	}
 
-	slog.Info("web search emulation: executing search",
-		"account_id", account.ID, "account_name", account.Name, "query", query)
+	slog.Info("web search emulation: executing search", "account_id", account.ID)
 
 	resp, providerName, err := doWebSearch(ctx, account, query)
 	if err != nil {
@@ -185,13 +184,17 @@ func (s *GatewayService) handleWebSearchEmulation(
 }
 
 func doWebSearch(ctx context.Context, account *Account, query string) (*websearch.SearchResponse, string, error) {
+	return doWebSearchWithMaxResults(ctx, account, query, webSearchDefaultMaxResults)
+}
+
+func doWebSearchWithMaxResults(ctx context.Context, account *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
 	proxyURL := resolveAccountProxyURL(account)
 	mgr := getWebSearchManager()
 	if mgr == nil {
 		return nil, "", fmt.Errorf("web search emulation: manager not initialized")
 	}
 	resp, providerName, err := mgr.SearchWithBestProvider(ctx, websearch.SearchRequest{
-		Query: query, MaxResults: webSearchDefaultMaxResults, ProxyURL: proxyURL,
+		Query: query, MaxResults: maxResults, ProxyURL: proxyURL,
 	})
 	if err != nil {
 		slog.Error("web search emulation: search failed", "error", err)

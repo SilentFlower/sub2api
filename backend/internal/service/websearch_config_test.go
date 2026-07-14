@@ -27,6 +27,24 @@ func TestValidateWebSearchConfig_Valid(t *testing.T) {
 	require.NoError(t, validateWebSearchConfig(cfg))
 }
 
+func TestValidateWebSearchConfig_AnySearch(t *testing.T) {
+	cfg := &WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: websearch.ProviderTypeAnySearch}},
+	}
+	require.NoError(t, validateWebSearchConfig(cfg))
+}
+
+func TestSaveWebSearchEmulationConfig_AnySearchAPIKeyOptional(t *testing.T) {
+	t.Cleanup(clearGlobalWebSearchConfig)
+	service := newSettingServiceForWebSearchTest(false)
+	config := &WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: websearch.ProviderTypeAnySearch}},
+	}
+	require.NoError(t, service.SaveWebSearchEmulationConfig(context.Background(), config))
+}
+
 func TestValidateWebSearchConfig_TooManyProviders(t *testing.T) {
 	cfg := &WebSearchEmulationConfig{Providers: make([]WebSearchProviderConfig, 11)}
 	for i := range cfg.Providers {

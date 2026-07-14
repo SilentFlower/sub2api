@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,6 +67,25 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
+	// 部分客户端会把 Responses 形态请求发到 Chat Completions 端点，兼容处理必须
+	// 根据实际请求体选择格式，避免把 text.format 错当成 response_format。
+	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+	requestShape := openAIJSONSchemaRequestShapeChat
+	if isResponsesShape {
+		requestShape = openAIJSONSchemaRequestShapeResponses
+	}
+	preparedBody, prepareErr := applyOpenAIJSONSchemaDowngrade(
+		c,
+		account,
+		body,
+		requestShape,
+		resolveOpenAIJSONSchemaUpstreamEndpoint(account),
+	)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
+	body = preparedBody
+
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {
@@ -83,6 +103,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		if isResponsesShape {
+			body, prepareErr = convertResponsesShapeToRawChatBody(body)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -120,8 +146,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Detect that shape and forward the raw body as-is, only rewriting `model`
 	// to the resolved upstream model. The downstream codex OAuth transform will
 	// still normalize store/stream/instructions/etc.
-	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
-
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte
@@ -327,6 +351,35 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	return result, handleErr
+}
+
+// convertResponsesShapeToRawChatBody 把误投到 Chat 端点的 Responses 请求转换为真实 Chat 请求。
+//
+// @param body 已完成兼容预处理的 Responses 请求体。
+// @return 可发送到 Chat Completions 上游的请求体，或无法保持语义时的错误。
+func convertResponsesShapeToRawChatBody(body []byte) ([]byte, error) {
+	var req apicompat.ResponsesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("parse responses-shaped chat request: %w", err)
+	}
+	if bytes.Contains(body, []byte("web_search")) {
+		request, toolCount, webSearchCount, err := parseOpenAIResponsesWebSearchRequest(body)
+		if err != nil {
+			return nil, err
+		}
+		if shouldRejectChatFallbackWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind) {
+			return nil, errors.New("responses-shaped request sent to Chat Completions cannot execute the requested web_search tool")
+		}
+	}
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&req)
+	if err != nil {
+		return nil, fmt.Errorf("convert responses-shaped chat request: %w", err)
+	}
+	converted, err := json.Marshal(chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal converted chat request: %w", err)
+	}
+	return converted, nil
 }
 
 func normalizeResponsesRequestServiceTier(req *apicompat.ResponsesRequest) {

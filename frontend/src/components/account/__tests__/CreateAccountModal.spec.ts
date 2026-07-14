@@ -6,10 +6,12 @@ const {
   createAccountMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  getWebSearchEmulationConfigMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  getWebSearchEmulationConfigMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -33,7 +35,7 @@ vi.mock('@/api/admin', () => ({
       createOpenAICodexPAT: createOpenAICodexPATMock,
     },
     settings: {
-      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
+      getWebSearchEmulationConfig: getWebSearchEmulationConfigMock,
       getSettings: vi.fn().mockResolvedValue({}),
     },
     tlsFingerprintProfiles: {
@@ -138,6 +140,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       warnings: [],
     })
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
+    getWebSearchEmulationConfigMock.mockReset().mockResolvedValue({ enabled: false, providers: [] })
   })
 
   it('sends false explicitly for normal OpenAI account creation by default', async () => {
@@ -209,5 +212,30 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('submits JSON Schema compatibility and Web Search mode from visible controls', async () => {
+    getWebSearchEmulationConfigMock.mockResolvedValue({
+      enabled: true,
+      providers: [{ type: 'anysearch' }],
+    })
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await flushPromises()
+
+    const jsonSchemaToggle = wrapper.get('[data-testid="openai-json-schema-downgrade-toggle"]')
+    expect(jsonSchemaToggle.attributes('aria-checked')).toBe('false')
+    await jsonSchemaToggle.trigger('click')
+    await wrapper.get('[data-testid="web-search-emulation-mode-select"]').setValue('enabled')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI APIKey')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra?.openai_json_schema_to_json_object).toBe(true)
+    expect(extra?.web_search_emulation).toBe('enabled')
   })
 })

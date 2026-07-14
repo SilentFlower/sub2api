@@ -1344,7 +1344,7 @@ export async function updateBetaPolicySettings(
 // --- Web Search Emulation Config ---
 
 export interface WebSearchProviderConfig {
-  type: "brave" | "tavily";
+  type: "brave" | "tavily" | "anysearch";
   api_key: string;
   api_key_configured: boolean;
   quota_limit: number | null;

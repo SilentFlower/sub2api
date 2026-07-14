@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行 Go 单测、gofmt、lint、共享 DTO 与协议 fixture 质量检查"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行 Vitest、typecheck、lint 和管理端行为检查"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"复核 json_schema、Web Search、tool_choice、citation 与 SSE 生命周期不回退"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核错误 envelope、搜索失败、400 透传与凭据脱敏"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核日志不泄露查询、Schema、结果正文、API Key 或完整请求"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核账号、渠道和全局 provider 配置的 snake_case 类型与非破坏性保存"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核配置到路由、provider、Responses 回程、计费和 UI 的完整数据流"}
+{"file":".trellis/tasks/07-14-deepseek-response-format-json-schema-compat/research.md","reason":"按官方协议和 new-api 对照证据检查实现没有猜测私有能力或复制 AGPL 源码"}

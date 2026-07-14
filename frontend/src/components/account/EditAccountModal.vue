@@ -1593,6 +1593,35 @@
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </div>
+        <div
+          v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+          class="flex items-center justify-between gap-4"
+        >
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.jsonSchemaDowngrade') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.jsonSchemaDowngradeDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            data-testid="openai-json-schema-downgrade-toggle"
+            :aria-checked="openAIJSONSchemaDowngradeEnabled"
+            @click="openAIJSONSchemaDowngradeEnabled = !openAIJSONSchemaDowngradeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAIJSONSchemaDowngradeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAIJSONSchemaDowngradeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
         <div v-if="account?.platform === 'openai' && account?.type === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1663,9 +1692,9 @@
         </div>
       </div>
 
-      <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
+      <!-- API Key：全局未启用时隐藏 Web Search 模拟配置 -->
       <div
-        v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && webSearchGlobalEnabled"
+        v-if="(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1675,7 +1704,7 @@
               {{ t('admin.accounts.anthropic.webSearchEmulationDesc') }}
             </p>
           </div>
-          <select v-model="webSearchEmulationMode" class="input w-24 text-sm">
+          <select v-model="webSearchEmulationMode" class="input w-24 text-sm" data-testid="web-search-emulation-mode-select">
             <option value="default">{{ t('admin.accounts.anthropic.webSearchDefault') }}</option>
             <option value="enabled">{{ t('admin.accounts.anthropic.webSearchEnabled') }}</option>
             <option value="disabled">{{ t('admin.accounts.anthropic.webSearchDisabled') }}</option>
@@ -2842,6 +2871,7 @@ const openAILongContextBillingEnabled = ref(false)
 const editPlanType = ref<string>('')
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
+const openAIJSONSchemaDowngradeEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -3285,6 +3315,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAIJSONSchemaDowngradeEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -3307,6 +3338,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
+      openAIJSONSchemaDowngradeEnabled.value = extra?.openai_json_schema_to_json_object === true
       openAIEndpointCapabilities.value = readOpenAIEndpointCapabilities(
         newAccount.credentials as Record<string, unknown> | undefined
       )
@@ -3353,11 +3385,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.platform === 'grok' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
     openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
   }
-  if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
-    anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
-    anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
-      ? 'authorization_bearer'
-      : 'x_api_key'
+  if ((newAccount.platform === 'anthropic' || newAccount.platform === 'openai') && newAccount.type === 'apikey') {
     // 三态：string "default"/"enabled"/"disabled"，向后兼容旧 bool
     const wsVal = extra?.web_search_emulation
     if (wsVal === 'enabled' || wsVal === 'disabled') {
@@ -3367,6 +3395,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     } else {
       webSearchEmulationMode.value = 'default'
     }
+  }
+  if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
+    anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
+    anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
+      ? 'authorization_bearer'
+      : 'x_api_key'
   }
 
   // Load quota limit for apikey/bedrock accounts (bedrock quota is also loaded in its own branch above)
@@ -4492,6 +4526,19 @@ const handleSubmit = async () => {
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
         }
+			if (openAIJSONSchemaDowngradeEnabled.value) {
+				newExtra.openai_json_schema_to_json_object = true
+			} else {
+				delete newExtra.openai_json_schema_to_json_object
+			}
+			if (webSearchEmulationMode.value === 'default') {
+				delete newExtra.web_search_emulation
+			} else {
+				newExtra.web_search_emulation = webSearchEmulationMode.value
+			}
+		} else {
+			delete newExtra.openai_json_schema_to_json_object
+			delete newExtra.web_search_emulation
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100

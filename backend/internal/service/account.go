@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -1595,6 +1596,16 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	return false
 }
 
+// IsOpenAIJSONSchemaToJSONObjectEnabled 返回账号是否启用 JSON Schema 兼容模式。
+//
+// @return 仅 OpenAI APIKey 账号且 extra 中严格配置为 true 时返回 true。
+func (a *Account) IsOpenAIJSONSchemaToJSONObjectEnabled() bool {
+	if a == nil || !a.IsOpenAIApiKey() {
+		return false
+	}
+	return openai_compat.JSONSchemaToJSONObjectEnabled(a.Extra)
+}
+
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。
 //
 // 分类型新字段：
@@ -1791,7 +1802,7 @@ const (
 // 三态：default（跟随渠道）/ enabled（强制开启）/ disabled（强制关闭）。
 // 兼容旧 bool 值：true→enabled, false→default（并记录 debug 日志）。
 func (a *Account) GetWebSearchEmulationMode() string {
-	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+	if a == nil || (a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI) || a.Type != AccountTypeAPIKey || a.Extra == nil {
 		return WebSearchModeDefault
 	}
 	raw := a.Extra[featureKeyWebSearchEmulation]

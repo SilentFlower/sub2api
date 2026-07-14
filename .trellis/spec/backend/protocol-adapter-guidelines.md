@@ -1177,3 +1177,125 @@ return true
 ```
 
 只解除 `none` 的阻断语义，并保留所有其它显式选择。
+
+---
+
+## Scenario: OpenAI Structured Outputs 降级与 DeepSeek Web Search 桥接
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 OpenAI APIKey 账号的 `json_schema` 兼容、Responses Web Search 本地接管、Responses -> Anthropic -> Responses 原生搜索桥或 DeepSeek Anthropic SSE 聚合时，必须按本节检查。
+- 适用路径：
+  - `backend/internal/pkg/apicompat/json_schema_downgrade.go`
+  - `backend/internal/pkg/apicompat/responses_to_anthropic_request.go`
+  - `backend/internal/pkg/apicompat/anthropic_to_responses_response.go`
+  - `backend/internal/service/openai_json_schema_downgrade.go`
+  - `backend/internal/service/openai_responses_websearch.go`
+  - `backend/internal/service/gateway_forward_as_responses.go`
+- 目标：显式配置后可把不受上游支持的 Structured Outputs 降为 `json_object`，并让 Web Search 选择原生转发、本地模拟或明确拒绝；不得把 Schema 或搜索工具静默丢弃。
+
+### 2. Signatures
+
+```go
+func DowngradeResponsesJSONSchemaToJSONObject(body []byte) ([]byte, bool, error)
+func DowngradeChatJSONSchemaToJSONObject(body []byte) ([]byte, bool, error)
+func (a *Account) IsOpenAIJSONSchemaToJSONObjectEnabled() bool
+func (a *Account) GetWebSearchEmulationMode() string
+func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error)
+func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, error)
+func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse
+func AnthropicEventToResponsesEvents(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent
+```
+
+账号与渠道配置键：
+
+```text
+account.extra.openai_json_schema_to_json_object: boolean
+account.extra.web_search_emulation: default | enabled | disabled
+channel.features_config.web_search_emulation.openai: boolean
+channel.features_config.web_search_emulation.anthropic: boolean
+```
+
+### 3. Contracts
+
+- `openai_json_schema_to_json_object` 只对 OpenAI APIKey 账号生效；只有布尔值 `true` 开启，缺失、`false`、字符串 `"true"` 或其它账号类型都保持原请求。
+- Responses 只转换合法的 `text.format.type=json_schema` 且 `schema` 为 JSON object 的请求；输出 `text.format={"type":"json_object"}`，并把原 Schema 作为稳定的 best-effort instructions 约束。
+- Chat 只转换合法的 `response_format.type=json_schema` 且 `json_schema.schema` 为 JSON object 的请求；输出 `response_format={"type":"json_object"}`，并在连续 system/developer 前缀后插入独立 system 约束。
+- 降级 helper 必须基于 `json.RawMessage` 保留未知请求字段、messages 顺序以及 function/tool 参数 Schema；重复调用不能重复注入约束。非法 Schema 或不兼容 instructions 保持原请求，沿既有入口或上游错误处理。
+- `web_search_emulation` 的 `default` 跟随对应渠道平台开关；`enabled` 强制允许本地模拟，`disabled` 强制禁止。全局搜索配置和可用 provider 仍是实际执行的必要条件。
+- Responses 的有效工具必须同时读取顶层 `tools` 与 `input` 中的 `additional_tools`。本地模拟只接管唯一 Web Search 工具，或 `tool_choice` 明确选择 Web Search 的请求。
+- `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被本地模拟擅自接管。
+- 请求只能走 Chat fallback 且要求执行无法等价转换的 Web Search 时，返回 OpenAI 兼容能力错误；不得先删除服务端工具再让模型生成普通文本。
+- 本地模拟与 `text.format.type=json_schema` 同时命中时返回 `400`。模拟器只生成搜索摘要，不能承诺 Structured Outputs。
+- 原生 Responses -> Anthropic 映射使用 `web_search_20250305` 和 `name=web_search`；支持 `filters.allowed_domains`、`filters.blocked_domains`、`max_uses` 和 approximate `user_location`。
+- `search_context_size`、`external_web_access`、`return_token_budget` 在 Anthropic 原生工具中没有等价字段，必须明确返回转换错误，不能静默忽略。
+- Anthropic `server_tool_use(name=web_search)` 映射为 Responses `web_search_call`；`web_search_tool_result` 决定 completed/failed；`citations_delta` 或 text block citations 映射为 `url_citation`。
+- DeepSeek SSE 的 `content_block.index` 是上游标识，不保证从 0 连续递增。缓冲聚合时必须维护 `upstream index -> finalResp.Content position` 映射，不能直接把上游 index 当 slice 下标。
+- DeepSeek 可能在搜索结果块中发送描述后续文本的 `citations_delta`。当当前块不是 text 时先缓存 citation，等 text block 和被引用文本到达后再生成合法的 `item_id`、`start_index` 和 `end_index`。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 必须结果 |
+|---|---|
+| JSON 降级未开启或账号类型不匹配 | 原样转发，不注入约束 |
+| 合法 Responses/Chat `json_schema` 且账号开启 | 转为 `json_object`，保留 Schema 的 best-effort 约束 |
+| Schema 不是 JSON object、instructions 类型不兼容 | 保持原请求，交给既有入口或上游报错 |
+| 纯 Web Search 或明确强制 Web Search，本地模拟可用 | 实际执行搜索并输出 Responses `web_search_call` 与 citations |
+| `tool_choice=none` | 不执行本地搜索，继续正常能力决策 |
+| 强制 Web Search 但未声明 Web Search 工具 | `400 invalid_request_error`，参数指向 `tool_choice` |
+| Chat fallback 无法执行请求要求的 Web Search | `400 invalid_request_error`，参数指向 `tools` |
+| 本地模拟与 `text.format=json_schema` 冲突 | `400 invalid_request_error`，参数指向 `text.format` |
+| 账号允许模拟但全局 provider 不可用 | `503 web_search_unavailable`，不伪造成功、不计费 |
+| Anthropic 原生工具含无等价高级字段 | 返回转换错误，不发送被截断语义的上游请求 |
+| `web_search_tool_result_error` | 对应 `web_search_call.status=failed`，保留错误码 |
+| citation 先于 text 到达 | 先缓存；文本和引用范围可确定后再输出 annotation |
+| SSE block index 为 `5/6/7` 等稀疏值 | 通过映射聚合到连续本地 content，不丢块、不越界 |
+
+### 5. Good/Base/Bad Cases
+
+- Good: OpenAI APIKey 账号开启兼容后，Responses 经原生 `/responses`、Responses shape 经 Chat fallback、直接 Chat 请求都只向上游发送 `json_object`，原 Schema 仍作为输出约束存在。
+- Good: `input` 中通过 `additional_tools` 声明的唯一 Web Search 能被识别；明确强制搜索时本地 provider 执行一次，返回完整 `web_search_call`、摘要和 URL citations。
+- Good: DeepSeek 依次发送 index `5` 的搜索调用、index `6` 的搜索结果、挂在 index `5` 上的 citation、index `7` 的文本时，最终 Responses 中搜索调用、文本和引用都完整。
+- Base: 模拟配置关闭且上游原生 Responses 支持 Web Search 时保持 pass，不改变现有上游能力。
+- Base: `tool_choice=none` 即使声明 Web Search 也不执行搜索。
+- Bad: 在 Responses -> Chat 转换时直接丢弃 `web_search` 和对应 `tool_choice`，让客户端收到看似成功但实际未搜索的文本。
+- Bad: 把原 Schema 序列化成普通 string 作为 `response_format`，会产生无效协议且丢失对象语义。
+- Bad: 使用 `finalResp.Content[event.Index]` 聚合 DeepSeek SSE；稀疏 index 会越界或把 delta 写到错误 block。
+- Bad: citation 到达时没有 text item 就直接发 annotation；会产生空 `item_id` 或错误的字符索引。
+
+### 6. Tests Required
+
+- JSON Schema helper 和网关路径必须覆盖：配置 guard、Responses、Chat、Responses -> Chat、Responses shape on Chat、passthrough、幂等、非法 Schema、未知字段和工具 Schema 保留。
+- Web Search 决策必须覆盖：顶层 tools、`additional_tools`、唯一搜索工具、混合工具、`auto|required|none`、强制搜索、强制其它工具、Chat fallback 拒绝、JSON Schema 冲突和 provider 不可用。
+- 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
+- SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/pkg/apicompat ./internal/service -count=1
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+contentIndex := *event.Index
+finalResp.Content[contentIndex].Text += event.Delta.Text
+```
+
+问题：Anthropic/DeepSeek 的 block index 是流中的关联键，不是本地连续数组位置；隐藏块或服务端工具块会让 index 稀疏。
+
+#### Correct
+
+```go
+contentPositionByUpstreamIndex[*event.Index] = len(finalResp.Content) - 1
+
+contentPosition, ok := contentPositionByUpstreamIndex[*event.Index]
+if ok {
+	finalResp.Content[contentPosition].Text += event.Delta.Text
+}
+```
+
+在 `content_block_start` 建立映射，后续 delta 通过映射定位本地内容；citation 属于非 text block 时先缓存，等 text block 出现后再附加。

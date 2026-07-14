@@ -21,7 +21,7 @@ import (
 
 // ProviderConfig holds the configuration for a single search provider.
 type ProviderConfig struct {
-	Type         string `json:"type"`                    // ProviderTypeBrave | ProviderTypeTavily
+	Type         string `json:"type"`                    // ProviderTypeBrave | ProviderTypeTavily | ProviderTypeAnySearch
 	APIKey       string `json:"api_key"`                 // secret
 	QuotaLimit   int64  `json:"quota_limit"`             // 0 = unlimited
 	SubscribedAt *int64 `json:"subscribed_at,omitempty"` // subscription start (unix seconds); quota resets monthly from this date
@@ -106,6 +106,7 @@ func (m *Manager) SearchWithBestProvider(ctx context.Context, req SearchRequest)
 		}
 		resp, err := m.executeSearch(ctx, cfg, req)
 		if err != nil {
+			safeErr := sanitizeSearchError(err, cfg, req)
 			if incremented {
 				m.rollbackQuota(ctx, cfg)
 			}
@@ -115,22 +116,36 @@ func (m *Manager) SearchWithBestProvider(ctx context.Context, req SearchRequest)
 					// Account-level proxy is shared by all providers — no point
 					// trying others with the same broken proxy; signal account switch.
 					slog.Warn("websearch: account proxy error, aborting failover",
-						"provider", cfg.Type, "error", err)
-					return nil, "", fmt.Errorf("%w: %s", ErrProxyUnavailable, err.Error())
+						"provider", cfg.Type, "error", safeErr)
+					return nil, "", fmt.Errorf("%w: %s", ErrProxyUnavailable, safeErr)
 				}
 				// Provider-specific proxy failed — try the next provider which
 				// may use a different (or no) proxy.
 				slog.Warn("websearch: provider proxy error, trying next provider",
-					"provider", cfg.Type, "error", err)
+					"provider", cfg.Type, "error", safeErr)
 				continue
 			}
 			slog.Warn("websearch: provider search failed",
-				"provider", cfg.Type, "error", err)
+				"provider", cfg.Type, "error", safeErr)
 			continue
 		}
 		return resp, cfg.Type, nil
 	}
 	return nil, "", fmt.Errorf("websearch: no available provider (all exhausted or failed)")
+}
+
+func sanitizeSearchError(err error, cfg ProviderConfig, req SearchRequest) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	for _, sensitive := range []string{cfg.APIKey, req.Query, req.ProxyURL} {
+		sensitive = strings.TrimSpace(sensitive)
+		if sensitive != "" {
+			message = strings.ReplaceAll(message, sensitive, "[REDACTED]")
+		}
+	}
+	return message
 }
 
 // filterAvailableProviders returns providers that have API keys, are not expired,
@@ -228,7 +243,7 @@ func mergeWeightedResults(withQuota, withoutQuota []weighted, capacity int) []Pr
 }
 
 func (m *Manager) isProviderAvailable(cfg ProviderConfig) bool {
-	if cfg.APIKey == "" {
+	if cfg.Type != ProviderTypeAnySearch && cfg.APIKey == "" {
 		return false
 	}
 	if cfg.ExpiresAt != nil && time.Now().Unix() > *cfg.ExpiresAt {
@@ -464,6 +479,8 @@ func (m *Manager) buildProvider(cfg ProviderConfig, client *http.Client) Provide
 		return NewBraveProvider(cfg.APIKey, client)
 	case tavilyProviderName:
 		return NewTavilyProvider(cfg.APIKey, client)
+	case anySearchProviderName:
+		return NewAnySearchProvider(cfg.APIKey, client)
 	default:
 		slog.Warn("websearch: unknown provider type, falling back to brave",
 			"type", cfg.Type)

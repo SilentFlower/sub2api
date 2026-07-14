@@ -2803,9 +2803,9 @@
         </div>
       </div>
 
-      <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
+      <!-- API Key：全局未启用时隐藏 Web Search 模拟配置 -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="(form.platform === 'anthropic' || form.platform === 'openai') && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2815,7 +2815,7 @@
               {{ t('admin.accounts.anthropic.webSearchEmulationDesc') }}
             </p>
           </div>
-          <select v-model="webSearchEmulationMode" class="input w-24 text-sm">
+          <select v-model="webSearchEmulationMode" class="input w-24 text-sm" data-testid="web-search-emulation-mode-select">
             <option value="default">{{ t('admin.accounts.anthropic.webSearchDefault') }}</option>
             <option value="enabled">{{ t('admin.accounts.anthropic.webSearchEnabled') }}</option>
             <option value="disabled">{{ t('admin.accounts.anthropic.webSearchDisabled') }}</option>
@@ -2996,6 +2996,35 @@
         >
           {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
         </p>
+        <div
+          v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+          class="flex items-center justify-between gap-4"
+        >
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.jsonSchemaDowngrade') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.jsonSchemaDowngradeDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            data-testid="openai-json-schema-downgrade-toggle"
+            :aria-checked="openAIJSONSchemaDowngradeEnabled"
+            @click="openAIJSONSchemaDowngradeEnabled = !openAIJSONSchemaDowngradeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAIJSONSchemaDowngradeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAIJSONSchemaDowngradeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
         <div v-if="form.platform === 'openai' && accountCategory === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -3736,6 +3765,7 @@ const openAILongContextBillingEnabled = ref(false)
 const openAILongContextBillingTouched = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
+const openAIJSONSchemaDowngradeEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -4209,6 +4239,8 @@ watch(
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
+    }
+    if (newPlatform !== 'anthropic' && newPlatform !== 'openai') {
       webSearchEmulationMode.value = 'default'
     }
     // 请求头覆写为平台相关配置（模板/常用头集合不同），切换平台时清空，
@@ -4237,7 +4269,12 @@ watch(
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
+    }
+    if ((platform !== 'anthropic' && platform !== 'openai') || category !== 'apikey') {
       webSearchEmulationMode.value = 'default'
+    }
+    if (platform !== 'openai' || category !== 'apikey') {
+      openAIJSONSchemaDowngradeEnabled.value = false
     }
   }
 )
@@ -4614,6 +4651,7 @@ const resetForm = () => {
   openAILongContextBillingTouched.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAIJSONSchemaDowngradeEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -4732,6 +4770,17 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   applyResponsesModeExtra(extra, accountCategory.value === 'apikey' && openAITextGenerationCapabilityEnabled.value)
+
+  if (accountCategory.value === 'apikey' && openAIJSONSchemaDowngradeEnabled.value) {
+    extra.openai_json_schema_to_json_object = true
+  } else {
+    delete extra.openai_json_schema_to_json_object
+  }
+  if (accountCategory.value === 'apikey' && webSearchEmulationMode.value !== 'default') {
+    extra.web_search_emulation = webSearchEmulationMode.value
+  } else {
+    delete extra.web_search_emulation
+  }
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }

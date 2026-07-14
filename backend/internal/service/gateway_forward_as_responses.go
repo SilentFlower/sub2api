@@ -252,6 +252,8 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	// Accumulate the final Anthropic response from streaming events
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	var pendingCitations []apicompat.AnthropicCitation
+	contentPositionByUpstreamIndex := make(map[int]int)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -283,6 +285,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		// message_start carries the initial response structure
 		if event.Type == "message_start" && event.Message != nil {
 			finalResp = event.Message
+			contentPositionByUpstreamIndex = make(map[int]int)
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
 
@@ -298,18 +301,40 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 
 		// Accumulate content blocks
 		if event.Type == "content_block_start" && event.ContentBlock != nil && finalResp != nil {
-			finalResp.Content = append(finalResp.Content, *event.ContentBlock)
+			block := *event.ContentBlock
+			if block.Type == "text" && len(pendingCitations) > 0 {
+				// DeepSeek 会把 citation delta 放在搜索结果块中，但它描述的是后续文本。
+				block.Citations = append(block.Citations, pendingCitations...)
+				pendingCitations = nil
+			}
+			finalResp.Content = append(finalResp.Content, block)
+			if event.Index != nil {
+				contentPositionByUpstreamIndex[*event.Index] = len(finalResp.Content) - 1
+			}
 		}
 		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
-			idx := *event.Index
-			if idx < len(finalResp.Content) {
+			contentPosition, ok := contentPositionByUpstreamIndex[*event.Index]
+			if !ok && *event.Index >= 0 && *event.Index < len(finalResp.Content) {
+				// 兼容没有 content_block_start 映射的旧连续索引流。
+				contentPosition = *event.Index
+				ok = true
+			}
+			if ok {
 				switch event.Delta.Type {
 				case "text_delta":
-					finalResp.Content[idx].Text += event.Delta.Text
+					finalResp.Content[contentPosition].Text += event.Delta.Text
 				case "thinking_delta":
-					finalResp.Content[idx].Thinking += event.Delta.Thinking
+					finalResp.Content[contentPosition].Thinking += event.Delta.Thinking
 				case "input_json_delta":
-					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
+					finalResp.Content[contentPosition].Input = appendRawJSON(finalResp.Content[contentPosition].Input, event.Delta.PartialJSON)
+				case "citations_delta":
+					if event.Delta.Citation != nil {
+						if finalResp.Content[contentPosition].Type == "text" {
+							finalResp.Content[contentPosition].Citations = append(finalResp.Content[contentPosition].Citations, *event.Delta.Citation)
+						} else {
+							pendingCitations = append(pendingCitations, *event.Delta.Citation)
+						}
+					}
 				}
 			}
 		}
@@ -521,7 +546,8 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
-	if len(existing) == 0 {
+	trimmed := strings.TrimSpace(string(existing))
+	if trimmed == "" || trimmed == "{}" || trimmed == "null" {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)
