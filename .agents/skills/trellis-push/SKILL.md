@@ -171,10 +171,10 @@ merge-aware 路径按工作树是否存在拆分 exact planned files：现存路
 
 ```bash
 git rev-list --parents -n 1 HEAD
-git diff-tree --no-commit-id --name-only -r --first-parent HEAD
+git diff --name-only HEAD^1 HEAD
 ```
 
-结果必须恰好有两个父提交，顺序为记录的 `pre_merge_head`、`merge_head`；first-parent 文件集合必须等于 confirmed planned files。任一验证失败都停止 push，不自动重写提交。
+结果必须恰好有两个父提交，顺序为记录的 `pre_merge_head`、`merge_head`；`HEAD^1..HEAD` 文件集合必须等于 confirmed planned files。这里必须显式比较第一个父提交，不能使用未带 `-m` 的 `git diff-tree` 校验 merge commit，因为它默认不展开合并差异，容易把有效提交误判为空集合。任一验证失败都停止 push，不自动重写提交。
 
 普通模式继续推送当前分支：
 
