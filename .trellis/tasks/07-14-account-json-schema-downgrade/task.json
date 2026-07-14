@@ -22,16 +22,5 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {},
-  "progress": {
-    "updatedAt": "2026-07-14T15:13:09+08:00",
-    "completedSteps": [
-      "实现账号级 JSON Schema 兼容降级与四条网关路径接入",
-      "实现 request_permissions 严格流式与非流式恢复",
-      "完成全面检查并同步协议适配规范"
-    ],
-    "partialStep": null,
-    "nextStep": "等待用户明确执行 Phase 3.5 收尾",
-    "notes": "业务变更已推送；计划外未跟踪任务目录保持未提交。"
-  }
+  "meta": {}
 }
