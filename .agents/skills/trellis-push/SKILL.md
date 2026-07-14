@@ -1,6 +1,6 @@
 ---
 name: trellis-push
-description: "按确认的精确文件范围提交普通变更或完成已就绪的 merge commit，推送相关仓库，并在普通推送后同步当前任务进度。"
+description: "按确认的精确文件范围提交普通变更或完成已就绪的 merge commit；多仓计划可包含已展示的本地生成命令，并在普通推送后同步当前任务进度。"
 ---
 
 # Trellis Push
@@ -10,6 +10,7 @@ description: "按确认的精确文件范围提交普通变更或完成已就绪
 ## 职责边界
 
 - 普通模式默认 `commit + push`。
+- 普通多仓计划可以包含本地确定性生成命令；生成后没有新增计划外文件时沿用同一次确认。
 - 用户明确要求“只提交不推送”时使用 `commit-only`。
 - auto-loop 可调用内部 `commit-only`，但必须传入已经校验过的 exact files 与 commit message；本 skill 只执行该提交。
 - 不发起、终止或解决分支合并；只允许普通模式完成已经开始、冲突已清零且索引完全可归属的 merge commit。
@@ -20,8 +21,7 @@ description: "按确认的精确文件范围提交普通变更或完成已就绪
 
 | 模式 | 确认 | Git 动作 | 进度同步 |
 | --- | --- | --- | --- |
-| 普通 | 展示最小计划并确认一次 | exact commit，然后 push 当前分支 | 有活动任务时立即同步 |
-| 普通 merge-aware | 展示完整 merge 索引计划并确认一次 | 完成已有双父 merge commit，然后 push 当前分支 | 有活动任务时立即同步 |
+| 普通 | 展示最小计划并确认一次 | exact commit；已有 merge 就绪时完成双父提交；然后 push | 有活动任务时立即同步 |
 | 用户 `commit-only` | 展示最小计划并确认一次 | exact local commit | 跳过 |
 | auto-loop 内部 `commit-only` | 复用 auto-loop 预授权 | exact local commit | 跳过 |
 
@@ -70,8 +70,7 @@ git log @{u}..HEAD --oneline 2>/dev/null || true
 停止条件：
 
 - detached HEAD、分支不可读、未解决冲突、rebase、cherry-pick、revert 或其它非 merge 的未完成 Git 集成状态。
-- `MERGE_HEAD` 存在时，仅普通模式可进入 merge-aware 路径；用户/auto-loop `commit-only` 必须停止。
-- merge-aware 路径中存在 unmerged 文件、无法固定 merge 前 `HEAD`/`MERGE_HEAD`、任一 staged path 不属于 planned、存在计划外 staged，或确认后的 cached path set 与计划不一致。
+- `MERGE_HEAD` 存在时仅普通模式可继续，并且必须固定当前 `HEAD` / `MERGE_HEAD`、确认 `git ls-files -u` 为空、全部 staged paths 都属于 planned 且没有 retained staged；否则停止。用户/auto-loop `commit-only` 不适用。
 - 普通推送会携带无法归属本次任务的历史 ahead commits。
 - 无法确定 planned file 是否属于当前请求或活动任务。
 - 内部 `commit-only` 发现 staged 区非空。
@@ -81,11 +80,13 @@ git log @{u}..HEAD --oneline 2>/dev/null || true
 - `planned`：本轮明确归属且准备提交的 exact files。
 - `retained`：当前存在、但本次明确不提交并保持原状的 dirty paths，包含计划外 untracked、unstaged、staged 文件。clean files 不进入该集合。
 
+普通 `PUSH` 需要在仓库间运行本地生成命令时，首次计划同时展示命令、工作目录和后续仓预计 exact files。仅在后续仓没有 retained dirty 时使用；命令必须本地、可重复且无外部副作用。
+
 `retained` 只是内部集合名。用户可见输出统一写“保留未提交的变更（dirty）”，并逐项标注 `[untracked]`、`[unstaged]`、`[staged]`。unknown ahead、branch/upstream 异常、归属不确定等真正需要处理的事项单独进入“风险”区；普通 retained dirty 不默认视为阻塞。
 
 普通模式允许 `retained` 存在。执行前记录计划外 staged set，提交后确认这些 staged 文件仍保持原状。用户明确要求新增文件时，重新生成计划并确认，不能在执行中静默扩大范围。
 
-merge-aware 模式是例外：merge commit 会提交整个索引，因此 planned 必须覆盖全部 staged paths，`retained` 中不得存在 `[staged]`。未跟踪或未暂存 retained 仍可保留，但任何计划外 staged 都是阻塞项。
+已有 merge 会提交整个索引，因此 planned 必须覆盖全部 staged paths，`retained` 中不得存在 `[staged]`；未跟踪或未暂存 retained 仍可保留。
 
 ## Step 3：展示最小计划
 
@@ -96,19 +97,21 @@ merge-aware 模式是例外：merge commit 会提交整个索引，因此 planne
 
 [<PUSH / PUSH · MERGE / COMMIT-ONLY>] <N> 个仓库 · <N> 个 commit · <N> 个文件 · 保留未提交 <N> · 风险 <N>
 [无活动任务时追加：无活动任务]
-顺序：<repo-a> -> <repo-b> [-> task progress]
+顺序：<repo-a> [-> `<local generation command>`] -> <repo-b> [-> task progress]
 
 ### 1. <repository-name>
 
 `<commit message>`
 分支：`<branch>` -> `<upstream>`
 变更：<N> 个文件 · `+<adds> -<deletes>`
-[merge-aware 时：父提交：`<pre-merge-head>` + `<merge-head>`]
+[已有 merge 时：父提交：`<pre-merge-head>` + `<merge-head>`]
 
 计划提交：
 - <exact files 或分组摘要>
 
 Push：<执行 / 跳过（commit-only）>
+
+[生成（仅普通多仓需要时显示）：前置仓成功后，在 `<working-directory>` 运行 `<exact local command>`；预计只影响 <后续仓 exact files 或分组摘要>]
 
 ### 保留未提交的变更（dirty，仅数量大于 0 时显示）
 - [untracked] <path>
@@ -131,14 +134,17 @@ Push：<执行 / 跳过（commit-only）>
 - 保留未提交的变更始终逐项标注 Git 状态；真正风险在独立“风险”区逐项展示。
 - 无活动任务或 `commit-only` 时省略进度动作。
 - 不重复展示检查结果、规范复核、归档或其他阶段信息。
+- 生成前无法确定的内容和增删行写“生成后计算”，不得填预测值。
 
-普通多仓只确认一次。用户调整 message、文件或仓库顺序后，更新计划并重新确认。
+普通多仓只确认一次。计划已展示生成命令和预计 exact files 时，命令成功且没有出现预计列表外的新 dirty path 就沿用原确认；内容、hash 或统计变化不重问。其它计划边界变化仍按 Step 4 重新规划。
 
 auto-loop 内部 `commit-only` 仍生成同样的逐仓执行数据用于自检和结果记录，但不再次询问用户；它不得扩展调用方给定的 exact files/message。
 
 ## Step 4：精确提交与推送
 
 每个仓库按计划顺序执行。执行前重新检查 planned files、当前分支、upstream、冲突状态和 ahead commits；任一关键条件变化都停止当前执行并重新规划。仅 `retained` 内容变化时保留并在结果中更新说明。
+
+计划包含本地生成命令时，前置仓成功后按计划执行命令，再复用本节现有预检。命令成功、后续仓全部 dirty paths 都在已确认的预计 exact files 内且没有其它计划边界变化时直接继续；否则停止并重新生成计划。预计文件最终 clean 时不强行提交。
 
 普通精确提交：
 
@@ -156,7 +162,7 @@ git diff --cached --name-only
 
 commit 只能包含 planned files，执行前的计划外 staged set 必须仍保留。
 
-已有 merge 的精确提交：
+已有 merge：
 
 ```bash
 pre_merge_head="$(git rev-parse HEAD)"
@@ -167,14 +173,14 @@ git diff --cached --check
 git commit -m "<confirmed message>"
 ```
 
-merge-aware 路径按工作树是否存在拆分 exact planned files：现存路径使用 `git add --`；已删除路径如果已出现在 cached 集合中则保持不动，否则使用 `git add -u --`。Git 在 merge 已记录删除后会同时从工作树和索引移除该路径，重复 add 会报 pathspec 不存在，因此删除处理必须幂等。所有 add 都必须携带精确 pathspec，不能退化为整仓 add。merge-aware 不能给 `git commit` 传 pathspec，因为 Git 禁止 merge 中的 partial commit。执行前必须通过集合比较确认 `git diff --cached --name-only` 与 confirmed planned files 完全相等，并再次确认 `git ls-files -u` 为空、没有计划外 staged。提交后必须验证：
+merge 中的 `git commit` 不能携带 pathspec。现存 planned 使用 `git add --`；已删除 planned 仅在尚未进入 cached 集合时使用 `git add -u --`。提交前确认 cached path set 与 confirmed planned files 完全相等、`git ls-files -u` 为空且 `git diff --cached --check` 通过。提交后验证：
 
 ```bash
 git rev-list --parents -n 1 HEAD
-git diff --name-only HEAD^1 HEAD
+git diff-tree --no-commit-id --name-only -r HEAD^1 HEAD
 ```
 
-结果必须恰好有两个父提交，顺序为记录的 `pre_merge_head`、`merge_head`；`HEAD^1..HEAD` 文件集合必须等于 confirmed planned files。这里必须显式比较第一个父提交，不能使用未带 `-m` 的 `git diff-tree` 校验 merge commit，因为它默认不展开合并差异，容易把有效提交误判为空集合。任一验证失败都停止 push，不自动重写提交。
+结果必须恰好有两个父提交，顺序为记录的 `pre_merge_head`、`merge_head`；first-parent 文件集合必须等于 confirmed planned files。任一验证失败都停止 push，不自动重写提交。
 
 普通模式继续推送当前分支：
 
@@ -246,6 +252,8 @@ git push origin <current-branch>
 分支：`<branch>` -> `<upstream>`
 状态：<✓ 已推送 / · 仅本地提交 / ❌ 失败>
 
+[生成：`<exact local command>` · <✓ 已完成 / ❌ 失败 / · 未执行>]
+
 ### 任务进度
 
 状态：<✓ 已同步 · `<progress-hash>` / · 已跳过 / ❌ 同步失败>
@@ -263,7 +271,8 @@ git push origin <current-branch>
 ## 禁止事项
 
 - 扩大到计划外文件或要求清理无关工作区。
+- 执行首次计划未展示的生成命令，或生成计划外文件后仍沿用旧确认。
 - 用任务进度决定是否推送代码。
-- 在本 skill 内发起、终止、解决冲突或改变分支合并目标；merge-aware 仅能完成已就绪的 merge commit。
+- 在本 skill 内发起、终止、解决冲突或改变分支合并目标；只允许完成已就绪的 merge commit。
 - 自动解决 push rejection、冲突、凭证或远端保护规则问题。
 - 在业务失败后伪造已完成进度，或因进度同步失败回滚业务提交。
