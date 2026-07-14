@@ -62,9 +62,26 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
+	grokImportProber        grokUsageProber
 }
 
-// NewAccountHandler creates a new admin account handler
+// NewAccountHandler 创建账号管理处理器。
+//
+// @param adminService 管理服务。
+// @param oauthService 通用 OAuth 服务。
+// @param openaiOAuthService OpenAI OAuth 服务。
+// @param geminiOAuthService Gemini OAuth 服务。
+// @param antigravityOAuthService Antigravity OAuth 服务。
+// @param rateLimitService 限流服务。
+// @param accountUsageService 账号用量服务。
+// @param accountTestService 账号测试服务。
+// @param openaiCodexResetService build 独立 Codex reset 邀请重置服务。
+// @param concurrencyService 并发服务。
+// @param crsSyncService CRS 同步服务。
+// @param sessionLimitCache 会话限制缓存。
+// @param rpmCache RPM 缓存。
+// @param tokenCacheInvalidator Token 缓存失效器。
+// @return 完成基础依赖注入的账号管理处理器。
 func NewAccountHandler(
 	adminService service.AdminService,
 	oauthService *service.OAuthService,
@@ -788,6 +805,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := service.ValidateOpenAILongContextBillingExtra(req.Platform, req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	if req.RateMultiplier != nil && *req.RateMultiplier < 0 {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
@@ -855,6 +876,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
 	h.scheduleOpenAIResponsesProbe(createdAccount)
+	h.scheduleGrokImportProbe(createdAccount)
 	response.Success(c, result.Data)
 }
 
@@ -1303,6 +1325,10 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		response.ErrorFrom(c, infraerrors.BadRequest("NOT_OAUTH", "cannot apply oauth credentials to non-OAuth account"))
 		return
 	}
+	if err := service.ValidateOpenAILongContextBillingExtra(existing.Platform, req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
 		Type:        req.Type,
@@ -1596,6 +1622,12 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	for _, item := range req.Accounts {
+		if err := service.ValidateOpenAILongContextBillingExtra(item.Platform, item.Extra); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	executeAdminIdempotentJSON(c, "admin.accounts.batch_create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		success := 0
@@ -1657,6 +1689,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 			}
 			// OpenAI APIKey 账号异步探测 /v1/responses 能力。
 			h.scheduleOpenAIResponsesProbe(account)
+			h.scheduleGrokImportProbe(account)
 			success++
 			results = append(results, gin.H{
 				"name":    item.Name,

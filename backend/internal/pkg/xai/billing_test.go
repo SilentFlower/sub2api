@@ -1,97 +1,127 @@
-//go:build unit
-
 package xai
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildBillingSnapshotMergesWeeklyAndMonthly(t *testing.T) {
+func TestBuildBillingURL(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", BuildBillingURL(true))
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/billing", BuildBillingURL(false))
+}
+
+func TestApplyCLIBillingHeaders(t *testing.T) {
+	t.Parallel()
+	req, err := http.NewRequest(http.MethodGet, BuildBillingURL(true), nil)
+	require.NoError(t, err)
+
+	ApplyCLIBillingHeaders(req, " token ")
+
+	require.Equal(t, "Bearer token", req.Header.Get("Authorization"))
+	require.Equal(t, CLITokenAuthValue, req.Header.Get(CLITokenAuthHeader))
+	require.Equal(t, CLIClientVersion, req.Header.Get(CLIClientVersionHeader))
+	require.Equal(t, "grok-pager/"+CLIClientVersion+" grok-shell/"+CLIClientVersion+" (macos; aarch64)", req.UserAgent())
+}
+
+func TestBuildBillingSummaryWeeklyAndMonthly(t *testing.T) {
 	t.Parallel()
 
-	weeklyPayload, err := ParseBillingPayload([]byte(`{
+	weeklyBody := []byte(`{
 		"config": {
-			"currentPeriod": {
-				"type": "weekly",
-				"start": "2026-07-06T00:00:00Z",
-				"end": "2026-07-13T00:00:00Z"
-			},
-			"creditUsagePercent": "25.5",
-			"productUsage": [
-				{"product": "grok-code", "usagePercent": "40"}
-			]
+			"currentPeriod": {"type":"WEEKLY","start":"2026-07-09T03:25:00Z","end":"2026-07-16T03:25:00Z"},
+			"creditUsagePercent": 2.0,
+			"productUsage": [{"product":"Api","usagePercent":2.0}]
 		}
-	}`))
-	require.NoError(t, err)
-	monthlyPayload, err := ParseBillingPayload([]byte(`{
+	}`)
+	monthlyBody := []byte(`{
 		"config": {
-			"monthlyLimit": {"val": "15000"},
-			"used": {"val": "5000"},
-			"onDemandCap": {"val": "10000"},
+			"monthlyLimit": {"val": 15000},
+			"used": {"val": 78},
 			"billingPeriodStart": "2026-07-01T00:00:00Z",
 			"billingPeriodEnd": "2026-08-01T00:00:00Z"
 		}
-	}`))
+	}`)
+
+	weeklyPayload, err := ParseBillingPayload(weeklyBody)
+	require.NoError(t, err)
+	monthlyPayload, err := ParseBillingPayload(monthlyBody)
 	require.NoError(t, err)
 
-	now := time.Date(2026, 7, 9, 8, 0, 0, 0, time.UTC)
-	snapshot := BuildBillingSnapshot(weeklyPayload, monthlyPayload, now)
-	require.NotNil(t, snapshot)
-	require.Equal(t, "weekly", snapshot.PeriodType)
-	require.NotNil(t, snapshot.WeeklyUsedPercent)
-	require.InDelta(t, 25.5, *snapshot.WeeklyUsedPercent, 0.001)
-	require.Equal(t, "2026-07-13T00:00:00Z", snapshot.WeeklyResetAt)
-	require.Len(t, snapshot.ProductUsage, 1)
-	require.Equal(t, "grok-code", snapshot.ProductUsage[0].Product)
-	require.NotNil(t, snapshot.ProductUsage[0].UsagePercent)
-	require.InDelta(t, 40, *snapshot.ProductUsage[0].UsagePercent, 0.001)
-	require.NotNil(t, snapshot.MonthlyLimitCents)
-	require.EqualValues(t, 15000, *snapshot.MonthlyLimitCents)
-	require.NotNil(t, snapshot.MonthlyUsedCents)
-	require.EqualValues(t, 5000, *snapshot.MonthlyUsedCents)
-	require.NotNil(t, snapshot.MonthlyRemainingCents)
-	require.EqualValues(t, 10000, *snapshot.MonthlyRemainingCents)
-	require.NotNil(t, snapshot.MonthlyUsedPercent)
-	require.InDelta(t, 33.333, *snapshot.MonthlyUsedPercent, 0.01)
-	require.Equal(t, "supergrok", snapshot.PlanLabel)
-	require.Equal(t, "2026-07-09T08:00:00Z", snapshot.UpdatedAt)
+	weekly := BuildBillingSummary(weeklyPayload.Config)
+	monthly := BuildBillingSummary(monthlyPayload.Config)
+	require.NotNil(t, weekly)
+	require.NotNil(t, monthly)
+	require.Equal(t, "weekly", weekly.PeriodType)
+	require.InDelta(t, 2.0, *weekly.UsagePercent, 1e-9)
+	require.Equal(t, "Api", weekly.ProductUsage[0].Product)
+	require.Equal(t, "SuperGrok", monthly.Plan)
+	require.InDelta(t, 15000, *monthly.MonthlyLimitCents, 1e-9)
+	require.InDelta(t, 78, *monthly.UsedCents, 1e-9)
+	require.InDelta(t, 0.52, *monthly.UsedPercent, 1e-2)
+
+	merged := MergeBillingProbeResult(nil, weekly, monthly, true, true)
+	require.Equal(t, "weekly", merged.PeriodType)
+	require.InDelta(t, 2.0, *merged.UsagePercent, 1e-9)
+	require.Equal(t, "SuperGrok", merged.Plan)
+	require.InDelta(t, 15000, *merged.MonthlyLimitCents, 1e-9)
+	require.Equal(t, "2026-08-01T00:00:00Z", merged.BillingPeriodEnd)
 }
 
-func TestBuildBillingSnapshotDerivesOnDemandUsed(t *testing.T) {
+func TestParseCentValueBareNumber(t *testing.T) {
 	t.Parallel()
-
-	monthlyPayload, err := ParseBillingPayload([]byte(`{
-		"config": {
-			"monthly_limit": {"val": 15000},
-			"used": {"val": 17000},
-			"on_demand_cap": {"val": 10000},
-			"billing_period_end": "2026-08-01T00:00:00Z"
-		}
-	}`))
-	require.NoError(t, err)
-
-	snapshot := BuildBillingSnapshot(nil, monthlyPayload, time.Date(2026, 7, 9, 8, 0, 0, 0, time.UTC))
-	require.NotNil(t, snapshot)
-	require.NotNil(t, snapshot.MonthlyUsedCents)
-	require.EqualValues(t, 15000, *snapshot.MonthlyUsedCents)
-	require.NotNil(t, snapshot.MonthlyRemainingCents)
-	require.EqualValues(t, 0, *snapshot.MonthlyRemainingCents)
-	require.NotNil(t, snapshot.OnDemandUsedCents)
-	require.EqualValues(t, 2000, *snapshot.OnDemandUsedCents)
-	require.NotNil(t, snapshot.OnDemandRemainingCents)
-	require.EqualValues(t, 8000, *snapshot.OnDemandRemainingCents)
-	require.NotNil(t, snapshot.OnDemandUsedPercent)
-	require.InDelta(t, 20, *snapshot.OnDemandUsedPercent, 0.001)
+	raw, _ := json.Marshal(15000)
+	v := parseCentValue(raw)
+	require.NotNil(t, v)
+	require.InDelta(t, 15000, *v, 1e-9)
 }
 
-func TestBuildBillingSnapshotReturnsNilForEmptyConfig(t *testing.T) {
+func TestBuildBillingSummaryMonthlyOnlyKeepsWeeklyUsageEmpty(t *testing.T) {
 	t.Parallel()
-
-	payload, err := ParseBillingPayload([]byte(`{"config":{}}`))
+	payload, err := ParseBillingPayload([]byte(`{"config":{"monthlyLimit":{"val":15000},"used":{"val":7500},"billingPeriodStart":"2026-07-01T00:00:00Z","billingPeriodEnd":"2026-08-01T00:00:00Z"}}`))
 	require.NoError(t, err)
 
-	require.Nil(t, BuildBillingSnapshot(payload, nil, time.Now()))
+	summary := BuildBillingSummary(payload.Config)
+	require.NotNil(t, summary)
+	require.Equal(t, "monthly", summary.PeriodType)
+	require.Nil(t, summary.UsagePercent)
+	require.InDelta(t, 50, *summary.UsedPercent, 1e-9)
+}
+
+func TestMergeBillingProbeResultRetainsFailedWindow(t *testing.T) {
+	t.Parallel()
+	previous := &BillingSummary{
+		PeriodType:        "weekly",
+		UsagePercent:      floatPointer(100),
+		PeriodEnd:         "2026-07-16T00:00:00Z",
+		MonthlyLimitCents: floatPointer(15000),
+		UsedPercent:       floatPointer(20),
+		BillingPeriodEnd:  "2026-08-01T00:00:00Z",
+		WeeklyUpdatedAt:   "2026-07-10T00:00:00Z",
+		MonthlyUpdatedAt:  "2026-07-10T00:00:00Z",
+		FailedWindows:     []string{"monthly"},
+	}
+	monthly := &BillingSummary{
+		PeriodType:        "monthly",
+		MonthlyLimitCents: floatPointer(15000),
+		UsedPercent:       floatPointer(30),
+		BillingPeriodEnd:  "2026-08-01T00:00:00Z",
+	}
+
+	merged := MergeBillingProbeResult(previous, nil, monthly, false, true)
+	require.Equal(t, "weekly", merged.PeriodType)
+	require.InDelta(t, 100, *merged.UsagePercent, 1e-9)
+	require.Equal(t, previous.WeeklyUpdatedAt, merged.WeeklyUpdatedAt)
+	require.InDelta(t, 30, *merged.UsedPercent, 1e-9)
+	require.NotEqual(t, previous.MonthlyUpdatedAt, merged.MonthlyUpdatedAt)
+	require.True(t, merged.Partial)
+	require.Equal(t, []string{"weekly"}, merged.FailedWindows)
+	require.Equal(t, []string{"monthly"}, previous.FailedWindows)
+}
+
+func floatPointer(value float64) *float64 {
+	return &value
 }

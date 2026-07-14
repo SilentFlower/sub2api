@@ -567,7 +567,7 @@ func codexModelLookupKey(modelID string) string {
 
 func isKnownCodexModelSuffix(suffix string) bool {
 	switch suffix {
-	case "none", "minimal", "low", "medium", "high", "xhigh", "max":
+	case "none", "minimal", "low", "medium", "high", "xhigh":
 		return true
 	}
 	return isCodexDateSuffix(suffix)
@@ -879,8 +879,7 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
-	// 新版 Codex 由本地 extension 执行 namespace 工具并负责落盘，不能再注入旧工具抢占调用。
-	if hasOpenAIImageGenNamespaceTool(reqBody) {
+	if hasOpenAIImageGenerationTool(reqBody) {
 		return false
 	}
 
@@ -900,16 +899,6 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 		reqBody["tools"] = []any{tool}
 		return true
 	}
-	for _, rawTool := range tools {
-		toolMap, ok := rawTool.(map[string]any)
-		if !ok {
-			continue
-		}
-		if strings.TrimSpace(firstNonEmptyString(toolMap["type"])) == "image_generation" {
-			return false
-		}
-	}
-
 	reqBody["tools"] = append(tools, tool)
 	return true
 }
@@ -919,6 +908,10 @@ func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) 
 		return false
 	}
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
+		return false
+	}
+	// namespace 工具由客户端扩展执行，不能覆盖客户端显式的工具选择。
+	if hasOpenAIImageGenNamespaceTool(reqBody) {
 		return false
 	}
 	choice, ok := reqBody["tool_choice"]

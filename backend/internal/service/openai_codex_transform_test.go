@@ -617,30 +617,63 @@ func TestEnsureOpenAIResponsesImageGenerationTool_PreservesExistingImageTool(t *
 	require.Equal(t, "webp", tool["output_format"])
 }
 
-func TestEnsureOpenAIResponsesImageGenerationTool_PreservesNamespaceTool(t *testing.T) {
-	reqBody := map[string]any{
-		"model": "gpt-5.4",
-		"tools": []any{
-			map[string]any{
-				"type": "namespace",
-				"name": "image_gen",
+func TestEnsureOpenAIResponsesImageGenerationTool_PreservesImageGenNamespace(t *testing.T) {
+	tests := []struct {
+		name    string
+		reqBody map[string]any
+	}{
+		{
+			name: "top-level tools",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
 				"tools": []any{
-					map[string]any{"type": "function", "name": "imagegen"},
+					map[string]any{
+						"type": "namespace",
+						"name": "image_gen",
+						"tools": []any{
+							map[string]any{"type": "function", "name": "imagegen"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "responses lite additional_tools",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"input": []any{
+					map[string]any{
+						"type": "additional_tools",
+						"tools": []any{
+							map[string]any{
+								"type": "namespace",
+								"name": "image_gen",
+								"tools": []any{
+									map[string]any{"type": "function", "name": "imagegen"},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
 	}
 
-	modified := ensureOpenAIResponsesImageGenerationTool(reqBody)
-	require.False(t, modified)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.True(t, hasOpenAIImageGenerationTool(tt.reqBody))
 
-	tools, ok := reqBody["tools"].([]any)
-	require.True(t, ok)
-	require.Len(t, tools, 1)
-	tool, ok := tools[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "namespace", tool["type"])
-	require.Equal(t, "image_gen", tool["name"])
+			modified := ensureOpenAIResponsesImageGenerationTool(tt.reqBody)
+
+			require.False(t, modified)
+			tools, _ := tt.reqBody["tools"].([]any)
+			for _, rawTool := range tools {
+				tool, ok := rawTool.(map[string]any)
+				require.True(t, ok)
+				require.NotEqual(t, "image_generation", firstNonEmptyString(tool["type"]))
+			}
+		})
+	}
 }
 
 func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto(t *testing.T) {
@@ -653,79 +686,20 @@ func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto(t *testing.T) {
 		wantModified bool
 		wantChoice   any
 	}{
-		{
-			name:         "缺失选择时写入 auto",
-			model:        "gpt-5.4",
-			tools:        []any{map[string]any{"type": "image_generation"}},
-			wantModified: true,
-			wantChoice:   "auto",
-		},
-		{
-			name:         "none 改写为 auto",
-			model:        "gpt-5.4",
-			tools:        []any{map[string]any{"type": "image_generation"}},
-			toolChoice:   "none",
-			hasChoice:    true,
-			wantModified: true,
-			wantChoice:   "auto",
-		},
-		{
-			name:         "none 忽略大小写和空白",
-			model:        "gpt-5.4",
-			tools:        []any{map[string]any{"type": "image_generation"}},
-			toolChoice:   "  NONE  ",
-			hasChoice:    true,
-			wantModified: true,
-			wantChoice:   "auto",
-		},
-		{
-			name:       "保留 auto",
-			model:      "gpt-5.4",
-			tools:      []any{map[string]any{"type": "image_generation"}},
-			toolChoice: "auto",
-			hasChoice:  true,
-			wantChoice: "auto",
-		},
-		{
-			name:       "保留 required",
-			model:      "gpt-5.4",
-			tools:      []any{map[string]any{"type": "image_generation"}},
-			toolChoice: "required",
-			hasChoice:  true,
-			wantChoice: "required",
-		},
-		{
-			name:       "保留明确工具选择",
-			model:      "gpt-5.4",
-			tools:      []any{map[string]any{"type": "image_generation"}},
-			toolChoice: map[string]any{"type": "image_generation"},
-			hasChoice:  true,
-			wantChoice: map[string]any{"type": "image_generation"},
-		},
-		{
-			name:       "Spark 不改写 none",
-			model:      "gpt-5.3-codex-spark",
-			tools:      []any{map[string]any{"type": "image_generation"}},
-			toolChoice: "none",
-			hasChoice:  true,
-			wantChoice: "none",
-		},
-		{
-			name:       "没有图片工具时不改写 none",
-			model:      "gpt-5.4",
-			tools:      []any{map[string]any{"type": "web_search"}},
-			toolChoice: "none",
-			hasChoice:  true,
-			wantChoice: "none",
-		},
+		{name: "缺失选择时写入 auto", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, wantModified: true, wantChoice: "auto"},
+		{name: "none 改写为 auto", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: "none", hasChoice: true, wantModified: true, wantChoice: "auto"},
+		{name: "none 忽略大小写和空白", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: "  NONE  ", hasChoice: true, wantModified: true, wantChoice: "auto"},
+		{name: "保留 auto", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: "auto", hasChoice: true, wantChoice: "auto"},
+		{name: "保留 required", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: "required", hasChoice: true, wantChoice: "required"},
+		{name: "保留明确工具选择", model: "gpt-5.4", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: map[string]any{"type": "image_generation"}, hasChoice: true, wantChoice: map[string]any{"type": "image_generation"}},
+		{name: "Spark 不改写 none", model: "gpt-5.3-codex-spark", tools: []any{map[string]any{"type": "image_generation"}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
+		{name: "没有图片工具时不改写 none", model: "gpt-5.4", tools: []any{map[string]any{"type": "web_search"}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
+		{name: "namespace 不改写 none", model: "gpt-5.5", tools: []any{map[string]any{"type": "namespace", "name": "image_gen"}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reqBody := map[string]any{
-				"model": tt.model,
-				"tools": tt.tools,
-			}
+			reqBody := map[string]any{"model": tt.model, "tools": tt.tools}
 			if tt.hasChoice {
 				reqBody["tool_choice"] = tt.toolChoice
 			}
@@ -736,6 +710,26 @@ func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto(t *testing.T) {
 			require.Equal(t, tt.wantChoice, reqBody["tool_choice"])
 		})
 	}
+}
+
+func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto_PreservesAdditionalToolsNamespaceNone(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.5",
+		"input": []any{
+			map[string]any{
+				"type": "additional_tools",
+				"tools": []any{
+					map[string]any{"type": "namespace", "name": "image_gen"},
+				},
+			},
+		},
+		"tool_choice": "none",
+	}
+
+	modified := ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody)
+
+	require.False(t, modified)
+	require.Equal(t, "none", reqBody["tool_choice"])
 }
 
 func TestApplyCodexImageGenerationBridgeInstructions_AppendsBridgeOnce(t *testing.T) {

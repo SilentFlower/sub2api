@@ -1,516 +1,372 @@
 package xai
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	billingPeriodWeekly  = "weekly"
-	billingPeriodMonthly = "monthly"
-	billingPeriodUnknown = "unknown"
+	// CLI client identity required by cli-chat-proxy billing endpoints.
+	CLITokenAuthHeader     = "x-xai-token-auth"
+	CLITokenAuthValue      = "xai-grok-cli"
+	CLIClientVersionHeader = "x-grok-client-version"
+	// Keep in sync with https://x.ai/cli/stable.
+	CLIClientVersion = "0.2.93"
+	CLIUserAgent     = "grok-pager/" + CLIClientVersion + " grok-shell/" + CLIClientVersion + " (macos; aarch64)"
 
-	billingPlanSuperGrok      = "supergrok"
-	billingPlanSuperGrokHeavy = "supergrok_heavy"
+	BillingWeeklyPath  = "/billing?format=credits"
+	BillingMonthlyPath = "/billing"
 
-	superGrokLimitCents      int64 = 15_000
-	superGrokHeavyLimitCents int64 = 150_000
+	SuperGrokLimitCents      = 15_000  // $150.00
+	SuperGrokHeavyLimitCents = 150_000 // $1,500.00
 )
 
-// BillingCent 表示 Grok billing 响应中的 cents 包装值。
-type BillingCent struct {
-	Val any `json:"val,omitempty"`
-}
-
-// BillingPeriod 表示 Grok billing 响应中的计费周期。
+// BillingPeriod describes the current weekly/monthly window.
 type BillingPeriod struct {
 	Type  string `json:"type,omitempty"`
 	Start string `json:"start,omitempty"`
 	End   string `json:"end,omitempty"`
 }
 
-// BillingProductUsage 表示 Grok billing 响应中的产品用量项。
+// BillingProductUsage is per-product usage inside the weekly credits window.
 type BillingProductUsage struct {
-	Product           string `json:"product,omitempty"`
-	UsagePercent      any    `json:"usagePercent,omitempty"`
-	UsagePercentSnake any    `json:"usage_percent,omitempty"`
+	Product      string   `json:"product,omitempty"`
+	UsagePercent *float64 `json:"usagePercent,omitempty"`
 }
 
-// BillingConfig 表示 Grok CLI billing 响应的 config 节点。
+// BillingConfig is the nested config object from /v1/billing responses.
 type BillingConfig struct {
-	CurrentPeriod       *BillingPeriod        `json:"currentPeriod,omitempty"`
-	CurrentPeriodSnake  *BillingPeriod        `json:"current_period,omitempty"`
-	CreditUsagePercent  any                   `json:"creditUsagePercent,omitempty"`
-	CreditUsagePctSnake any                   `json:"credit_usage_percent,omitempty"`
-	ProductUsage        []BillingProductUsage `json:"productUsage,omitempty"`
-	ProductUsageSnake   []BillingProductUsage `json:"product_usage,omitempty"`
-	MonthlyLimit        any                   `json:"monthlyLimit,omitempty"`
-	MonthlyLimitSnake   any                   `json:"monthly_limit,omitempty"`
-	Used                any                   `json:"used,omitempty"`
-	OnDemandCap         any                   `json:"onDemandCap,omitempty"`
-	OnDemandCapSnake    any                   `json:"on_demand_cap,omitempty"`
-	OnDemandUsed        any                   `json:"onDemandUsed,omitempty"`
-	OnDemandUsedSnake   any                   `json:"on_demand_used,omitempty"`
-	BillingPeriodStart  string                `json:"billingPeriodStart,omitempty"`
-	BillingStartSnake   string                `json:"billing_period_start,omitempty"`
-	BillingPeriodEnd    string                `json:"billingPeriodEnd,omitempty"`
-	BillingEndSnake     string                `json:"billing_period_end,omitempty"`
+	CurrentPeriod      *BillingPeriod        `json:"currentPeriod,omitempty"`
+	CreditUsagePercent *float64              `json:"creditUsagePercent,omitempty"`
+	ProductUsage       []BillingProductUsage `json:"productUsage,omitempty"`
+	MonthlyLimit       json.RawMessage       `json:"monthlyLimit,omitempty"`
+	Used               json.RawMessage       `json:"used,omitempty"`
+	BillingPeriodStart string                `json:"billingPeriodStart,omitempty"`
+	BillingPeriodEnd   string                `json:"billingPeriodEnd,omitempty"`
 }
 
-// BillingPayload 表示 Grok CLI billing 响应体。
+// BillingPayload is the top-level body from /v1/billing.
 type BillingPayload struct {
 	Config *BillingConfig `json:"config,omitempty"`
 }
 
-// BillingProductUsageSummary 是前端展示用的产品用量摘要。
-type BillingProductUsageSummary struct {
+// BillingProductSummary is a normalized product usage row for UI.
+type BillingProductSummary struct {
 	Product      string   `json:"product"`
 	UsagePercent *float64 `json:"usage_percent,omitempty"`
 }
 
-// BillingSnapshot 是保存到 accounts.extra.grok_billing_snapshot 的非敏感展示快照。
-type BillingSnapshot struct {
-	PeriodType             string                       `json:"period_type,omitempty"`
-	WeeklyUsedPercent      *float64                     `json:"weekly_used_percent,omitempty"`
-	WeeklyResetAt          string                       `json:"weekly_reset_at,omitempty"`
-	ProductUsage           []BillingProductUsageSummary `json:"product_usage,omitempty"`
-	MonthlyLimitCents      *int64                       `json:"monthly_limit_cents,omitempty"`
-	MonthlyUsedCents       *int64                       `json:"monthly_used_cents,omitempty"`
-	MonthlyRemainingCents  *int64                       `json:"monthly_remaining_cents,omitempty"`
-	MonthlyUsedPercent     *float64                     `json:"monthly_used_percent,omitempty"`
-	BillingPeriodStart     string                       `json:"billing_period_start,omitempty"`
-	BillingPeriodEnd       string                       `json:"billing_period_end,omitempty"`
-	OnDemandCapCents       *int64                       `json:"on_demand_cap_cents,omitempty"`
-	OnDemandUsedCents      *int64                       `json:"on_demand_used_cents,omitempty"`
-	OnDemandRemainingCents *int64                       `json:"on_demand_remaining_cents,omitempty"`
-	OnDemandUsedPercent    *float64                     `json:"on_demand_used_percent,omitempty"`
-	PlanLabel              string                       `json:"plan_label,omitempty"`
-	UpdatedAt              string                       `json:"updated_at"`
-	Stale                  bool                         `json:"stale"`
+// BillingSummary is the merged weekly + monthly billing view.
+type BillingSummary struct {
+	PeriodType         string                  `json:"period_type,omitempty"` // weekly | monthly | unknown
+	UsagePercent       *float64                `json:"usage_percent,omitempty"`
+	PeriodStart        string                  `json:"period_start,omitempty"`
+	PeriodEnd          string                  `json:"period_end,omitempty"`
+	ProductUsage       []BillingProductSummary `json:"product_usage,omitempty"`
+	MonthlyLimitCents  *float64                `json:"monthly_limit_cents,omitempty"`
+	UsedCents          *float64                `json:"used_cents,omitempty"`
+	IncludedUsedCents  *float64                `json:"included_used_cents,omitempty"`
+	BillingPeriodStart string                  `json:"billing_period_start,omitempty"`
+	BillingPeriodEnd   string                  `json:"billing_period_end,omitempty"`
+	UsedPercent        *float64                `json:"used_percent,omitempty"`
+	Plan               string                  `json:"plan,omitempty"` // SuperGrok | SuperGrok Heavy | ""
+	StatusCode         int                     `json:"status_code,omitempty"`
+	Source             string                  `json:"source,omitempty"`
+	FetchedAt          string                  `json:"fetched_at,omitempty"`
+	UpdatedAt          string                  `json:"updated_at,omitempty"`
+	WeeklyUpdatedAt    string                  `json:"weekly_updated_at,omitempty"`
+	MonthlyUpdatedAt   string                  `json:"monthly_updated_at,omitempty"`
+	Partial            bool                    `json:"partial,omitempty"`
+	FailedWindows      []string                `json:"failed_windows,omitempty"`
 }
 
-type billingSummary struct {
-	periodType          string
-	usagePercent        *float64
-	periodStart         string
-	periodEnd           string
-	productUsage        []BillingProductUsageSummary
-	monthlyLimitCents   *int64
-	usedCents           *int64
-	includedUsedCents   *int64
-	onDemandCapCents    *int64
-	onDemandUsedCents   *int64
-	onDemandUsedPercent *float64
-	billingPeriodStart  string
-	billingPeriodEnd    string
-	usedPercent         *float64
-}
-
-// BuildBillingURL 构造 Grok CLI billing 接口地址。
-func BuildBillingURL(baseURL string, formatCredits bool) (string, error) {
-	validatedBaseURL, err := ValidatedBaseURL(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid base url: %w", err)
-	}
+// BuildBillingURL builds weekly or monthly billing URL against the CLI chat proxy.
+func BuildBillingURL(formatCredits bool) string {
+	base := strings.TrimRight(DefaultCLIBaseURL, "/")
 	if formatCredits {
-		return validatedBaseURL + "/billing?format=credits", nil
+		return base + BillingWeeklyPath
 	}
-	return validatedBaseURL + "/billing", nil
+	return base + BillingMonthlyPath
 }
 
-// ParseBillingPayload 解析 Grok CLI billing 响应体。
-func ParseBillingPayload(data []byte) (*BillingPayload, error) {
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("empty billing payload")
+// ApplyCLIBillingHeaders sets Authorization + CLI identity headers for billing GETs.
+func ApplyCLIBillingHeaders(req *http.Request, accessToken string) {
+	if req == nil {
+		return
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
+	token := strings.TrimSpace(accessToken)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(CLITokenAuthHeader, CLITokenAuthValue)
+	req.Header.Set(CLIClientVersionHeader, CLIClientVersion)
+	req.Header.Set("User-Agent", CLIUserAgent)
+}
+
+// ParseBillingPayload unmarshals a billing API response body.
+func ParseBillingPayload(body []byte) (*BillingPayload, error) {
+	if len(body) == 0 {
+		return nil, fmt.Errorf("empty billing body")
+	}
 	var payload BillingPayload
-	if err := decoder.Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
 	return &payload, nil
 }
 
-// BuildBillingSnapshot 合并 weekly/monthly 两个 Grok CLI billing 响应为展示快照。
-func BuildBillingSnapshot(weeklyPayload, monthlyPayload *BillingPayload, now time.Time) *BillingSnapshot {
-	weeklySummary := buildBillingSummary(billingConfigFromPayload(weeklyPayload))
-	monthlySummary := buildBillingSummary(billingConfigFromPayload(monthlyPayload))
-	merged := mergeBillingSummaries(weeklySummary, monthlySummary)
-	if merged == nil {
-		return nil
-	}
-
-	updatedAt := now.UTC().Format(time.RFC3339)
-	snapshot := &BillingSnapshot{
-		PeriodType:             merged.periodType,
-		ProductUsage:           merged.productUsage,
-		MonthlyLimitCents:      merged.monthlyLimitCents,
-		MonthlyUsedCents:       merged.includedUsedCents,
-		MonthlyRemainingCents:  remainingCents(merged.monthlyLimitCents, merged.includedUsedCents),
-		MonthlyUsedPercent:     merged.usedPercent,
-		BillingPeriodStart:     merged.billingPeriodStart,
-		BillingPeriodEnd:       merged.billingPeriodEnd,
-		OnDemandCapCents:       merged.onDemandCapCents,
-		OnDemandUsedCents:      merged.onDemandUsedCents,
-		OnDemandRemainingCents: remainingCents(merged.onDemandCapCents, merged.onDemandUsedCents),
-		OnDemandUsedPercent:    merged.onDemandUsedPercent,
-		PlanLabel:              resolveBillingPlanLabel(merged.monthlyLimitCents),
-		UpdatedAt:              updatedAt,
-	}
-	if merged.periodType == billingPeriodWeekly {
-		snapshot.WeeklyUsedPercent = merged.usagePercent
-		snapshot.WeeklyResetAt = merged.periodEnd
-	}
-	return snapshot
-}
-
-// BillingSnapshotFromRaw 将 Extra 中的原始 JSON 值还原为 BillingSnapshot。
-func BillingSnapshotFromRaw(raw any) (*BillingSnapshot, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	switch snapshot := raw.(type) {
-	case *BillingSnapshot:
-		return snapshot, nil
-	case BillingSnapshot:
-		return &snapshot, nil
-	default:
-		data, err := json.Marshal(raw)
-		if err != nil {
-			return nil, fmt.Errorf("marshal grok billing snapshot: %w", err)
-		}
-		var out BillingSnapshot
-		if err := json.Unmarshal(data, &out); err != nil {
-			return nil, err
-		}
-		return &out, nil
-	}
-}
-
-func billingConfigFromPayload(payload *BillingPayload) *BillingConfig {
-	if payload == nil {
-		return nil
-	}
-	return payload.Config
-}
-
-func buildBillingSummary(config *BillingConfig) *billingSummary {
+// BuildBillingSummary normalizes a billing config into a UI-friendly summary.
+func BuildBillingSummary(config *BillingConfig) *BillingSummary {
 	if config == nil {
 		return nil
 	}
-	summary := &billingSummary{
-		periodType:   billingPeriodUnknown,
-		productUsage: make([]BillingProductUsageSummary, 0),
+	summary := &BillingSummary{}
+	period := config.CurrentPeriod
+	periodType := resolvePeriodType(period)
+	creditUsage := cloneFloat(config.CreditUsagePercent)
+
+	periodStart := ""
+	periodEnd := ""
+	if period != nil {
+		periodStart = strings.TrimSpace(period.Start)
+		periodEnd = strings.TrimSpace(period.End)
 	}
-	currentPeriod := coalesceBillingPeriod(config.CurrentPeriod, config.CurrentPeriodSnake)
-	periodType := resolveBillingPeriodType(currentPeriod)
-	creditUsagePercent := normalizeFloatPtr(firstNonNil(config.CreditUsagePercent, config.CreditUsagePctSnake))
-	periodStart := firstNonEmpty(currentPeriodString(currentPeriod, "start"), config.BillingPeriodStart, config.BillingStartSnake)
-	periodEnd := firstNonEmpty(currentPeriodString(currentPeriod, "end"), config.BillingPeriodEnd, config.BillingEndSnake)
-	productUsage := normalizeBillingProductUsage(coalesceProductUsage(config.ProductUsage, config.ProductUsageSnake))
-
-	monthlyLimitCents := normalizeCentPtr(firstNonNil(config.MonthlyLimit, config.MonthlyLimitSnake))
-	usedCents := normalizeCentPtr(config.Used)
-	onDemandCapCents := normalizeCentPtr(firstNonNil(config.OnDemandCap, config.OnDemandCapSnake))
-	explicitOnDemandUsedCents := normalizeCentPtr(firstNonNil(config.OnDemandUsed, config.OnDemandUsedSnake))
-	billingPeriodStart := firstNonEmpty(config.BillingPeriodStart, config.BillingStartSnake)
-	billingPeriodEnd := firstNonEmpty(config.BillingPeriodEnd, config.BillingEndSnake)
-
-	includedUsedCents := includedMonthlyUsedCents(usedCents, monthlyLimitCents)
-	derivedOnDemandUsedCents := derivedOnDemandUsedCents(usedCents, monthlyLimitCents)
-	onDemandUsedCents := explicitOnDemandUsedCents
-	if onDemandUsedCents == nil {
-		onDemandUsedCents = derivedOnDemandUsedCents
+	if periodStart == "" {
+		periodStart = strings.TrimSpace(config.BillingPeriodStart)
 	}
-	usedPercent := percentPtr(includedUsedCents, monthlyLimitCents)
-	onDemandUsedPercent := percentPtr(onDemandUsedCents, onDemandCapCents)
+	if periodEnd == "" {
+		periodEnd = strings.TrimSpace(config.BillingPeriodEnd)
+	}
 
-	hasWeeklyData := creditUsagePercent != nil || periodType == billingPeriodWeekly || len(productUsage) > 0
-	hasMonthlyData := monthlyLimitCents != nil ||
-		usedCents != nil ||
-		(!hasWeeklyData && (onDemandCapCents != nil || billingPeriodEnd != ""))
-	if !hasWeeklyData && !hasMonthlyData {
+	products := make([]BillingProductSummary, 0, len(config.ProductUsage))
+	for _, item := range config.ProductUsage {
+		product := strings.TrimSpace(item.Product)
+		if product == "" {
+			continue
+		}
+		products = append(products, BillingProductSummary{
+			Product:      product,
+			UsagePercent: cloneFloat(item.UsagePercent),
+		})
+	}
+
+	monthlyLimit := parseCentValue(config.MonthlyLimit)
+	used := parseCentValue(config.Used)
+	billingStart := strings.TrimSpace(config.BillingPeriodStart)
+	billingEnd := strings.TrimSpace(config.BillingPeriodEnd)
+
+	var includedUsed *float64
+	if used != nil {
+		if monthlyLimit != nil && *monthlyLimit > 0 {
+			v := math.Min(*used, *monthlyLimit)
+			includedUsed = &v
+		} else {
+			includedUsed = cloneFloat(used)
+		}
+	}
+
+	var usedPercent *float64
+	if monthlyLimit != nil && *monthlyLimit > 0 && includedUsed != nil {
+		v := (*includedUsed / *monthlyLimit) * 100
+		usedPercent = &v
+	}
+
+	hasWeekly := creditUsage != nil || periodType == "weekly" || len(products) > 0
+	hasMonthly := monthlyLimit != nil || used != nil || (!hasWeekly && billingEnd != "")
+	if !hasWeekly && !hasMonthly {
 		return nil
 	}
 
-	if hasWeeklyData {
-		if periodType == billingPeriodUnknown {
-			summary.periodType = billingPeriodWeekly
-		} else {
-			summary.periodType = periodType
+	if hasWeekly {
+		if periodType == "unknown" {
+			periodType = "weekly"
 		}
-		summary.usagePercent = creditUsagePercent
-		summary.periodStart = periodStart
-		summary.periodEnd = periodEnd
+		summary.PeriodType = periodType
+		summary.UsagePercent = creditUsage
+		summary.PeriodStart = periodStart
+		summary.PeriodEnd = periodEnd
 	} else {
-		summary.periodType = billingPeriodMonthly
-		summary.usagePercent = usedPercent
-		summary.periodStart = billingPeriodStart
-		summary.periodEnd = billingPeriodEnd
+		// Monthly-only: do not put monthly % into UsagePercent (weekly bar field).
+		// Frontend weekly bar only renders when PeriodType == weekly.
+		summary.PeriodType = "monthly"
+		summary.PeriodStart = billingStart
+		summary.PeriodEnd = billingEnd
 	}
-	summary.productUsage = productUsage
-	summary.monthlyLimitCents = monthlyLimitCents
-	summary.usedCents = usedCents
-	summary.includedUsedCents = includedUsedCents
-	summary.onDemandCapCents = onDemandCapCents
-	summary.onDemandUsedCents = onDemandUsedCents
-	summary.onDemandUsedPercent = onDemandUsedPercent
-	if hasMonthlyData {
-		summary.billingPeriodStart = billingPeriodStart
-		summary.billingPeriodEnd = billingPeriodEnd
+	summary.ProductUsage = products
+	summary.MonthlyLimitCents = monthlyLimit
+	summary.UsedCents = used
+	summary.IncludedUsedCents = includedUsed
+	if hasMonthly {
+		summary.BillingPeriodStart = billingStart
+		summary.BillingPeriodEnd = billingEnd
 	}
-	summary.usedPercent = usedPercent
+	summary.UsedPercent = usedPercent
+	summary.Plan = resolvePlan(monthlyLimit)
 	return summary
 }
 
-func mergeBillingSummaries(primary, fallback *billingSummary) *billingSummary {
-	if primary == nil {
-		return fallback
+// MergeBillingProbeResult updates successful billing domains while retaining
+// the previous value for any domain that could not be refreshed.
+func MergeBillingProbeResult(previous, weekly, monthly *BillingSummary, weeklyOK, monthlyOK bool) *BillingSummary {
+	var out BillingSummary
+	if previous != nil {
+		out = *previous
+		previousUpdatedAt := previous.UpdatedAt
+		if previousUpdatedAt == "" {
+			previousUpdatedAt = previous.FetchedAt
+		}
+		if out.WeeklyUpdatedAt == "" && (out.UsagePercent != nil || len(out.ProductUsage) > 0) {
+			out.WeeklyUpdatedAt = previousUpdatedAt
+		}
+		if out.MonthlyUpdatedAt == "" && (out.MonthlyLimitCents != nil || out.UsedPercent != nil) {
+			out.MonthlyUpdatedAt = previousUpdatedAt
+		}
 	}
-	if fallback == nil {
-		return primary
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if weeklyOK && weekly != nil {
+		out.PeriodType = weekly.PeriodType
+		out.UsagePercent = weekly.UsagePercent
+		out.PeriodStart = weekly.PeriodStart
+		out.PeriodEnd = weekly.PeriodEnd
+		out.ProductUsage = weekly.ProductUsage
+		out.WeeklyUpdatedAt = now
 	}
-	return &billingSummary{
-		periodType:          firstKnownPeriod(primary.periodType, fallback.periodType),
-		usagePercent:        coalesceFloatPtr(primary.usagePercent, fallback.usagePercent),
-		periodStart:         firstNonEmpty(primary.periodStart, fallback.periodStart),
-		periodEnd:           firstNonEmpty(primary.periodEnd, fallback.periodEnd),
-		productUsage:        coalesceProductUsageSummary(primary.productUsage, fallback.productUsage),
-		monthlyLimitCents:   coalesceInt64Ptr(primary.monthlyLimitCents, fallback.monthlyLimitCents),
-		usedCents:           coalesceInt64Ptr(primary.usedCents, fallback.usedCents),
-		includedUsedCents:   coalesceInt64Ptr(primary.includedUsedCents, fallback.includedUsedCents),
-		onDemandCapCents:    coalesceInt64Ptr(primary.onDemandCapCents, fallback.onDemandCapCents),
-		onDemandUsedCents:   coalesceInt64Ptr(primary.onDemandUsedCents, fallback.onDemandUsedCents),
-		onDemandUsedPercent: coalesceFloatPtr(primary.onDemandUsedPercent, fallback.onDemandUsedPercent),
-		billingPeriodStart:  firstNonEmpty(primary.billingPeriodStart, fallback.billingPeriodStart),
-		billingPeriodEnd:    firstNonEmpty(primary.billingPeriodEnd, fallback.billingPeriodEnd),
-		usedPercent:         coalesceFloatPtr(primary.usedPercent, fallback.usedPercent),
+	if monthlyOK && monthly != nil {
+		if out.PeriodType == "" {
+			out.PeriodType = "monthly"
+		}
+		out.MonthlyLimitCents = monthly.MonthlyLimitCents
+		out.UsedCents = monthly.UsedCents
+		out.IncludedUsedCents = monthly.IncludedUsedCents
+		out.BillingPeriodStart = monthly.BillingPeriodStart
+		out.BillingPeriodEnd = monthly.BillingPeriodEnd
+		out.UsedPercent = monthly.UsedPercent
+		out.Plan = monthly.Plan
+		out.MonthlyUpdatedAt = now
 	}
+
+	out.Partial = !weeklyOK || !monthlyOK
+	out.FailedWindows = nil
+	if !weeklyOK {
+		out.FailedWindows = append(out.FailedWindows, "weekly")
+	}
+	if !monthlyOK {
+		out.FailedWindows = append(out.FailedWindows, "monthly")
+	}
+	if !weeklyOK && !monthlyOK && previous == nil {
+		return nil
+	}
+	return &out
 }
 
-func coalesceBillingPeriod(primary, fallback *BillingPeriod) *BillingPeriod {
-	if primary != nil {
-		return primary
+// StampBillingSummary sets fetch metadata.
+func StampBillingSummary(summary *BillingSummary, statusCode int, source string) *BillingSummary {
+	if summary == nil {
+		return nil
 	}
-	return fallback
+	now := time.Now().UTC().Format(time.RFC3339)
+	summary.StatusCode = statusCode
+	summary.Source = source
+	summary.FetchedAt = now
+	summary.UpdatedAt = now
+	return summary
 }
 
-func coalesceProductUsage(primary, fallback []BillingProductUsage) []BillingProductUsage {
-	if len(primary) > 0 {
-		return primary
-	}
-	return fallback
-}
-
-func coalesceProductUsageSummary(primary, fallback []BillingProductUsageSummary) []BillingProductUsageSummary {
-	if len(primary) > 0 {
-		return primary
-	}
-	return fallback
-}
-
-func coalesceFloatPtr(primary, fallback *float64) *float64 {
-	if primary != nil {
-		return primary
-	}
-	return fallback
-}
-
-func coalesceInt64Ptr(primary, fallback *int64) *int64 {
-	if primary != nil {
-		return primary
-	}
-	return fallback
-}
-
-func firstKnownPeriod(primary, fallback string) string {
-	if primary != "" && primary != billingPeriodUnknown {
-		return primary
-	}
-	if fallback != "" {
-		return fallback
-	}
-	return billingPeriodUnknown
-}
-
-func resolveBillingPeriodType(period *BillingPeriod) string {
-	rawType := strings.ToLower(strings.TrimSpace(currentPeriodString(period, "type")))
-	switch {
-	case strings.Contains(rawType, billingPeriodWeekly):
-		return billingPeriodWeekly
-	case strings.Contains(rawType, billingPeriodMonthly):
-		return billingPeriodMonthly
-	default:
-		return billingPeriodUnknown
-	}
-}
-
-func currentPeriodString(period *BillingPeriod, field string) string {
+func resolvePeriodType(period *BillingPeriod) string {
 	if period == nil {
-		return ""
+		return "unknown"
 	}
-	switch field {
-	case "type":
-		return strings.TrimSpace(period.Type)
-	case "start":
-		return strings.TrimSpace(period.Start)
-	case "end":
-		return strings.TrimSpace(period.End)
-	default:
-		return ""
+	raw := strings.ToLower(strings.TrimSpace(period.Type))
+	if strings.Contains(raw, "weekly") {
+		return "weekly"
 	}
+	if strings.Contains(raw, "monthly") {
+		return "monthly"
+	}
+	return "unknown"
 }
 
-func normalizeBillingProductUsage(items []BillingProductUsage) []BillingProductUsageSummary {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]BillingProductUsageSummary, 0, len(items))
-	for idx, item := range items {
-		product := strings.TrimSpace(item.Product)
-		if product == "" {
-			product = fmt.Sprintf("Product %d", idx+1)
-		}
-		out = append(out, BillingProductUsageSummary{
-			Product:      product,
-			UsagePercent: normalizeFloatPtr(firstNonNil(item.UsagePercent, item.UsagePercentSnake)),
-		})
-	}
-	return out
-}
-
-func normalizeFloatPtr(value any) *float64 {
-	switch v := value.(type) {
-	case nil:
-		return nil
-	case float64:
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
-			return &v
-		}
-	case float32:
-		f := float64(v)
-		if !math.IsNaN(f) && !math.IsInf(f, 0) {
-			return &f
-		}
-	case int:
-		f := float64(v)
-		return &f
-	case int64:
-		f := float64(v)
-		return &f
-	case json.Number:
-		if f, err := v.Float64(); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
-			return &f
-		}
-	case string:
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
-			return nil
-		}
-		parsed := json.Number(trimmed)
-		if f, err := parsed.Float64(); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
-			return &f
-		}
-	}
-	return nil
-}
-
-func normalizeCentPtr(value any) *int64 {
-	switch v := value.(type) {
-	case BillingCent:
-		return normalizeCentPtr(v.Val)
-	case *BillingCent:
-		if v == nil {
-			return nil
-		}
-		return normalizeCentPtr(v.Val)
-	case map[string]any:
-		return normalizeCentPtr(v["val"])
-	case map[string]json.Number:
-		return normalizeCentPtr(v["val"])
-	}
-	number := normalizeFloatPtr(value)
-	if number == nil {
-		return nil
-	}
-	rounded := int64(math.Round(*number))
-	return &rounded
-}
-
-func includedMonthlyUsedCents(usedCents, monthlyLimitCents *int64) *int64 {
-	if usedCents == nil {
-		return nil
-	}
-	used := *usedCents
-	if monthlyLimitCents != nil && *monthlyLimitCents > 0 && used > *monthlyLimitCents {
-		used = *monthlyLimitCents
-	}
-	return &used
-}
-
-func derivedOnDemandUsedCents(usedCents, monthlyLimitCents *int64) *int64 {
-	if usedCents == nil || monthlyLimitCents == nil {
-		return nil
-	}
-	used := *usedCents - *monthlyLimitCents
-	if used < 0 {
-		used = 0
-	}
-	return &used
-}
-
-func percentPtr(used, limit *int64) *float64 {
-	if used == nil || limit == nil || *limit <= 0 {
-		return nil
-	}
-	percent := (float64(*used) / float64(*limit)) * 100
-	return &percent
-}
-
-func remainingCents(limit, used *int64) *int64 {
-	if limit == nil || used == nil {
-		return nil
-	}
-	remaining := *limit - *used
-	if remaining < 0 {
-		remaining = 0
-	}
-	return &remaining
-}
-
-func resolveBillingPlanLabel(monthlyLimitCents *int64) string {
+func resolvePlan(monthlyLimitCents *float64) string {
 	if monthlyLimitCents == nil {
 		return ""
 	}
-	switch *monthlyLimitCents {
-	case superGrokLimitCents:
-		return billingPlanSuperGrok
-	case superGrokHeavyLimitCents:
-		return billingPlanSuperGrokHeavy
+	// Allow small float noise.
+	limit := math.Round(*monthlyLimitCents)
+	switch limit {
+	case SuperGrokLimitCents:
+		return "SuperGrok"
+	case SuperGrokHeavyLimitCents:
+		return "SuperGrok Heavy"
 	default:
 		return ""
 	}
 }
 
-func firstNonNil(values ...any) any {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
+func parseCentValue(raw json.RawMessage) *float64 {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
 	}
-	return nil
+	// Object form: {"val": 123}
+	var obj struct {
+		Val any `json:"val"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil && obj.Val != nil {
+		return anyToFloat(obj.Val)
+	}
+	// Bare number / string
+	var n any
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return nil
+	}
+	return anyToFloat(n)
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
+func anyToFloat(v any) *float64 {
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case float32:
+		f := float64(n)
+		return &f
+	case int:
+		f := float64(n)
+		return &f
+	case int64:
+		f := float64(n)
+		return &f
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return nil
 		}
+		return &f
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return nil
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return nil
+		}
+		return &f
+	default:
+		return nil
 	}
-	return ""
+}
+
+func cloneFloat(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	f := *v
+	return &f
 }
