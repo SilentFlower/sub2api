@@ -22,5 +22,18 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-15T15:02:53+08:00",
+    "completedSteps": [
+      "恢复独立 Grok 套餐 Billing 链路",
+      "完成账号 usage 与 main Billing 解耦",
+      "恢复前端独立额度展示与缓存队列",
+      "完成全量质量检查和协议规范更新",
+      "提交并推送业务变更"
+    ],
+    "partialStep": null,
+    "nextStep": "执行 Phase 3.5 收尾并归档任务",
+    "notes": ""
+  }
 }
