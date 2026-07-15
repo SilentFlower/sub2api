@@ -188,26 +188,26 @@ func marshalOpenAIResponsesWebRunOutput(output openAIResponsesWebRunOutput) stri
 	return string(body)
 }
 
-func openAIResponsesWebRunToolError(code, message string) string {
-	return marshalOpenAIResponsesWebRunOutput(openAIResponsesWebRunOutput{
-		Error: &openAIResponsesWebRunError{Code: code, Message: message},
-	})
-}
-
 func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 	ctx context.Context,
 	account *Account,
 	parsed *openAIResponsesWebRunArguments,
-) (string, int, error) {
+) (openAIResponsesWebRunOutput, int, error) {
 	if parsed == nil {
-		return openAIResponsesWebRunToolError("invalid_tool_arguments", "web.run search_query arguments are missing"), 0, nil
+		return openAIResponsesWebRunOutput{
+			Error: &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web.run search_query arguments are missing"},
+		}, 0, nil
 	}
 	if s.settingService == nil || !s.settingService.IsWebSearchEmulationEnabled(ctx) || getWebSearchManager() == nil {
-		return openAIResponsesWebRunToolError("web_search_unavailable", "No global web search provider is available"), 0, nil
+		return openAIResponsesWebRunOutput{
+			Error: &openAIResponsesWebRunError{Code: "web_search_unavailable", Message: "No global web search provider is available"},
+		}, 0, nil
 	}
 	maxResults, err := openAIResponsesWebRunMaxResults(parsed.ResponseLength)
 	if err != nil {
-		return openAIResponsesWebRunToolError("invalid_tool_arguments", err.Error()), 0, nil
+		return openAIResponsesWebRunOutput{
+			Error: &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: err.Error()},
+		}, 0, nil
 	}
 
 	searchExecutor := doWebSearchWithMaxResults
@@ -227,7 +227,7 @@ func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 		response, provider, searchErr := searchExecutor(ctx, account, query.Q, maxResults)
 		if searchErr != nil {
 			if errors.Is(searchErr, websearch.ErrProxyUnavailable) {
-				return "", successfulCalls, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte("web search account proxy unavailable")}
+				return openAIResponsesWebRunOutput{}, successfulCalls, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte("web search account proxy unavailable")}
 			}
 			group.Error = &openAIResponsesWebRunError{Code: "web_search_failed", Message: "All configured web search providers failed"}
 			output.SearchQuery = append(output.SearchQuery, group)
@@ -247,7 +247,7 @@ func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 		output.SearchQuery = append(output.SearchQuery, group)
 		successfulCalls++
 	}
-	return marshalOpenAIResponsesWebRunOutput(output), successfulCalls, nil
+	return output, successfulCalls, nil
 }
 
 func sanitizeOpenAIResponsesWebRunResults(results []websearch.SearchResult) []websearch.SearchResult {
@@ -284,6 +284,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 	webRunRounds := 0
 	requestID := ""
 	var responseHeaders http.Header
+	var webSearchItems []apicompat.ResponsesOutput
 	for {
 		chatBody, marshalErr := json.Marshal(chatReq)
 		if marshalErr != nil {
@@ -330,7 +331,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 			} else {
 				logger.L().Debug("openai web.run was available but not selected", fields...)
 			}
-			return s.writeOpenAIResponsesWebRunResult(c, ccResp, responseHeaders, requestID, aggregateUsage, webSearchCalls, options)
+			return s.writeOpenAIResponsesWebRunResult(c, ccResp, responseHeaders, requestID, aggregateUsage, webSearchCalls, webSearchItems, options)
 		}
 		if webRunRounds >= openAIResponsesWebRunMaxRounds {
 			err := errors.New("web.run exceeded the maximum of 2 search tool rounds")
@@ -347,14 +348,41 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 		} else {
 			queryCount += len(parsed.SearchQuery)
 			var successfulCalls int
-			toolOutput, successfulCalls, err = s.executeOpenAIResponsesWebRunSearch(ctx, account, parsed)
+			var searchOutput openAIResponsesWebRunOutput
+			searchOutput, successfulCalls, err = s.executeOpenAIResponsesWebRunSearch(ctx, account, parsed)
 			if err != nil {
 				return nil, err
 			}
+			toolOutput = marshalOpenAIResponsesWebRunOutput(searchOutput)
+			webSearchItems = append(webSearchItems, buildOpenAIResponsesWebRunSearchItems(parsed, searchOutput, webRunRounds)...)
 			webSearchCalls += successfulCalls
 		}
 		appendOpenAIResponsesWebRunMessages(chatReq, choice.Message, webRunCall, toolOutput, webRunRounds)
 	}
+}
+
+func buildOpenAIResponsesWebRunSearchItems(
+	parsed *openAIResponsesWebRunArguments,
+	output openAIResponsesWebRunOutput,
+	round int,
+) []apicompat.ResponsesOutput {
+	if parsed == nil || len(parsed.SearchQuery) == 0 {
+		return nil
+	}
+	items := make([]apicompat.ResponsesOutput, 0, len(parsed.SearchQuery))
+	for index, query := range parsed.SearchQuery {
+		status := "completed"
+		if output.Error != nil || index >= len(output.SearchQuery) || output.SearchQuery[index].Error != nil {
+			status = "failed"
+		}
+		items = append(items, apicompat.ResponsesOutput{
+			Type:   "web_search_call",
+			ID:     deterministicOpenAIResponsesWebRunSearchID(round, index, query.Q),
+			Status: status,
+			Action: &apicompat.WebSearchAction{Type: "search", Query: query.Q},
+		})
+	}
+	return items
 }
 
 func selectOpenAIResponsesWebRunCall(
@@ -411,6 +439,11 @@ func deterministicOpenAIResponsesWebRunCallID(round int, name, arguments string)
 	return "call_web_" + hex.EncodeToString(sum[:8])
 }
 
+func deterministicOpenAIResponsesWebRunSearchID(round, index int, query string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\n%d\n%s", round, index, query)))
+	return "ws_" + hex.EncodeToString(sum[:8])
+}
+
 func applyOpenAIResponsesWebRunAggregateUsage(resp *apicompat.ChatCompletionsResponse, usage OpenAIUsage) {
 	if resp == nil {
 		return
@@ -437,12 +470,14 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunResult(
 	requestID string,
 	usage OpenAIUsage,
 	webSearchCalls int,
+	webSearchItems []apicompat.ResponsesOutput,
 	options openAIResponsesWebRunLoopOptions,
 ) (*OpenAIForwardResult, error) {
 	if options.ClientStream {
-		return s.writeOpenAIResponsesWebRunStream(c, ccResp, upstreamHeaders, requestID, usage, webSearchCalls, options)
+		return s.writeOpenAIResponsesWebRunStream(c, ccResp, upstreamHeaders, requestID, usage, webSearchCalls, webSearchItems, options)
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
+	prependOpenAIResponsesWebRunSearchItems(responsesResp, webSearchItems)
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstreamHeaders, s.responseHeaderFilter)
 	}
@@ -469,6 +504,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 	requestID string,
 	usage OpenAIUsage,
 	webSearchCalls int,
+	webSearchItems []apicompat.ResponsesOutput,
 	options openAIResponsesWebRunLoopOptions,
 ) (*OpenAIForwardResult, error) {
 	if s.responseHeaderFilter != nil {
@@ -481,6 +517,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 	c.Writer.WriteHeader(http.StatusOK)
 
 	events := apicompat.ChatCompletionsResponseToResponsesEvents(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
+	events = addOpenAIResponsesWebRunSearchEvents(events, webSearchItems)
 	clientDisconnected := false
 	firstTokenMs := int(time.Since(options.StartTime).Milliseconds())
 	for _, event := range events {
@@ -519,4 +556,88 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 		ClientDisconnect: clientDisconnected,
 		WebSearchCalls:   webSearchCalls,
 	}, nil
+}
+
+func prependOpenAIResponsesWebRunSearchItems(response *apicompat.ResponsesResponse, searchItems []apicompat.ResponsesOutput) {
+	if response == nil || len(searchItems) == 0 {
+		return
+	}
+	output := make([]apicompat.ResponsesOutput, 0, len(searchItems)+len(response.Output))
+	output = append(output, searchItems...)
+	response.Output = append(output, response.Output...)
+}
+
+func addOpenAIResponsesWebRunSearchEvents(
+	events []apicompat.ResponsesStreamEvent,
+	searchItems []apicompat.ResponsesOutput,
+) []apicompat.ResponsesStreamEvent {
+	if len(events) == 0 || len(searchItems) == 0 {
+		return events
+	}
+
+	// 内部 web.run 必须继续隐藏，但客户端需要标准搜索项才能展示搜索过程。
+	output := make([]apicompat.ResponsesStreamEvent, 0, len(events)+len(searchItems)*2)
+	sequence := 0
+	searchEventsAdded := false
+	appendEvent := func(event apicompat.ResponsesStreamEvent) {
+		event.SequenceNumber = sequence
+		sequence++
+		output = append(output, event)
+	}
+	for _, event := range events {
+		if event.Type == "response.created" {
+			appendEvent(event)
+			for index, item := range searchItems {
+				inProgress := item
+				inProgress.Status = "in_progress"
+				appendEvent(apicompat.ResponsesStreamEvent{
+					Type:        "response.output_item.added",
+					OutputIndex: index,
+					Item:        &inProgress,
+				})
+				completed := item
+				appendEvent(apicompat.ResponsesStreamEvent{
+					Type:        "response.output_item.done",
+					OutputIndex: index,
+					Item:        &completed,
+				})
+			}
+			searchEventsAdded = true
+			continue
+		}
+		if openAIResponsesEventHasOutputIndex(event.Type) {
+			event.OutputIndex += len(searchItems)
+		}
+		if event.Type == "response.completed" {
+			prependOpenAIResponsesWebRunSearchItems(event.Response, searchItems)
+		}
+		appendEvent(event)
+	}
+	if !searchEventsAdded {
+		return events
+	}
+	return output
+}
+
+func openAIResponsesEventHasOutputIndex(eventType string) bool {
+	switch eventType {
+	case "response.output_item.added",
+		"response.output_item.done",
+		"response.content_part.added",
+		"response.content_part.done",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.output_text.annotation.added",
+		"response.reasoning_summary_part.added",
+		"response.reasoning_summary_part.done",
+		"response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done",
+		"response.function_call_arguments.delta",
+		"response.function_call_arguments.done",
+		"response.custom_tool_call_input.delta",
+		"response.custom_tool_call_input.done":
+		return true
+	default:
+		return false
+	}
 }

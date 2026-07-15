@@ -269,7 +269,13 @@ func TestForwardResponses_WebRunSearchQueryExecutesAndContinuesModel(t *testing.
 	toolOutput := gjson.GetBytes(upstream.bodies[1], "messages.2.content").String()
 	require.Contains(t, toolOutput, "https://weather.example/hangzhou")
 	require.Contains(t, toolOutput, "recency_not_enforced")
-	require.Equal(t, "杭州天气结果已找到", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, deterministicOpenAIResponsesWebRunSearchID(1, 0, "杭州天气"), gjson.Get(rec.Body.String(), "output.0.id").String())
+	require.Equal(t, "completed", gjson.Get(rec.Body.String(), "output.0.status").String())
+	require.Equal(t, "search", gjson.Get(rec.Body.String(), "output.0.action.type").String())
+	require.Equal(t, "杭州天气", gjson.Get(rec.Body.String(), "output.0.action.query").String())
+	require.Equal(t, "message", gjson.Get(rec.Body.String(), "output.1.type").String())
+	require.Equal(t, "杭州天气结果已找到", gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
 	require.Equal(t, int64(30), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
 }
 
@@ -311,7 +317,9 @@ func TestForwardResponses_WebRunWeatherRetriesAsSearchQuery(t *testing.T) {
 	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "messages.2.content").String(), "unsupported_command")
 	require.Equal(t, "call_search", gjson.GetBytes(upstream.bodies[2], "messages.3.tool_calls.0.id").String())
 	require.Contains(t, gjson.GetBytes(upstream.bodies[2], "messages.4.content").String(), "https://example.com/weather")
-	require.Equal(t, "天气搜索完成", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "杭州天气", gjson.Get(rec.Body.String(), "output.0.action.query").String())
+	require.Equal(t, "天气搜索完成", gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
 }
 
 func TestForwardResponses_WebRunStreamingBuffersInternalRounds(t *testing.T) {
@@ -350,11 +358,14 @@ func TestForwardResponses_WebRunStreamingBuffersInternalRounds(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "stream").Bool())
 	wire := rec.Body.String()
 	require.Contains(t, wire, "event: response.created")
+	require.Contains(t, wire, `"type":"web_search_call"`)
+	require.Contains(t, wire, `"action":{"type":"search","query":"杭州天气"}`)
 	require.Contains(t, wire, `"delta":"流式天气结果"`)
 	require.Contains(t, wire, "event: response.completed")
 	require.Contains(t, wire, `"input_tokens":13`)
 	require.Contains(t, wire, "data: [DONE]")
 	require.NotContains(t, wire, `"namespace":"web"`)
+	require.Less(t, strings.Index(wire, `"type":"web_search_call"`), strings.Index(wire, `"delta":"流式天气结果"`))
 }
 
 func TestForwardResponses_WebRunDisabledRemainsClientToolCall(t *testing.T) {
@@ -498,7 +509,10 @@ func TestForwardResponses_WebRunProviderFailureContinuesWithoutBilling(t *testin
 	toolOutput := gjson.GetBytes(upstream.bodies[1], "messages.2.content").String()
 	require.Contains(t, toolOutput, "web_search_failed")
 	require.Equal(t, "call_provider_failure", gjson.GetBytes(upstream.bodies[1], "messages.2.tool_call_id").String())
-	require.Equal(t, "搜索服务暂时不可用", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "failed", gjson.Get(rec.Body.String(), "output.0.status").String())
+	require.Equal(t, "杭州天气", gjson.Get(rec.Body.String(), "output.0.action.query").String())
+	require.Equal(t, "搜索服务暂时不可用", gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
 }
 
 func TestForwardResponses_WebRunProxyUnavailableTriggersFailover(t *testing.T) {
@@ -605,6 +619,11 @@ func TestForwardResponses_WebRunEnforcesFourQueryLimitAcrossRounds(t *testing.T)
 	toolOutput := gjson.GetBytes(upstream.bodies[2], "messages.4.content").String()
 	require.Contains(t, toolOutput, "search_limit_exceeded")
 	require.Equal(t, "call_query_limit_2", gjson.GetBytes(upstream.bodies[2], "messages.4.tool_call_id").String())
+	require.Equal(t, "one", gjson.Get(rec.Body.String(), "output.0.action.query").String())
+	require.Equal(t, "two", gjson.Get(rec.Body.String(), "output.1.action.query").String())
+	require.Equal(t, "three", gjson.Get(rec.Body.String(), "output.2.action.query").String())
+	require.Equal(t, "message", gjson.Get(rec.Body.String(), "output.3.type").String())
+	require.Equal(t, "已使用现有搜索结果", gjson.Get(rec.Body.String(), "output.3.content.0.text").String())
 }
 
 func TestParseOpenAIResponsesWebRunArgumentsRejectsUnsupportedAndOverLimit(t *testing.T) {

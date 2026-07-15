@@ -1261,7 +1261,8 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - 服务端接管后只向 Chat 上游声明 `search_query` 与可选 `response_length`，并设置 `parallel_tool_calls=false`。不能声明或执行 `weather/open/click/find/screenshot/image_query/finance/sports`；天气问题由模型生成普通搜索词。
 - `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
 - `web.run` 内部模型请求固定使用同一账号、映射后模型和非流式 Chat。每个请求最多消费 2 轮 Web 工具调用、累计最多 4 个查询；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
-- 已消费的 `web.run` 调用不能下发给客户端。最终文本或其它客户端工具继续通过现有 Chat -> Responses 转换返回；流式客户端只接收最终结果合成的完整 Responses SSE 生命周期。
+- 已消费的内部 `web.run` function call 不能下发给客户端。每个已尝试的 `search_query` 必须投影为标准 Responses `web_search_call`：使用稳定 `ws_` ID、`action.type="search"`、原查询文本以及 `completed/failed` 状态，并排列在最终文本或其它客户端工具之前。
+- 流式客户端必须收到 `response.output_item.added/done` 的 `web_search_call` 生命周期，后续最终响应事件的 `output_index` 必须按搜索项数量整体偏移，`response.completed.output` 也必须包含同一批搜索项。内部模型轮次仍保持缓冲，只有循环结束后才提交下游 SSE，避免搜索代理 failover 或后续模型错误发生在响应已提交之后。
 - 所有内部模型轮次的 token usage 必须累加；`WebSearchCalls` 只累计真实成功完成的 provider 查询。参数错误、未支持命令、provider 失败和未实际执行的工具调用不计 Web Search 次数。
 - `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被本地模拟擅自接管。
 - 请求只能走 Chat fallback 且要求执行无法等价转换的 Web Search 时，返回 OpenAI 兼容能力错误；不得先删除服务端工具再让模型生成普通文本。
@@ -1286,7 +1287,7 @@ channel.features_config.web_search_emulation.anthropic: boolean
 | 本地模拟与 `text.format=json_schema` 冲突 | `400 invalid_request_error`，参数指向 `text.format` |
 | typed Web Search 账号允许模拟但全局 provider 不可用 | `503 web_search_unavailable`，不伪造成功、不计费 |
 | `web.run` 未被账号策略开启 | 不做服务端执行，按现有 namespace function call 回给客户端 |
-| `web.run.search_query` 合法 | 逐项执行 provider，回灌同 call ID，并用同一账号续跑模型 |
+| `web.run.search_query` 合法 | 逐项执行 provider，回灌同 call ID，用同一账号续跑模型，并在最终 Responses 输出中投影 `web_search_call` |
 | `web.run` 账号允许模拟但全局 provider 不可用 | 回灌 `web_search_unavailable` tool result，允许模型生成可诊断回答，不计 Web Search 次数 |
 | `web.run` 只有未支持命令或参数非法 | 回灌稳定 tool error，不调用 provider、不计 Web Search 次数 |
 | `web.run` provider 普通失败 | 回灌 `web_search_failed` tool result，允许模型生成可诊断回答，失败查询不计费 |
@@ -1303,12 +1304,13 @@ channel.features_config.web_search_emulation.anthropic: boolean
 
 - Good: OpenAI APIKey 账号开启兼容后，Responses 经原生 `/responses`、Responses shape 经 Chat fallback、直接 Chat 请求都只向上游发送 `json_object`，原 Schema 仍作为输出约束存在。
 - Good: `input` 中通过 `additional_tools` 声明的唯一 Web Search 能被识别；明确强制搜索时本地 provider 执行一次，返回完整 `web_search_call`、摘要和 URL citations。
-- Good: Codex 在 `additional_tools` 声明 `web/run`，模型用 `search_query:[{"q":"杭州天气"}]` 调用时，网关执行搜索、按原 call ID 回灌，并只把最终模型回答返回客户端。
+- Good: Codex 在 `additional_tools` 声明 `web/run`，模型用 `search_query:[{"q":"杭州天气"}]` 调用时，网关执行搜索、按原 call ID 回灌；客户端收到标准 `web_search_call` 和最终模型回答，但看不到内部 `namespace=web,name=run` function call。
 - Good: DeepSeek 依次发送 index `5` 的搜索调用、index `6` 的搜索结果、挂在 index `5` 上的 citation、index `7` 的文本时，最终 Responses 中搜索调用、文本和引用都完整。
 - Base: 模拟配置关闭且上游原生 Responses 支持 Web Search 时保持 pass，不改变现有上游能力。
 - Base: `web.run` 已声明但账号策略为 disabled 时保持客户端工具语义；网关不收窄 Schema、不调用 provider、不产生 Web Search 费用。
 - Base: `tool_choice=none` 即使声明 Web Search 也不执行搜索。
 - Bad: 在 Responses -> Chat 转换时直接丢弃 `web_search` 和对应 `tool_choice`，让客户端收到看似成功但实际未搜索的文本。
+- Bad: 服务端实际执行了 `web.run` 搜索，却只返回最终 assistant message；Codex 日志中没有 `web_search_call`，用户无法判断回答是否真的联网。
 - Bad: 把 `weather` 当成 `search_query` 的别名直接执行，或把内部 `web.run` function call 提前发给 Codex；前者伪造未实现能力，后者会让客户端与服务端重复执行。
 - Bad: 把原 Schema 序列化成普通 string 作为 `response_format`，会产生无效协议且丢失对象语义。
 - Bad: 使用 `finalResp.Content[event.Index]` 聚合 DeepSeek SSE；稀疏 index 会越界或把 delta 写到错误 block。
@@ -1319,6 +1321,7 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - JSON Schema helper 和网关路径必须覆盖：配置 guard、Responses、Chat、Responses -> Chat、Responses shape on Chat、passthrough、幂等、非法 Schema、未知字段和工具 Schema 保留。
 - Web Search 决策必须覆盖：顶层 tools、`additional_tools`、唯一搜索工具、混合工具、`auto|required|none`、强制搜索、强制其它工具、Chat fallback 拒绝、JSON Schema 冲突和 provider 不可用。
 - `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、跨轮次 4 查询上限、2 轮上限、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
+- `web.run` 客户端可见事件必须断言：非流式 `output` 的搜索项位于最终消息之前；流式 `web_search_call added/done` 位于最终文本事件之前；所有后续 `output_index` 正确偏移；provider 普通失败投影为 `status=failed`；任何响应都不泄漏 `namespace=web` 的内部调用。
 - 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
 - SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。
 - 建议运行：
