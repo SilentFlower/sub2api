@@ -83,6 +83,8 @@ type codexOAuthTransformOptions struct {
 	PreserveToolCallIDs     bool
 }
 
+const codexImageGenerationFunctionToolName = "image_gen.imagegen"
+
 const (
 	codexImageGenerationBridgeMarker = "<sub2api-codex-image-generation>"
 	codexImageGenerationBridgeText   = codexImageGenerationBridgeMarker + "\nWhen the user asks for raster image generation or editing, use the OpenAI Responses native `image_generation` tool attached to this request. The local Codex client may not expose an `image_gen` namespace, but that does not mean image generation is unavailable. Do not ask the user to switch to CLI fallback solely because `image_gen` is absent.\n</sub2api-codex-image-generation>"
@@ -312,11 +314,28 @@ func normalizeCodexToolChoice(reqBody map[string]any) bool {
 		}
 		return modified
 	}
-	if codexToolsContainType(reqBody["tools"], choiceType) {
+	if codexToolsContainType(reqBody["tools"], choiceType) || codexInputAdditionalToolsContainType(reqBody["input"], choiceType) {
 		return modified
 	}
 	reqBody["tool_choice"] = "auto"
 	return true
+}
+
+func codexInputAdditionalToolsContainType(rawInput any, toolType string) bool {
+	input, ok := rawInput.([]any)
+	if !ok || strings.TrimSpace(toolType) == "" {
+		return false
+	}
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "additional_tools" {
+			continue
+		}
+		if codexToolsContainType(item["tools"], toolType) {
+			return true
+		}
+	}
+	return false
 }
 
 func codexToolsContainType(rawTools any, toolType string) bool {
@@ -600,8 +619,11 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 }
 
 func hasOpenAIImageGenClientTool(reqBody map[string]any) bool {
-	if reqBody == nil {
+	if len(reqBody) == 0 {
 		return false
+	}
+	if hasCodexImageGenerationFunctionTool(reqBody) {
+		return true
 	}
 	if toolsContainImageGenClientTool(reqBody["tools"]) {
 		return true
@@ -638,6 +660,11 @@ func inputContainsImageGenClientTool(rawInput any) bool {
 		}
 	}
 	return false
+}
+
+func hasCodexImageGenerationFunctionTool(reqBody map[string]any) bool {
+	return len(reqBody) > 0 &&
+		codexToolsContainFunctionName(reqBody["tools"], codexImageGenerationFunctionToolName)
 }
 
 func toolsContainImageGeneration(rawTools any) bool {
@@ -689,8 +716,16 @@ func isImageGenNamespaceToolMap(tool map[string]any) bool {
 }
 
 func isImageGenFunctionToolMap(tool map[string]any) bool {
-	return strings.TrimSpace(firstNonEmptyString(tool["type"])) == "function" &&
-		isOpenAIImageGenFunctionName(firstNonEmptyString(tool["name"]))
+	if strings.TrimSpace(firstNonEmptyString(tool["type"])) != "function" {
+		return false
+	}
+	name := strings.TrimSpace(firstNonEmptyString(tool["name"]))
+	if name == "" {
+		if function, ok := tool["function"].(map[string]any); ok {
+			name = strings.TrimSpace(firstNonEmptyString(function["name"]))
+		}
+	}
+	return isOpenAIImageGenFunctionName(name)
 }
 
 func inputContainsImageGenerationTool(rawInput any) bool {
@@ -899,6 +934,9 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
+	if hasOpenAIImageGenClientTool(reqBody) {
+		return false
+	}
 	if hasOpenAIImageGenerationTool(reqBody) {
 		return false
 	}
@@ -924,14 +962,10 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 }
 
 func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) bool {
-	if len(reqBody) == 0 || !hasOpenAIImageGenerationTool(reqBody) {
+	if len(reqBody) == 0 || hasOpenAIImageGenClientTool(reqBody) || !hasOpenAIImageGenerationTool(reqBody) {
 		return false
 	}
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
-		return false
-	}
-	// image_gen 由客户端扩展执行，不能覆盖客户端显式的工具选择。
-	if hasOpenAIImageGenClientTool(reqBody) {
 		return false
 	}
 	choice, ok := reqBody["tool_choice"]
@@ -948,17 +982,12 @@ func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) 
 }
 
 func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool {
-	if len(reqBody) == 0 || !hasOpenAIImageGenerationTool(reqBody) {
+	if len(reqBody) == 0 || hasOpenAIImageGenClientTool(reqBody) || !hasOpenAIImageGenerationTool(reqBody) {
 		return false
 	}
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
-	// image_gen 自带完整调用契约，桥接提示会错误地引导模型改走 hosted image_generation。
-	if hasOpenAIImageGenClientTool(reqBody) {
-		return false
-	}
-
 	existing, _ := reqBody["instructions"].(string)
 	if strings.Contains(existing, codexImageGenerationBridgeMarker) {
 		return false

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"反向检查桥接稳定性、Lite 标头和图片工具执行域是否回归。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查错误响应、敏感信息和 failover 路径。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"检查跨层依赖、构造器与 Wire 生成一致性。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"检查账户菜单、页面事件、类型和前端测试组织。"}

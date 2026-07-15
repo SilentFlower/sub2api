@@ -9,14 +9,14 @@
 ### 1. Scope / Trigger
 
 - Trigger: 修改 Anthropic `/v1/messages` 与 OpenAI-compatible `/v1/chat/completions` 的请求或响应互转时，必须按本节检查。
-- 适用路径：`backend/internal/pkg/apicompat/anthropic_chatcompletions.go`。
+- 适用路径：`backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go`。
 - 账号粘性路径：`backend/internal/handler/openai_gateway_handler.go`。
 - 入口场景：OpenAI APIKey 且不走 Responses API 的 raw Chat fallback。该路径不会经过 Responses 的 `prompt_cache_key` / digest replay guard，因此 payload 前缀本身必须稳定。
 - 缓存目标：稳定 Chat prefix cache，避免动态 attribution system block、string/array content 形态切换、随机 `tool_use.id` 造成缓存重建。
 
 ### 2. Signatures
 
-- 请求转换：`AnthropicToChatCompletions(req *AnthropicRequest) (*ChatCompletionsRequest, error)`
+- 请求转换：`AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsRequest, error)`
 - 流式响应转换：`ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 流式收尾：`FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 非流式折叠：`ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, model string) *AnthropicResponse`
@@ -41,12 +41,15 @@
   ```
 - 流式响应中，如果缺失 `tool_call.id` 或 function name，先累积 pending tool call，不发送空 id、空 name 或随机 id 的 `tool_use` block。上游后续 chunk 补 id 时使用上游 id；始终不补 id 时，在 finalize 阶段用完整 arguments 生成确定性 fallback。
 - 上游正常结束但只返回 `[DONE]`、没有任何 Chat chunk 时，finalize 仍必须输出完整 Anthropic frame：`message_start`、`message_delta`、`message_stop`。不能因为未见 chunk 就返回空流，否则 Anthropic 客户端会把一次正常空回答误判为协议中断。
-- usage 映射保持 Anthropic 语义：`cache_read_input_tokens = prompt_tokens_details.cached_tokens`，`input_tokens = max(prompt_tokens - cached_tokens, 0)`。
+- usage 映射保持 Anthropic 语义：`cache_read_input_tokens = cached_tokens`；
+  `cache_creation_input_tokens` 优先读取 `cache_write_tokens`，缺失时读取
+  `cache_creation_tokens`；`input_tokens = max(prompt_tokens - cached_tokens - cache_creation_input_tokens, 0)`。
+  `cache_write_tokens` 与 `cache_creation_tokens` 是同一数量的两种字段名，不得相加。
 - `/v1/messages` 账号粘性 key 优先级必须是：显式 `session_id` / `conversation_id` / `prompt_cache_key` > Anthropic `metadata.user_id` > content fallback。`metadata.user_id` 只用于账号 sticky，不直接作为上游 `prompt_cache_key`，避免固定上游缓存键压住后续 turn 的缓存滚动。
 
 ### 4. Validation & Error Matrix
 
-- `AnthropicToChatCompletions(nil)` -> 返回 `nil request` 错误。
+- `AnthropicToChatCompletionsRequest(nil)` -> 返回 `anthropic request is nil` 错误。
 - message `content` 既不是字符串也不是可解析的 block array -> 返回 JSON 解析错误。
 - text 为空、全空白或为 attribution block -> 不输出该 content part；system 过滤后为空则不输出 system message。
 - `tool_result.content` 为空或无法提取 text -> Chat tool message content 使用 `"(empty)"`。
@@ -54,7 +57,9 @@
 - 连续 tool messages 中存在未知 `tool_call_id` -> 已知 id 按 `tool_calls` 顺序排前，未知 id 保持原相对顺序排后。
 - tool messages 中间出现普通 user/text message -> 不跨 message 重排，避免改变用户轮次语义。
 - Chat tool delta 缺 id 但已有 name/args -> pending；finalize 时生成确定性 fallback id。
-- Chat tool delta 缺 name 到 finalize -> 无法构造合法 Anthropic `tool_use`，跳过该 pending tool call。
+- Chat tool delta 缺 name 到 finalize -> 无法构造合法 Anthropic `tool_use`，跳过该
+  pending tool call；若没有其它合法工具块，即使上游 `finish_reason=tool_calls`，
+  最终 `stop_reason` 也使用 `end_turn`。
 - 上游 SSE 只返回 `data: [DONE]` 且没有 chunk -> 输出 `message_start`、`message_delta(stop_reason=end_turn)`、`message_stop`。
 - Chat usage cached tokens 大于 prompt tokens -> Anthropic `input_tokens` 归零，不产生负数。
 - `thinking.type == "disabled"` -> 输出 Chat `thinking.type=disabled`，且 `reasoning_effort` 必须为空。
@@ -67,6 +72,8 @@
 - Good: Claude Code 每轮变化的 `x-anthropic-billing-header:` 不进入上游 Chat payload。
 - Good: 并行工具结果即使按完成时间反序返回，Chat payload 中紧跟 assistant 的 tool messages 仍按上一条 `tool_calls` 顺序稳定输出。
 - Good: 空但正常完成的上游 Chat SSE 仍给 Anthropic 客户端完整收尾 frame，客户端不会收到零字节成功响应。
+- Good: 上游只给出 tool call ID/arguments、始终不给 function name 时，不输出
+  `name:""` 的非法 `tool_use`，并以 `end_turn` 完成。
 - Good: Claude Code 同一 `metadata.user_id` 即使首条用户内容或工具定义不同，账号 sticky key 仍稳定命中同一个账号绑定。
 - Base: 上游稳定返回 `tool_call.id`，桥接直接复用该 id，客户端下一轮 `tool_result.tool_use_id` 可稳定引用。
 - Base: 上游不返回 `tool_call.id`，相同 index/name/arguments 多次请求生成相同 `toolu_` fallback。
@@ -98,7 +105,9 @@
   - 后续 chunk 才提供 `tool_call.id` 时，最终使用上游 id。
   - 上游只返回 `[DONE]` 时，streaming 路径仍输出 `message_start`、`message_delta`、`message_stop`。
   - `thinking:{"type":"disabled"}` 透传，且不输出 `reasoning_effort`。
-  - cached token usage 映射保持不变。
+  - cached/cache creation token 分别映射，且
+    `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` 不超过
+    上游 `prompt_tokens`。
   - `/v1/messages` 账号 sticky：`metadata.user_id` 优先于 content fallback，显式 session 信号优先于 `metadata.user_id`。
 
 ### 7. Wrong vs Correct
@@ -191,6 +200,9 @@ typed content part array 是该桥接路径的稳定输出形态。
   - APIKey 使用 `api_key`。
   - 空凭据返回错误，不应构造无鉴权上游请求。
 - Grok raw Chat fallback URL 必须来自账号 Grok base URL 的 `/chat/completions`，不要复用 OpenAI APIKey 专用 URL 构造。
+- raw Chat fallback 无论下游 `stream` 值都必须向上游发送 `stream=true` 和
+  `stream_options.include_usage=true`；下游非流式请求由网关缓冲 SSE 后通过
+  `ChatCompletionsStreamToAnthropicResponse` 折叠为 Anthropic Messages JSON。
 - Grok raw Chat fallback 成功或上游错误后都应更新 xAI quota snapshot；错误路径应继续走 Grok 上游错误处理和 failover 语义。
 - usage/upstream endpoint 记录必须反映实际路径：
   - Grok `/v1/messages` + `force_chat_completions` -> `/v1/chat/completions`。

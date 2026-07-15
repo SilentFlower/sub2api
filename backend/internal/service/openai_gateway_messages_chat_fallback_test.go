@@ -189,7 +189,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "assistant", gjson.Get(rec.Body.String(), "role").String())
@@ -197,7 +197,8 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.Equal(t, 3, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
-	require.Nil(t, result.ReasoningEffort)
+	require.NotNil(t, result.ReasoningEffort)
+	require.Equal(t, "medium", *result.ReasoningEffort)
 	require.False(t, result.Stream)
 }
 

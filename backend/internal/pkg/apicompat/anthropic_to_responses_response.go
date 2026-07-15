@@ -259,8 +259,9 @@ func AnthropicEventToResponsesEvents(
 	}
 }
 
-// FinalizeAnthropicResponsesStream emits synthetic termination events if the
-// stream ended without a proper message_stop.
+// FinalizeAnthropicResponsesStream 在上游缺少 message_stop 时补齐终止事件。
+// @param state Anthropic 事件到 Responses 事件的流式转换状态。
+// @return 需要补发的 Responses 终止事件。
 func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if !state.CreatedSent || state.CompletedSent {
 		return nil
@@ -271,11 +272,8 @@ func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []R
 	// Close any open item
 	events = append(events, closeCurrentResponsesItem(state)...)
 
-	status := "completed"
-	if state.SearchFailed {
-		status = "failed"
-	}
-	events = append(events, makeResponsesCompletedEvent(state, status, nil))
+	status, incompleteDetails := anthropicResponsesStreamTerminalState(state.StopReason, state.SearchFailed)
+	events = append(events, makeResponsesCompletedEvent(state, status, incompleteDetails))
 	state.CompletedSent = true
 	return events
 }
@@ -567,21 +565,23 @@ func anthToResHandleMessageStop(state *AnthropicEventToResponsesState) []Respons
 	var events []ResponsesStreamEvent
 	events = append(events, closeCurrentResponsesItem(state)...)
 
-	status := "completed"
-	var incompleteDetails *ResponsesIncompleteDetails
-	if state.SearchFailed {
-		status = "failed"
-	} else if state.StopReason == "max_tokens" {
-		status = "incomplete"
-		incompleteDetails = &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
-	}
-
+	status, incompleteDetails := anthropicResponsesStreamTerminalState(state.StopReason, state.SearchFailed)
 	events = append(events, makeResponsesCompletedEvent(state, status, incompleteDetails))
 	state.CompletedSent = true
 	return events
 }
 
 // --- helper functions ---
+
+func anthropicResponsesStreamTerminalState(stopReason string, searchFailed bool) (string, *ResponsesIncompleteDetails) {
+	if searchFailed {
+		return "failed", nil
+	}
+	if stopReason == "max_tokens" {
+		return "incomplete", &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
+	}
+	return "completed", nil
+}
 
 func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if state.CurrentItemType == "" {

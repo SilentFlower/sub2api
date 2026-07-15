@@ -58,10 +58,13 @@ func TestGrokBillingQuotaServiceStoresOnlyIndependentSnapshot(t *testing.T) {
 		ID:          71,
 		Platform:    PlatformGrok,
 		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Concurrency: 0,
 		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
@@ -93,12 +96,15 @@ func TestGrokBillingQuotaServiceKeepsPartialWindow(t *testing.T) {
 	t.Parallel()
 
 	account := &Account{
-		ID:       72,
-		Platform: PlatformGrok,
-		Type:     AccountTypeOAuth,
+		ID:          72,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
@@ -123,11 +129,14 @@ func TestGrokBillingQuotaServiceLoadsAccountProxy(t *testing.T) {
 		ID:          74,
 		Platform:    PlatformGrok,
 		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		ProxyID:     &proxyID,
 		Concurrency: 3,
 		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
@@ -155,12 +164,15 @@ func TestGrokBillingQuotaServiceReturnsStableErrorWhenBothWindowsFail(t *testing
 	t.Parallel()
 
 	account := &Account{
-		ID:       75,
-		Platform: PlatformGrok,
-		Type:     AccountTypeOAuth,
+		ID:          75,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
@@ -183,12 +195,15 @@ func TestGrokBillingQuotaServiceDoesNotExposeTransportError(t *testing.T) {
 	t.Parallel()
 
 	account := &Account{
-		ID:       76,
-		Platform: PlatformGrok,
-		Type:     AccountTypeOAuth,
+		ID:          76,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{

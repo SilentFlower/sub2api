@@ -13,7 +13,7 @@ import (
 // 测试辅助函数
 // ---------------------------------------------------------------------------
 
-func intPtr(i int) *int { return &i }
+func chatIntPtr(i int) *int { return &i }
 
 func anthChatTextChunk(s string) *ChatCompletionsChunk {
 	return &ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{Content: stringPtr(s)}}}}
@@ -101,7 +101,7 @@ func TestAnthropicToChatCompletions_SystemAndToolResultOrdering(t *testing.T) {
 		},
 	}
 
-	out, err := AnthropicToChatCompletions(req)
+	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 5)
 
@@ -141,7 +141,7 @@ func TestAnthropicToChatCompletions_ParallelToolResultsFollowToolCallOrder(t *te
 		},
 	}
 
-	out, err := AnthropicToChatCompletions(req)
+	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 5)
 
@@ -203,7 +203,7 @@ func TestAnthropicToChatCompletions_StableContentPartsAndAttribution(t *testing.
 		},
 	}
 
-	out, err := AnthropicToChatCompletions(req)
+	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 3)
 
@@ -233,7 +233,7 @@ func TestAnthropicToChatCompletions_ToolsAndToolChoice(t *testing.T) {
 		ToolChoice: json.RawMessage(`{"type":"any"}`),
 	}
 
-	out, err := AnthropicToChatCompletions(req)
+	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 
 	require.Len(t, out.Tools, 1, "all typed built-in tools (web_search, bash) should be skipped; only the custom tool survives")
@@ -246,11 +246,11 @@ func TestAnthropicToChatCompletions_ToolsAndToolChoice(t *testing.T) {
 }
 
 func TestAnthropicToChatCompletions_ReasoningEffort(t *testing.T) {
-	enabled, err := AnthropicToChatCompletions(&AnthropicRequest{Model: "c", Thinking: &AnthropicThinking{Type: "enabled"}})
+	enabled, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{Model: "c", Thinking: &AnthropicThinking{Type: "enabled"}})
 	require.NoError(t, err)
 	assert.Equal(t, "medium", enabled.ReasoningEffort)
 
-	maxed, err := AnthropicToChatCompletions(&AnthropicRequest{Model: "c", OutputConfig: &AnthropicOutputConfig{Effort: "max"}})
+	maxed, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{Model: "c", OutputConfig: &AnthropicOutputConfig{Effort: "max"}})
 	require.NoError(t, err)
 	assert.Equal(t, "xhigh", maxed.ReasoningEffort)
 }
@@ -260,7 +260,7 @@ func TestAnthropicToChatCompletions_ThinkingDisabled(t *testing.T) {
 	// reasoning_effort；即使 output_config.effort 原本会设置 effort 也一样。
 	// 这样 reasoning 模型（GLM/...）才会停止 thinking，不会继续消耗 token 预算，
 	// 严格上游也不会收到 disable+effort 的互斥参数组合。
-	out, err := AnthropicToChatCompletions(&AnthropicRequest{
+	out, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{
 		Model:        "c",
 		Thinking:     &AnthropicThinking{Type: "disabled"},
 		OutputConfig: &AnthropicOutputConfig{Effort: "high"},
@@ -277,7 +277,7 @@ func TestAnthropicToChatCompletions_ThinkingDisabled(t *testing.T) {
 	assert.NotContains(t, string(b), "budget_tokens")
 
 	// enabled 沿用既有 reasoning_effort 映射，不输出 thinking 字段。
-	enabled, err := AnthropicToChatCompletions(&AnthropicRequest{Model: "c", Thinking: &AnthropicThinking{Type: "enabled"}})
+	enabled, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{Model: "c", Thinking: &AnthropicThinking{Type: "enabled"}})
 	require.NoError(t, err)
 	assert.Nil(t, enabled.Thinking)
 	assert.Equal(t, "medium", enabled.ReasoningEffort)
@@ -340,8 +340,8 @@ func TestChatCompletionsChunkToAnthropicEvents_ParallelToolsNoOrphan(t *testing.
 	all = append(all, ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{
 		ID: "id",
 		Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-			{Index: intPtr(0), ID: "call_a", Type: "function", Function: ChatFunctionCall{Name: "get_weather", Arguments: `{"location":"Paris"}`}},
-			{Index: intPtr(1), ID: "call_b", Type: "function", Function: ChatFunctionCall{Name: "get_time", Arguments: `{"tz":"UTC"}`}},
+			{Index: chatIntPtr(0), ID: "call_a", Type: "function", Function: ChatFunctionCall{Name: "get_weather", Arguments: `{"location":"Paris"}`}},
+			{Index: chatIntPtr(1), ID: "call_b", Type: "function", Function: ChatFunctionCall{Name: "get_time", Arguments: `{"tz":"UTC"}`}},
 		}}}},
 	}, st)...)
 	all = append(all, ChatCompletionsChunkToAnthropicEvents(anthChatFinishChunk("tool_calls"), st)...)
@@ -371,10 +371,10 @@ func TestChatCompletionsChunkToAnthropicEvents_ParallelToolsNoOrphan(t *testing.
 func TestChatCompletionsChunkToAnthropicEvents_ReadToolBuffered(t *testing.T) {
 	st := NewChatCompletionsToAnthropicStreamState("m")
 	chunk1 := &ChatCompletionsChunk{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-		{Index: intPtr(0), ID: "call_r", Type: "function", Function: ChatFunctionCall{Name: "Read", Arguments: `{"file_path":"/x",`}},
+		{Index: chatIntPtr(0), ID: "call_r", Type: "function", Function: ChatFunctionCall{Name: "Read", Arguments: `{"file_path":"/x",`}},
 	}}}}}
 	chunk2 := &ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-		{Index: intPtr(0), Function: ChatFunctionCall{Arguments: `"pages":""}`}},
+		{Index: chatIntPtr(0), Function: ChatFunctionCall{Arguments: `"pages":""}`}},
 	}}}}}
 
 	e1 := ChatCompletionsChunkToAnthropicEvents(chunk1, st)
@@ -397,12 +397,12 @@ func TestChatCompletionsChunkToAnthropicEvents_MissingToolIDDeterministic(t *tes
 		st := NewChatCompletionsToAnthropicStreamState("m")
 		var all []AnthropicStreamEvent
 		first := ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-			{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
+			{Index: chatIntPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
 		}}}}}, st)
 		assert.Empty(t, anthChatToolUseIDs(first), "缺少 tool_call.id 时应延迟发送 tool_use block")
 		all = append(all, first...)
 		all = append(all, ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-			{Index: intPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
+			{Index: chatIntPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
 		}}}}}, st)...)
 		all = append(all, ChatCompletionsChunkToAnthropicEvents(anthChatFinishChunk("tool_calls"), st)...)
 		all = append(all, FinalizeChatCompletionsAnthropicStream(st)...)
@@ -430,12 +430,12 @@ func TestChatCompletionsChunkToAnthropicEvents_LateToolIDUsesUpstreamID(t *testi
 	st := NewChatCompletionsToAnthropicStreamState("m")
 	var all []AnthropicStreamEvent
 	first := ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-		{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
+		{Index: chatIntPtr(0), Type: "function", Function: ChatFunctionCall{Name: "do_work", Arguments: `{"a":`}},
 	}}}}}, st)
 	assert.Empty(t, anthChatToolUseIDs(first), "上游 id 可能在后续 chunk 到达，不能提前生成 fallback id")
 	all = append(all, first...)
 	all = append(all, ChatCompletionsChunkToAnthropicEvents(&ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-		{Index: intPtr(0), ID: "call_late", Function: ChatFunctionCall{Arguments: `1}`}},
+		{Index: chatIntPtr(0), ID: "call_late", Function: ChatFunctionCall{Arguments: `1}`}},
 	}}}}}, st)...)
 	all = append(all, ChatCompletionsChunkToAnthropicEvents(anthChatFinishChunk("tool_calls"), st)...)
 	all = append(all, FinalizeChatCompletionsAnthropicStream(st)...)
@@ -485,7 +485,7 @@ func TestChatCompletionsStreamToAnthropicResponse_BlockOrderAndUsage(t *testing.
 		{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ReasoningContent: stringPtr("r")}}}},
 		anthChatTextChunk("t"),
 		{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-			{Index: intPtr(0), ID: "call_a", Type: "function", Function: ChatFunctionCall{Name: "foo", Arguments: `{"a":1}`}},
+			{Index: chatIntPtr(0), ID: "call_a", Type: "function", Function: ChatFunctionCall{Name: "foo", Arguments: `{"a":1}`}},
 		}}}}},
 		{Choices: []ChatChunkChoice{{FinishReason: stringPtr("tool_calls")}}, Usage: &ChatUsage{PromptTokens: 100, CompletionTokens: 20, PromptTokensDetails: &ChatTokenDetails{CachedTokens: 30}}},
 	}
@@ -517,10 +517,10 @@ func TestChatCompletionsStreamToAnthropicResponse_MissingToolIDDeterministic(t *
 	build := func() *AnthropicResponse {
 		chunks := []*ChatCompletionsChunk{
 			{ID: "id", Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-				{Index: intPtr(0), Type: "function", Function: ChatFunctionCall{Name: "foo", Arguments: `{"a":`}},
+				{Index: chatIntPtr(0), Type: "function", Function: ChatFunctionCall{Name: "foo", Arguments: `{"a":`}},
 			}}}}},
 			{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{
-				{Index: intPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
+				{Index: chatIntPtr(0), Function: ChatFunctionCall{Arguments: `1}`}},
 			}}}}},
 			anthChatFinishChunk("tool_calls"),
 		}

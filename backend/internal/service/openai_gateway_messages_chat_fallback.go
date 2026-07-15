@@ -52,7 +52,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		"stream":       fmt.Sprintf("%t", clientStream),
 	})
 
-	chatReq, err := apicompat.AnthropicToChatCompletions(&anthropicReq)
+	chatReq, err := apicompat.AnthropicToChatCompletionsRequest(&anthropicReq)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
@@ -219,7 +219,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	state := apicompat.NewChatCompletionsToAnthropicStreamState(originalModel)
 	clientDisconnected := false
 
-	writeEvents := func(events []apicompat.AnthropicStreamEvent) {
+	emitEvents := func(events []apicompat.AnthropicStreamEvent) {
 		if clientDisconnected || len(events) == 0 {
 			return
 		}
@@ -246,7 +246,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	}
 
 	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
-		writeEvents(apicompat.ChatCompletionsChunkToAnthropicEvents(chunk, state))
+		// 客户端断开后仍更新状态并消费上游，保证最终 usage 结算完整。
+		events := apicompat.ChatCompletionsChunkToAnthropicEvents(chunk, state)
+		emitEvents(events)
 	})
 	usage := scan.Usage
 
@@ -266,10 +268,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
 
-	writeEvents(apicompat.FinalizeChatCompletionsAnthropicStream(state))
-	if !clientDisconnected {
-		c.Writer.Flush()
-	}
+	emitEvents(apicompat.FinalizeChatCompletionsAnthropicStream(state))
 	if !scan.SawDone {
 		logCCStreamMissingDoneSentinel("openai messages chat fallback", requestID)
 	}

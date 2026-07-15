@@ -734,6 +734,7 @@ func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto(t *testing.T) {
 		{name: "没有图片工具时不改写 none", model: "gpt-5.4", tools: []any{map[string]any{"type": "web_search"}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
 		{name: "namespace 不改写 none", model: "gpt-5.5", tools: []any{map[string]any{"type": "namespace", "name": "image_gen", "tools": []any{map[string]any{"type": "function", "name": "imagegen"}}}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
 		{name: "扁平 image_gen 函数不改写 none", model: "gpt-5.5", tools: []any{map[string]any{"type": "function", "name": "image_gen.imagegen"}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
+		{name: "嵌套 image_gen 函数不改写 none", model: "gpt-5.5", tools: []any{map[string]any{"type": "function", "function": map[string]any{"name": "image_gen.imagegen"}}}, toolChoice: "none", hasChoice: true, wantChoice: "none"},
 	}
 
 	for _, tt := range tests {
@@ -775,6 +776,86 @@ func TestEnsureOpenAIResponsesImageGenerationToolChoiceAuto_PreservesAdditionalT
 
 	require.False(t, modified)
 	require.Equal(t, "none", reqBody["tool_choice"])
+}
+
+func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing.T) {
+	tests := []struct {
+		name       string
+		reqBody    map[string]any
+		wantClient bool
+	}{
+		{
+			name: "flat image_gen function",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"input": "draw a cat",
+				"tools": []any{
+					map[string]any{"type": "function", "name": "image_gen.imagegen"},
+				},
+			},
+			wantClient: true,
+		},
+		{
+			name: "nested image_gen function",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"input": "draw a cat",
+				"tools": []any{
+					map[string]any{
+						"type": "function",
+						"function": map[string]any{
+							"name": "image_gen.imagegen",
+						},
+					},
+				},
+			},
+			wantClient: true,
+		},
+		{
+			name: "similar function name still receives hosted bridge",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"input": "draw a cat",
+				"tools": []any{
+					map[string]any{"type": "function", "name": "image_gen.imagegenerator"},
+				},
+			},
+			wantClient: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.reqBody["instructions"] = "existing instructions"
+			require.Equal(t, tt.wantClient, hasCodexImageGenerationFunctionTool(tt.reqBody))
+
+			toolModified := ensureOpenAIResponsesImageGenerationTool(tt.reqBody)
+			choiceModified := ensureOpenAIResponsesImageGenerationToolChoiceAuto(tt.reqBody)
+			instructionsModified := applyCodexImageGenerationBridgeInstructions(tt.reqBody)
+
+			require.Equal(t, !tt.wantClient, toolModified)
+			require.Equal(t, !tt.wantClient, choiceModified)
+			require.Equal(t, !tt.wantClient, instructionsModified)
+
+			hasHostedTool := false
+			tools, _ := tt.reqBody["tools"].([]any)
+			for _, rawTool := range tools {
+				tool, ok := rawTool.(map[string]any)
+				if ok && firstNonEmptyString(tool["type"]) == "image_generation" {
+					hasHostedTool = true
+				}
+			}
+			require.Equal(t, !tt.wantClient, hasHostedTool)
+
+			if tt.wantClient {
+				require.NotContains(t, tt.reqBody, "tool_choice")
+				require.Equal(t, "existing instructions", tt.reqBody["instructions"])
+			} else {
+				require.Equal(t, "auto", tt.reqBody["tool_choice"])
+				require.Contains(t, tt.reqBody["instructions"], codexImageGenerationBridgeMarker)
+			}
+		})
+	}
 }
 
 func TestApplyCodexImageGenerationBridgeInstructions_AppendsBridgeOnce(t *testing.T) {

@@ -143,6 +143,9 @@ func (s *GrokBillingQuotaService) prepare(ctx context.Context, accountID int64) 
 	if account.Type != AccountTypeOAuth {
 		return nil, "", "", infraerrors.New(http.StatusBadRequest, "GROK_BILLING_QUOTA_INVALID_TYPE", "account is not an OAuth account")
 	}
+	// main 的 Token Provider 会校验所选代理已加载，因此独立 Billing 必须先完成
+	// 代理懒加载，再获取 access token。
+	proxyURL := s.resolveProxyURL(ctx, account)
 	token, err := s.tokenProvider.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, "", "", infraerrors.New(http.StatusBadGateway, "GROK_BILLING_QUOTA_TOKEN_UNAVAILABLE", "failed to acquire access token")
@@ -150,7 +153,7 @@ func (s *GrokBillingQuotaService) prepare(ctx context.Context, accountID int64) 
 	if strings.TrimSpace(token) == "" {
 		return nil, "", "", infraerrors.New(http.StatusBadGateway, "GROK_BILLING_QUOTA_TOKEN_UNAVAILABLE", "access token is empty")
 	}
-	return account, token, s.resolveProxyURL(ctx, account), nil
+	return account, token, proxyURL, nil
 }
 
 func (s *GrokBillingQuotaService) resolveProxyURL(ctx context.Context, account *Account) string {
@@ -167,6 +170,7 @@ func (s *GrokBillingQuotaService) resolveProxyURL(ctx context.Context, account *
 	if err != nil || proxy == nil {
 		return ""
 	}
+	account.Proxy = proxy
 	return proxy.URL()
 }
 

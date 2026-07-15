@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Anthropic/Chat 直连、Grok Messages 强制 Chat、Codex 生图和 Responses Lite 行为。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束上游错误脱敏、failover 和 OpenAI 兼容响应格式。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"约束 handler/service/repository/Wire 的分层与生成代码边界。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"约束账户管理 Vue 组件、typed emits、API 和测试组织。"}
