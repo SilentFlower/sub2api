@@ -513,3 +513,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 同步 main 0.1.156 到 build
+
+**Date**: 2026-07-15
+**Task**: 同步 main 0.1.156 到 build
+**Branch**: `build`
+
+### Summary
+
+将 main 0.1.156 合并到 build，解决 13 处冲突，保留 Grok 独立 Billing、Chat 桥接与 Responses Lite 定制契约，并完成全量验证与推送。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `96fa3d5b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
