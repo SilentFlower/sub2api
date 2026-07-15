@@ -22,5 +22,16 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-15T22:39:01+08:00",
+    "completedSteps": [
+      "合并 origin/main 0.1.156 到 build 并解决 13 个冲突",
+      "保留 Grok 独立 Billing、Chat 桥接与 Responses Lite 定制契约",
+      "完成后端与前端全量质量验证并推送 merge commit"
+    ],
+    "partialStep": null,
+    "nextStep": "归档当前任务并记录会话收尾",
+    "notes": "merge 已推送到 origin/build"
+  }
 }
