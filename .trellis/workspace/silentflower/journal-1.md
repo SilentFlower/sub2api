@@ -442,3 +442,41 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: 完成 build 同步、Web Search、Grok 额度与任务归档
+
+**Date**: 2026-07-15
+**Task**: 完成 build 同步、Web Search、Grok 额度与任务归档
+**Branch**: `build`
+
+### Summary
+
+完成 main 0.1.155 合并、Structured Outputs 与 Web Search 兼容、Codex web.run 搜索事件和 Grok 独立额度链路，并按用户要求归档全部四个活动任务。自动故障切换任务的线上部署与完整 24 小时观察尚未完成，残留步骤保留在归档任务进度中。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1fdfe9dc` | (see git log) |
+| `f1ca3fdd` | (see git log) |
+| `831eaa4a` | (see git log) |
+| `d7e97a71` | (see git log) |
+| `62661ccb` | (see git log) |
+| `2f460f5e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
