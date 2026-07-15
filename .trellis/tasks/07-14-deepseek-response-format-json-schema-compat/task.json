@@ -24,12 +24,13 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-15T01:04:58+08:00",
+    "updatedAt": "2026-07-15T09:49:20+08:00",
     "completedSteps": [
       "实现 OpenAI APIKey JSON Schema 降级兼容",
       "实现 Responses Web Search 本地模拟与 AnySearch provider",
       "实现 DeepSeek 原生 Web Search 桥和 SSE 稀疏索引修复",
-      "完成后端与前端检查及协议规范沉淀"
+      "实现 Codex web.run.search_query 受控搜索循环",
+      "完成后端与前端全量检查及协议规范沉淀"
     ],
     "partialStep": null,
     "nextStep": "执行任务收尾与归档",
