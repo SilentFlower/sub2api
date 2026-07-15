@@ -22,5 +22,18 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-15T19:30:25+08:00",
+    "completedSteps": [
+      "修复 Responses Lite 标头上游泄漏",
+      "恢复无客户端图片工具时 hosted image_generation fallback",
+      "统一原生与客户端图片工具分类",
+      "补齐 HTTP、passthrough、WSv2 与 WS HTTP bridge 回归测试",
+      "同步协议规范并通过 Check-All"
+    ],
+    "partialStep": null,
+    "nextStep": "归档任务并完成会话收尾",
+    "notes": "完整 service 单测、go vet、golangci-lint 和 git diff --check 通过"
+  }
 }
