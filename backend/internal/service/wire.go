@@ -145,6 +145,21 @@ func ProvideGrokQuotaService(
 	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, usageLogRepo)
 }
 
+// ProvideGrokBillingQuotaService 创建独立 Grok 套餐额度服务。
+// @param accountRepo 账号仓储。
+// @param proxyRepo 代理仓储。
+// @param tokenProvider Grok OAuth Token Provider。
+// @param httpUpstream 上游 HTTP transport。
+// @return 可供依赖注入的独立套餐额度服务。
+func ProvideGrokBillingQuotaService(
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	tokenProvider *GrokTokenProvider,
+	httpUpstream HTTPUpstream,
+) *GrokBillingQuotaService {
+	return NewGrokBillingQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream)
+}
+
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection
 func ProvideGeminiTokenProvider(
 	accountRepo AccountRepository,
@@ -599,6 +614,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
 	ProvideGrokQuotaService,
+	ProvideGrokBillingQuotaService,
 	ProvideClaudeTokenProvider,
 	NewAntigravityGatewayService,
 	ProvideRateLimitService,

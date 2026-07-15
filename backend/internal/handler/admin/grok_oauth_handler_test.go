@@ -4,6 +4,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,7 @@ type grokQuotaHandlerUpstream struct {
 	mu       sync.Mutex
 	requests []*http.Request
 	bodies   [][]byte
+	err      error
 }
 
 func (u *grokQuotaHandlerUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -56,6 +58,9 @@ func (u *grokQuotaHandlerUpstream) Do(req *http.Request, _ string, _ int64, _ in
 	u.requests = append(u.requests, req)
 	u.bodies = append(u.bodies, body)
 	u.mu.Unlock()
+	if u.err != nil {
+		return nil, u.err
+	}
 	if req.URL.Path == "/v1/responses" {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -98,7 +103,7 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	}}
 	upstream := &grokQuotaHandlerUpstream{}
 	quotaService := service.NewGrokQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
-	handler := NewGrokOAuthHandler(nil, nil, quotaService)
+	handler := NewGrokOAuthHandler(nil, nil, quotaService, nil)
 
 	router := gin.New()
 	router.GET("/api/v1/admin/grok/accounts/:id/quota", handler.QueryQuota)
@@ -127,6 +132,70 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	require.NotNil(t, repo.updates[42])
 }
 
+func TestGrokOAuthHandlerQueryBillingQuotaUsesIndependentService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &grokQuotaHandlerAccountRepo{account: &service.Account{
+		ID:          44,
+		Platform:    service.PlatformGrok,
+		Type:        service.AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}}
+	upstream := &grokQuotaHandlerUpstream{}
+	billingQuotaService := service.NewGrokBillingQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
+	handler := NewGrokOAuthHandler(nil, nil, nil, billingQuotaService)
+
+	router := gin.New()
+	router.GET("/api/v1/admin/grok/accounts/:id/billing-quota", handler.QueryBillingQuota)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/grok/accounts/44/billing-quota", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"source":"grok_cli_billing_quota"`)
+	require.Contains(t, recorder.Body.String(), `"snapshot":`)
+	require.NotContains(t, recorder.Body.String(), "access-token")
+	upstream.mu.Lock()
+	requests := append([]*http.Request(nil), upstream.requests...)
+	upstream.mu.Unlock()
+	require.Len(t, requests, 2)
+	require.Contains(t, repo.updates[44], "grok_billing_quota_snapshot")
+	require.NotContains(t, repo.updates[44], "grok_billing_snapshot")
+}
+
+func TestGrokOAuthHandlerQueryBillingQuotaRedactsTransportError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &grokQuotaHandlerAccountRepo{account: &service.Account{
+		ID:       45,
+		Platform: service.PlatformGrok,
+		Type:     service.AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}}
+	upstream := &grokQuotaHandlerUpstream{err: errors.New("access_token=super-secret")}
+	billingQuotaService := service.NewGrokBillingQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
+	handler := NewGrokOAuthHandler(nil, nil, nil, billingQuotaService)
+
+	router := gin.New()
+	router.GET("/api/v1/admin/grok/accounts/:id/billing-quota", handler.QueryBillingQuota)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/grok/accounts/45/billing-quota", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"reason":"GROK_BILLING_QUOTA_REQUEST_FAILED"`)
+	require.Contains(t, recorder.Body.String(), `"message":"billing request failed"`)
+	require.NotContains(t, recorder.Body.String(), "super-secret")
+	require.NotContains(t, recorder.Body.String(), "access_token")
+}
+
 func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -136,7 +205,7 @@ func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {
 		Type:     service.AccountTypeOAuth,
 	}}
 	quotaService := service.NewGrokQuotaService(repo, nil, nil, nil)
-	handler := NewGrokOAuthHandler(nil, nil, quotaService)
+	handler := NewGrokOAuthHandler(nil, nil, quotaService, nil)
 
 	router := gin.New()
 	router.POST("/api/v1/admin/grok/accounts/:id/reset-quota", handler.ResetQuota)
@@ -154,7 +223,7 @@ func TestGrokOAuthHandlerRuntimeSanityDoesNotExposeSecrets(t *testing.T) {
 	t.Setenv(xai.EnvBaseURL, "http://127.0.0.1:8080/v1?access_token=secret")
 	t.Setenv(xai.EnvClientID, "client-secret-like-value")
 
-	handler := NewGrokOAuthHandler(nil, nil, nil)
+	handler := NewGrokOAuthHandler(nil, nil, nil, nil)
 	router := gin.New()
 	router.GET("/api/v1/admin/grok/runtime-sanity", handler.RuntimeSanity)
 	rec := httptest.NewRecorder()

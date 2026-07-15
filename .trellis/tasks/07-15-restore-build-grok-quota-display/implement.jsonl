@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"识别当前 Grok 统一 quota 契约并按已确认的独立 Billing 触发、快照键和兼容边界实施及更新"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束独立管理端 API 的标准 envelope、稳定 reason 和上游错误脱敏"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"约束账号级服务端数据缓存、force 刷新和组件局部状态边界"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束紧凑账号列表组件、图标、i18n、dark mode、响应式和可访问性"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束独立 snake_case DTO、API 解包和 AccountUsageInfo 字段一致性"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查上游解析、extra 快照、usage DTO、管理端 API、组件缓存与展示的完整数据流"}
+{"file":".trellis/tasks/07-15-restore-build-grok-quota-display/research.md","reason":"提供合并前 build 实现、当前 main 冲突、重复请求风险和已确认隔离边界的证据"}

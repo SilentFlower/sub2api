@@ -1054,6 +1054,29 @@ export interface GrokBillingSummary {
   failed_windows?: string[]
 }
 
+/** 独立 Grok 套餐额度快照。 */
+export interface GrokBillingQuota {
+  period_type?: string
+  weekly_used_percent?: number | null
+  weekly_reset_at?: string
+  product_usage?: GrokBillingProductUsage[] | null
+  monthly_limit_cents?: number | null
+  monthly_used_cents?: number | null
+  monthly_remaining_cents?: number | null
+  monthly_used_percent?: number | null
+  billing_period_start?: string
+  billing_period_end?: string
+  on_demand_cap_cents?: number | null
+  on_demand_used_cents?: number | null
+  on_demand_remaining_cents?: number | null
+  on_demand_used_percent?: number | null
+  plan_label?: string
+  updated_at: string
+  stale?: boolean
+  partial?: boolean
+  failed_windows?: string[]
+}
+
 export interface AccountUsageInfo {
   source?: 'passive' | 'active'
   updated_at: string | null
@@ -1081,6 +1104,7 @@ export interface AccountUsageInfo {
   grok_local_usage_7d?: WindowStats | null
   grok_local_usage_monthly?: WindowStats | null
   grok_billing?: GrokBillingSummary | null
+  grok_billing_quota?: GrokBillingQuota | null
   subscription_tier?: string
   subscription_tier_raw?: string
   ai_credits?: Array<{

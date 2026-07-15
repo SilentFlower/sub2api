@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"复核 Go 分层、gofmt、单测、wire 生成与敏感信息保护"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核 Vitest、typecheck、lint、loading/error/empty 和移动端深色模式"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"复核独立 Billing 与 main 手动 quota 的触发、快照和禁止重复自动探测契约"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核管理端错误 envelope、稳定 reason、上游错误映射和脱敏"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"复核独立组件的 props/emits、i18n、图标、交互和无卡片嵌套"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核后端 JSON tag、前端 snake_case 类型和 API 返回值一致"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"反向扫描 request、parse、persist、usage、API、cache、render 各层是否闭环"}
+{"file":".trellis/tasks/07-15-restore-build-grok-quota-display/research.md","reason":"按历史实现和当前冲突证据检查没有复用 main BillingSummary 或形成双自动请求"}

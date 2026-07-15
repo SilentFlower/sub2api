@@ -3,14 +3,18 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
 
-const { getUsage } = vi.hoisted(() => ({
-  getUsage: vi.fn()
+const { getUsage, queryBillingQuota } = vi.hoisted(() => ({
+  getUsage: vi.fn(),
+  queryBillingQuota: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       getUsage
+    },
+    grok: {
+      queryBillingQuota
     }
   }
 }))
@@ -57,6 +61,12 @@ function makeAccount(overrides: Partial<Account>): Account {
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
+    queryBillingQuota.mockReset()
+    queryBillingQuota.mockResolvedValue({
+      source: 'grok_cli_billing_quota',
+      snapshot: null,
+      fetched_at: 0
+    })
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -660,13 +670,14 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokTokens|25|true')
   })
 
-  it('Grok OAuth uses the official weekly billing percentage when available', async () => {
+  it('Grok OAuth uses the independent weekly billing quota when available', async () => {
     getUsage.mockResolvedValue({
-      grok_billing: {
+      grok_billing_quota: {
         period_type: 'weekly',
-        usage_percent: 37,
-        period_end: '2026-07-16T03:25:00Z',
-        plan: 'SuperGrok'
+        weekly_used_percent: 37,
+        weekly_reset_at: '2026-07-16T03:25:00Z',
+        plan_label: 'supergrok',
+        updated_at: '2030-07-16T03:25:00Z'
       },
       grok_local_usage: {
         requests: 5,
@@ -697,7 +708,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('7d|37|2026-07-16T03:25:00Z')
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.grokBillingWeeklyShort|63|2026-07-16T03:25:00Z|true')
     expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.grokRequests|')
     expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.grokTokens|')
     expect(wrapper.text()).not.toContain('2M|')
@@ -710,10 +721,8 @@ describe('AccountUsageCell', () => {
     { tokens: 2_200_000, expected: 100, compact: '2.2M' }
   ])('Grok Free derives its 2M quota from local tokens: $tokens -> $expected%', async ({ tokens, expected, compact }) => {
     getUsage.mockResolvedValue({
-      grok_billing: {
-        period_type: 'weekly',
-        usage_percent: null,
-        plan: ''
+      grok_billing_quota: {
+        updated_at: '2030-07-16T03:25:00Z'
       },
       grok_local_usage_24h: {
         requests: 5,
@@ -753,7 +762,7 @@ describe('AccountUsageCell', () => {
 
   it('Grok Free uses rolling 24h usage instead of today-only usage', async () => {
     getUsage.mockResolvedValue({
-      grok_billing: { period_type: 'weekly', usage_percent: null, plan: '' },
+      grok_billing_quota: { updated_at: '2030-07-16T03:25:00Z' },
       grok_local_usage: {
         requests: 2,
         tokens: 250_000,
@@ -801,7 +810,7 @@ describe('AccountUsageCell', () => {
 
   it('Grok Free does not substitute today stats when rolling 24h usage is unavailable', async () => {
     getUsage.mockResolvedValue({
-      grok_billing: { period_type: 'weekly', usage_percent: null, plan: '' },
+      grok_billing_quota: { updated_at: '2030-07-16T03:25:00Z' },
       grok_local_usage: {
         requests: 1,
         tokens: 250_000,
@@ -844,10 +853,11 @@ describe('AccountUsageCell', () => {
 
   it('Grok paid plans are not mistaken for Free when weekly usage is temporarily missing', async () => {
     getUsage.mockResolvedValue({
-      grok_billing: {
+      grok_billing_quota: {
         period_type: 'weekly',
-        usage_percent: null,
-        plan: 'SuperGrok Heavy'
+        weekly_used_percent: null,
+        plan_label: 'supergrok_heavy',
+        updated_at: '2030-07-16T03:25:00Z'
       },
       grok_entitlement_status: 'free',
       grok_local_usage: {
@@ -883,11 +893,12 @@ describe('AccountUsageCell', () => {
 
   it('Grok custom paid monthly limits override stale Free entitlement', async () => {
     getUsage.mockResolvedValue({
-      grok_billing: {
+      grok_billing_quota: {
         period_type: 'weekly',
-        usage_percent: null,
+        weekly_used_percent: null,
         monthly_limit_cents: 25_000,
-        plan: ''
+        plan_label: '',
+        updated_at: '2030-07-16T03:25:00Z'
       },
       grok_entitlement_status: 'free',
       grok_local_usage: {
@@ -953,7 +964,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('24h|50')
   })
 
-  it('Grok paid manual probes keep the weekly/local summary when 24h usage is returned', async () => {
+  it('Grok paid manual probes keep local usage without displaying main billing', async () => {
     getUsage.mockResolvedValue({
       grok_quota_snapshot_state: 'no_headers',
       error: 'stale error',
@@ -998,7 +1009,7 @@ describe('AccountUsageCell', () => {
     await flushPromises()
     await wrapper.get('.probe').trigger('click')
 
-    expect(wrapper.text()).toContain('7d|42|2026-07-17T00:00:00Z')
+    expect(wrapper.text()).not.toContain('7d|42|2026-07-17T00:00:00Z')
     expect(wrapper.text()).toContain('1.0M')
     expect(wrapper.text()).not.toContain('750.0K')
     expect(wrapper.text()).toContain('ACTIVE')

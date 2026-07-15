@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,22 +20,31 @@ import (
 const grokSSOImportConcurrency = 3
 
 type GrokOAuthHandler struct {
-	grokOAuthService *service.GrokOAuthService
-	adminService     service.AdminService
-	quotaService     *service.GrokQuotaService
-	importProber     grokUsageProber
+	grokOAuthService    *service.GrokOAuthService
+	adminService        service.AdminService
+	quotaService        *service.GrokQuotaService
+	billingQuotaService *service.GrokBillingQuotaService
+	importProber        grokUsageProber
 }
 
+// NewGrokOAuthHandler 创建 Grok OAuth 管理端 handler。
+// @param grokOAuthService Grok OAuth 服务。
+// @param adminService 管理端账号服务。
+// @param quotaService main 手动 quota 服务。
+// @param billingQuotaService 独立套餐额度服务。
+// @return 初始化后的 Grok OAuth handler。
 func NewGrokOAuthHandler(
 	grokOAuthService *service.GrokOAuthService,
 	adminService service.AdminService,
 	quotaService *service.GrokQuotaService,
+	billingQuotaService *service.GrokBillingQuotaService,
 ) *GrokOAuthHandler {
 	return &GrokOAuthHandler{
-		grokOAuthService: grokOAuthService,
-		adminService:     adminService,
-		quotaService:     quotaService,
-		importProber:     quotaService,
+		grokOAuthService:    grokOAuthService,
+		adminService:        adminService,
+		quotaService:        quotaService,
+		billingQuotaService: billingQuotaService,
+		importProber:        quotaService,
 	}
 }
 
@@ -459,6 +469,27 @@ func (h *GrokOAuthHandler) QueryQuota(c *gin.Context) {
 		return
 	}
 	result, err := h.quotaService.QueryQuota(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// QueryBillingQuota 刷新并返回独立 Grok 套餐额度快照。
+// @param c Gin 请求上下文。
+// @return 无返回值，结果写入 HTTP response。
+func (h *GrokOAuthHandler) QueryBillingQuota(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.billingQuotaService == nil {
+		response.ErrorFrom(c, infraerrors.New(http.StatusInternalServerError, "GROK_BILLING_QUOTA_NOT_CONFIGURED", "Grok billing quota service is not configured"))
+		return
+	}
+	result, err := h.billingQuotaService.QueryBillingQuota(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

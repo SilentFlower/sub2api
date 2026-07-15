@@ -94,13 +94,7 @@ const retryAfterLabel = computed(() => {
 const summary = computed(() => {
   const snapshot = data.value?.snapshot
   if (!data.value) return ''
-  const billing = data.value.billing
   const parts: Array<string | null> = []
-  if (billing?.period_type?.toLowerCase() === 'weekly' && billing.usage_percent != null) {
-    parts.push(t('admin.accounts.usageWindow.grokWeeklyUsage', {
-      percent: Math.round(Math.min(100, Math.max(0, billing.usage_percent)))
-    }))
-  }
   if (snapshot) {
     parts.push(
       formatWindow(t('admin.accounts.usageWindow.grokRequests'), snapshot.requests),
@@ -114,7 +108,8 @@ const summary = computed(() => {
     parts.push(snapshot.entitlement_status)
   }
   const visibleParts = parts.filter((part): part is string => Boolean(part))
-  return visibleParts.length > 0 ? visibleParts.join(' | ') : t('admin.accounts.usageWindow.grokNoHeaders')
+  if (visibleParts.length > 0) return visibleParts.join(' | ')
+  return snapshot ? t('admin.accounts.usageWindow.grokNoHeaders') : ''
 })
 
 const truncatedError = computed(() => {

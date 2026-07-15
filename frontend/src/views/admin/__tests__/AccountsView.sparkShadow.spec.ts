@@ -254,7 +254,7 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
     wrapper.unmount()
   })
 
-  it('passes fresh Grok billing and quota snapshots before stale credential fallbacks', async () => {
+  it('uses independent Grok billing and quota snapshots while ignoring main billing plans', async () => {
     const grokAccounts = [
       {
         id: 201,
@@ -263,7 +263,8 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
         type: 'oauth',
         credentials: { subscription_tier: 'FREE', plan_type: 'legacy' },
         extra: {
-          grok_billing_snapshot: { plan: 'SuperGrok' },
+          grok_billing_quota_snapshot: { plan_label: 'SuperGrok' },
+          grok_billing_snapshot: { plan: 'Main Billing Must Be Ignored' },
           subscription_tier: 'BASIC',
         },
       },
@@ -274,7 +275,8 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
         type: 'oauth',
         credentials: {},
         extra: {
-          grok_billing_snapshot: { plan: 'SuperGrok Heavy' },
+          grok_billing_quota_snapshot: { plan_label: 'SuperGrok Heavy' },
+          grok_billing_snapshot: { plan: 'Main Billing Must Be Ignored' },
           subscription_tier: 'BASIC',
         },
       },
@@ -304,6 +306,16 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
         type: 'oauth',
         credentials: { plan_type: 'SuperGrok' },
       },
+      {
+        id: 206,
+        name: 'main-billing-isolated',
+        platform: 'grok',
+        type: 'oauth',
+        credentials: { subscription_tier: 'FREE' },
+        extra: {
+          grok_billing_snapshot: { plan: 'Main Billing Must Be Ignored' },
+        },
+      },
     ]
 
     listAccounts.mockResolvedValue({
@@ -324,6 +336,7 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
       'SuperGrok',
       'BASIC',
       'SuperGrok',
+      'FREE',
     ])
 
     wrapper.unmount()

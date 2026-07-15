@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
+import type { GrokBillingQuota, GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
 
 export type { GrokBillingSummary, GrokQuotaWindow } from '@/types'
 
@@ -119,6 +119,13 @@ export interface GrokQuotaResetResult {
   message: string
 }
 
+/** 独立 Grok 套餐额度刷新结果。 */
+export interface GrokBillingQuotaResult {
+  source: 'grok_cli_billing_quota'
+  snapshot?: GrokBillingQuota | null
+  fetched_at: number
+}
+
 export async function generateAuthUrl(
   payload: GrokAuthUrlRequest
 ): Promise<GrokAuthUrlResponse> {
@@ -156,6 +163,17 @@ export async function queryQuota(id: number): Promise<GrokQuotaProbeResult> {
   return data
 }
 
+/**
+ * 主动刷新独立 Grok 套餐额度。
+ *
+ * @param id Grok OAuth 账号 ID。
+ * @returns 独立套餐额度刷新结果。
+ */
+export async function queryBillingQuota(id: number): Promise<GrokBillingQuotaResult> {
+  const { data } = await apiClient.get<GrokBillingQuotaResult>(`/admin/grok/accounts/${id}/billing-quota`)
+  return data
+}
+
 export async function resetQuota(id: number): Promise<GrokQuotaResetResult> {
   const { data } = await apiClient.post<GrokQuotaResetResult>(`/admin/grok/accounts/${id}/reset-quota`)
   return data
@@ -170,4 +188,12 @@ export async function createFromSSO(payload: GrokSSOToOAuthRequest): Promise<Gro
   return data
 }
 
-export default { generateAuthUrl, exchangeCode, refreshGrokToken, queryQuota, resetQuota, createFromSSO }
+export default {
+  generateAuthUrl,
+  exchangeCode,
+  refreshGrokToken,
+  queryQuota,
+  queryBillingQuota,
+  resetQuota,
+  createFromSSO
+}

@@ -1152,16 +1152,15 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
-// 最新的 Billing/Quota 快照优先级最高；导入凭据中的等级可能过期，
-// 因此仅与旧版 plan_type 字段一起作为回退来源。
+// 独立套餐 Billing 和被动 quota 快照优先；main 手动 Billing 不参与账号列表套餐展示。
 function getAccountPlanType(row: any): string | undefined {
   if (!row) return undefined
   if (row.platform === 'grok') {
     const extra = (row.extra || {}) as Record<string, any>
-    const billing = extra.grok_billing_snapshot as Record<string, any> | undefined
+    const billing = extra.grok_billing_quota_snapshot as Record<string, any> | undefined
     const quota = extra.grok_quota_snapshot as Record<string, any> | undefined
     return (
-      billing?.plan ||
+      billing?.plan_label ||
       quota?.subscription_tier ||
       row.credentials?.subscription_tier ||
       extra.subscription_tier ||
