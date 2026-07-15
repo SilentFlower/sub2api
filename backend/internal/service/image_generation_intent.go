@@ -10,7 +10,6 @@ const (
 	openAIResponsesEndpoint          = "/v1/responses"
 	openAIResponsesCompactEndpoint   = "/v1/responses/compact"
 	responsesLiteHeader              = "X-OpenAI-Internal-Codex-Responses-Lite"
-	responsesLiteHeaderKey           = "x-openai-internal-codex-responses-lite"
 	responsesLiteWSMetadataKey       = "ws_request_header_x_openai_internal_codex_responses_lite"
 	imageGenerationPermissionMessage = "Image generation is not enabled for this group"
 )
@@ -111,7 +110,7 @@ func openAIJSONToolsContainImageGeneration(tools gjson.Result) bool {
 			found = true
 			return false
 		}
-		if isImageGenNamespaceTool(item) {
+		if isImageGenClientTool(item) {
 			found = true
 			return false
 		}
@@ -128,18 +127,43 @@ func isOpenAIImageGenNamespaceName(value string) bool {
 	return strings.TrimSpace(value) == "image_gen"
 }
 
-// isImageGenNamespaceTool detects the Codex namespace-style image generation
-// tool declaration: { "type": "namespace", "name": "image_gen", ... }.
-// Codex /image uses this instead of the flat { "type": "image_generation" }.
-func isImageGenNamespaceTool(tool gjson.Result) bool {
-	return openAIJSONString(tool.Get("type")) == "namespace" &&
-		isOpenAIImageGenNamespaceName(openAIJSONString(tool.Get("name")))
+func isOpenAIImageGenFunctionName(value string) bool {
+	return strings.TrimSpace(value) == "image_gen.imagegen"
 }
 
-// openAIJSONInputContainsImageGenTool scans Responses input items for
-// additional_tools entries that declare the image_gen namespace. This covers
-// the "Responses Lite" format where tools are embedded inside input items
-// rather than top-level tools.
+func isOpenAIImageGenNestedFunctionName(value string) bool {
+	return strings.TrimSpace(value) == "imagegen"
+}
+
+// isImageGenClientTool 识别由 Codex 客户端执行的图片工具，避免重复注入 hosted 工具。
+func isImageGenClientTool(tool gjson.Result) bool {
+	if isImageGenNamespaceTool(tool) {
+		return true
+	}
+	return openAIJSONString(tool.Get("type")) == "function" &&
+		isOpenAIImageGenFunctionName(openAIJSONString(tool.Get("name")))
+}
+
+// isImageGenNamespaceTool 识别 Codex 的 image_gen namespace 工具声明。
+func isImageGenNamespaceTool(tool gjson.Result) bool {
+	if openAIJSONString(tool.Get("type")) != "namespace" ||
+		!isOpenAIImageGenNamespaceName(openAIJSONString(tool.Get("name"))) {
+		return false
+	}
+	nestedTools := tool.Get("tools")
+	if !nestedTools.IsArray() {
+		return false
+	}
+	for _, nestedTool := range nestedTools.Array() {
+		if openAIJSONString(nestedTool.Get("type")) == "function" &&
+			isOpenAIImageGenNestedFunctionName(openAIJSONString(nestedTool.Get("name"))) {
+			return true
+		}
+	}
+	return false
+}
+
+// openAIJSONInputContainsImageGenTool 扫描 Responses Lite 放在 input 中的 additional_tools。
 func openAIJSONInputContainsImageGenTool(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false
@@ -206,10 +230,14 @@ func openAIJSONToolChoiceSelectsImageGeneration(choice gjson.Result) bool {
 			isOpenAIImageGenNamespaceName(openAIJSONString(choice.Get("namespace")))) {
 		return true
 	}
+	if choiceType == "function" && isOpenAIImageGenFunctionName(openAIJSONString(choice.Get("name"))) {
+		return true
+	}
 	if tool := choice.Get("tool"); tool.IsObject() && openAIJSONToolChoiceSelectsImageGeneration(tool) {
 		return true
 	}
-	if isOpenAIImageGenerationType(openAIJSONString(choice.Get("function.name"))) {
+	functionName := openAIJSONString(choice.Get("function.name"))
+	if isOpenAIImageGenerationType(functionName) || isOpenAIImageGenFunctionName(functionName) {
 		return true
 	}
 	return false
@@ -229,11 +257,17 @@ func openAIAnyToolChoiceSelectsImageGeneration(choice any) bool {
 				isOpenAIImageGenNamespaceName(firstNonEmptyString(v["namespace"]))) {
 			return true
 		}
+		if choiceType == "function" && isOpenAIImageGenFunctionName(firstNonEmptyString(v["name"])) {
+			return true
+		}
 		if tool, ok := v["tool"].(map[string]any); ok && openAIAnyToolChoiceSelectsImageGeneration(tool) {
 			return true
 		}
-		if fn, ok := v["function"].(map[string]any); ok && isOpenAIImageGenerationType(firstNonEmptyString(fn["name"])) {
-			return true
+		if fn, ok := v["function"].(map[string]any); ok {
+			functionName := firstNonEmptyString(fn["name"])
+			if isOpenAIImageGenerationType(functionName) || isOpenAIImageGenFunctionName(functionName) {
+				return true
+			}
 		}
 	}
 	return false

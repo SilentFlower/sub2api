@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Codex 图片工具注入、tool_choice、HTTP/WS 协议一致性与 namespace 客户端工具边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 unsupported_value 等上游错误、错误透传和本地策略错误语义。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 热路径修改、单测、格式化、静态检查和回归质量。"}
+{"file":".trellis/tasks/07-15-fix-codex-responses-lite-image-bridge/research/cpa-responses-lite-image-bridge.md","reason":"提供 CPA 最新 Lite 标头、hosted 工具、客户端 namespace 与独立 Images API 的对照证据。"}

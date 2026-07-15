@@ -49,6 +49,13 @@ func TestIsImageGenerationIntent(t *testing.T) {
 			want:     true,
 		},
 		{
+			name:     "flattened image_gen function tool choice",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.5",
+			body:     []byte(`{"model":"gpt-5.5","tool_choice":{"type":"function","name":"image_gen.imagegen"}}`),
+			want:     true,
+		},
+		{
 			name:     "custom imagegen function tool choice is not image intent",
 			endpoint: "/v1/responses",
 			model:    "gpt-5.5",
@@ -77,6 +84,20 @@ func TestIsImageGenerationIntent(t *testing.T) {
 			want:     true,
 		},
 		{
+			name:     "flattened image_gen function in top-level tools",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.5",
+			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"image_gen.imagegen"}]}`),
+			want:     true,
+		},
+		{
+			name:     "empty image_gen namespace is not executable",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.5",
+			body:     []byte(`{"model":"gpt-5.5","tools":[{"type":"namespace","name":"image_gen"}]}`),
+			want:     false,
+		},
+		{
 			name:     "custom namespace with nested imagegen function is not image intent",
 			endpoint: "/v1/responses",
 			model:    "gpt-5.5",
@@ -88,6 +109,13 @@ func TestIsImageGenerationIntent(t *testing.T) {
 			endpoint: "/v1/responses",
 			model:    "gpt-5.5",
 			body:     []byte(`{"model":"gpt-5.5","input":[{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}]}]}`),
+			want:     true,
+		},
+		{
+			name:     "flattened image_gen function in input additional_tools",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.5",
+			body:     []byte(`{"model":"gpt-5.5","input":[{"type":"additional_tools","tools":[{"type":"function","name":"image_gen.imagegen"}]}]}`),
 			want:     true,
 		},
 		{
@@ -132,9 +160,31 @@ func TestIsImageGenerationIntentMap_NamespaceImageGen(t *testing.T) {
 					map[string]any{
 						"type": "additional_tools",
 						"tools": []any{
-							map[string]any{"type": "namespace", "name": "image_gen"},
+							map[string]any{"type": "namespace", "name": "image_gen", "tools": []any{
+								map[string]any{"type": "function", "name": "imagegen"},
+							}},
 						},
 					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "empty image_gen namespace is not executable",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"tools": []any{
+					map[string]any{"type": "namespace", "name": "image_gen"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "flattened image_gen function",
+			reqBody: map[string]any{
+				"model": "gpt-5.5",
+				"tools": []any{
+					map[string]any{"type": "function", "name": "image_gen.imagegen"},
 				},
 			},
 			want: true,
@@ -160,6 +210,14 @@ func TestIsImageGenerationIntentMap_NamespaceImageGen(t *testing.T) {
 			reqBody: map[string]any{
 				"model":       "gpt-5.5",
 				"tool_choice": map[string]any{"type": "namespace", "name": "image_gen"},
+			},
+			want: true,
+		},
+		{
+			name: "flattened image_gen function tool choice",
+			reqBody: map[string]any{
+				"model":       "gpt-5.5",
+				"tool_choice": map[string]any{"type": "function", "name": "image_gen.imagegen"},
 			},
 			want: true,
 		},

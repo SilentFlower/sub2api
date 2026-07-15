@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查定向/完整测试、gofmt、go vet、diff 范围和共享 helper 质量。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 Lite header 不泄漏、原生与客户端工具分流、HTTP/WS 一致性及既有生图契约。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查模型不支持 Lite 时不再因代理注入 header 触发错误，并保持其它错误语义。"}
+{"file":".trellis/tasks/07-15-fix-codex-responses-lite-image-bridge/research/cpa-responses-lite-image-bridge.md","reason":"按 CPA 对照与已确认产品边界审计实现是否错误照搬或扩大范围。"}

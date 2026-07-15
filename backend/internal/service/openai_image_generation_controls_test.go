@@ -35,6 +35,14 @@ func TestOpenAIGatewayServiceForward_RejectsDisabledImageGenerationIntents(t *te
 			name: "image tool choice",
 			body: []byte(`{"model":"gpt-5.4","input":"draw","tool_choice":{"type":"image_generation"}}`),
 		},
+		{
+			name: "image_gen namespace",
+			body: []byte(`{"model":"gpt-5.5","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}]}`),
+		},
+		{
+			name: "flattened image_gen function",
+			body: []byte(`{"model":"gpt-5.5","tools":[{"type":"function","name":"image_gen.imagegen"}]}`),
+		},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +101,7 @@ func TestOpenAIGatewayServiceForward_CodexImageInjectionRespectsGroupCapability(
 		{name: "disabled group skips injection", allowImages: false, bridgeEnabled: true, wantInjected: false},
 		{name: "enabled group skips injection by default", allowImages: true, bridgeEnabled: false, wantInjected: false},
 		{name: "enabled group injects image tool when bridge enabled", allowImages: true, bridgeEnabled: true, wantInjected: true},
-		{name: "responses lite skips hosted image bridge", allowImages: true, bridgeEnabled: true, responsesLite: true, wantInjected: false},
+		{name: "responses lite restores hosted image bridge without client image tool", allowImages: true, bridgeEnabled: true, responsesLite: true, wantInjected: true},
 	}
 
 	for _, tt := range tests {
@@ -120,11 +128,7 @@ func TestOpenAIGatewayServiceForward_CodexImageInjectionRespectsGroupCapability(
 			require.NotNil(t, upstream.lastReq)
 			hasImageTool := gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists()
 			require.Equal(t, tt.wantInjected, hasImageTool)
-			expectedLiteHeader := ""
-			if tt.responsesLite {
-				expectedLiteHeader = "true"
-			}
-			require.Equal(t, expectedLiteHeader, upstream.lastReq.Header.Get(responsesLiteHeader))
+			require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
 			instructions := gjson.GetBytes(upstream.lastBody, "instructions").String()
 			require.Equal(t, tt.wantInjected, strings.Contains(instructions, "image_generation"))
 			toolChoice := gjson.GetBytes(upstream.lastBody, "tool_choice")
@@ -171,7 +175,7 @@ func TestOpenAIGatewayServiceForward_CodexNamespaceSkipsLegacyImageBridge(t *tes
 	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
 }
 
-func TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader(t *testing.T) {
+func TestOpenAIBuildUpstreamRequestOpenAIPassthroughFiltersResponsesLiteHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.98.0")
 	c.Request.Header.Set(responsesLiteHeader, "true")
@@ -186,7 +190,37 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader(
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, "true", req.Header.Get(responsesLiteHeader))
+	require.Empty(t, req.Header.Get(responsesLiteHeader))
+}
+
+func TestOpenAIGatewayServiceForward_PassthroughResponsesLiteDoesNotInjectHostedBridge(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_passthrough_lite","model":"gpt-5.4","usage":{"input_tokens":1,"output_tokens":1}}`)),
+		},
+	}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	account := newOpenAIImageGenerationControlTestAccount()
+	account.Extra = map[string]any{"openai_passthrough": true}
+	body := []byte(`{"model":"gpt-5.4","input":"write code","stream":false,"tool_choice":"none","instructions":"client instructions"}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.JSONEq(t, string(body), string(upstream.lastBody))
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+	require.NotContains(t, gjson.GetBytes(upstream.lastBody, "instructions").String(), codexImageGenerationBridgeMarker)
 }
 
 func TestOpenAIGatewayServiceForward_ExplicitImageToolWorksWithBridgeDisabled(t *testing.T) {
@@ -288,11 +322,15 @@ func TestOpenAIGatewayServiceForward_AccountPolicyStripsImageNamespaceTools(t *t
 				"tools":[
 					{"type":"function","name":"shell","parameters":{"type":"object"}},
 					{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]},
+					{"type":"function","name":"image_gen.imagegen","parameters":{}},
 					{"type":"namespace","name":"code_tools","tools":[{"type":"function","name":"run"}]}
 				],
 				"input":[
 					{"type":"message","role":"user","content":[{"type":"input_text","text":"write code"}]},
-					{"type":"additional_tools","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}]}
+					{"type":"additional_tools","tools":[
+						{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]},
+						{"type":"function","name":"image_gen.imagegen","parameters":{}}
+					]}
 				],
 				"tool_choice":"auto"
 			}`)
@@ -382,6 +420,41 @@ func TestOpenAIGatewayServiceForward_CodexBridgeDoesNotInjectHostedToolAlongside
 	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
 	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, `tools.#(name=="image_gen").type`).String())
 	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools").tools.#(name=="image_gen").type`).String())
+}
+
+func TestOpenAIGatewayServiceForward_CodexBridgeDoesNotInjectHostedToolAlongsideFlatImageGenFunction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_flat_image_gen","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}`)),
+		},
+	}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	account := newOpenAIImageGenerationControlTestAccount()
+	body := []byte(`{
+		"model":"gpt-5.5",
+		"stream":false,
+		"tools":[{"type":"function","name":"image_gen.imagegen","parameters":{}}],
+		"input":"draw a cat",
+		"tool_choice":"none"
+	}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "image_gen.imagegen", gjson.GetBytes(upstream.lastBody, `tools.#(name=="image_gen.imagegen").name`).String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+	require.NotContains(t, gjson.GetBytes(upstream.lastBody, "instructions").String(), codexImageGenerationBridgeMarker)
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
 }
 
 func TestOpenAIGatewayServiceForward_CodexBridgePreservesExistingToolChoice(t *testing.T) {

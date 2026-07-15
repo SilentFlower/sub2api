@@ -173,7 +173,8 @@ func TestOpenAIWSHTTPBridgeRelaysSSEFramesAsWebSocketMessages(t *testing.T) {
 
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, http.MethodPost, upstream.lastReq.Method)
-	require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Equal(t, "true", gjson.GetBytes(upstream.lastBody, "client_metadata."+responsesLiteWSMetadataKey).String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "type").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "generate").Exists())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())

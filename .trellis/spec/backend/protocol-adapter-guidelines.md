@@ -1099,80 +1099,93 @@ model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 
 ---
 
-## Scenario: Codex 生图桥接 tool_choice 归一化
+## Scenario: Codex 生图桥接与 Responses Lite 工具边界
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 Codex 图片工具注入、`tool_choice`、账号显式图片工具策略、HTTP Responses 或 WebSocket Responses 入站归一化时，必须按本节检查。
+- Trigger: 修改 Codex 图片工具注入、`tool_choice`、Responses Lite 标头、账号显式图片工具策略、HTTP Responses 或 WebSocket Responses 入站归一化时，必须按本节检查。
 - 适用后端路径：
   - `backend/internal/service/openai_codex_transform.go`
   - `backend/internal/service/openai_gateway_forward.go`
+  - `backend/internal/service/openai_gateway_service.go`
   - `backend/internal/service/openai_ws_forwarder_ingress.go`
-- 目标：桥接已经注入或已有 `image_generation` 工具时，解除客户端 `tool_choice: "none"` 对图片工具的阻断，同时保留所有其它显式选择和禁用策略。
+  - `backend/internal/service/openai_ws_http_bridge.go`
+- 目标：区分上游执行的 hosted `image_generation` 与客户端执行的 `image_gen`，并保证 Lite 内部标头不会泄漏到 OpenAI HTTP 上游。
 
 ### 2. Signatures
 
 ```go
+func hasOpenAIImageGenClientTool(reqBody map[string]any) bool
+func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool
 func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) bool
+func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 ```
 
-HTTP 与 WebSocket 必须调用同一归一化函数：
+HTTP 与 WebSocket 必须复用同一组工具分类和桥接函数：
 
 ```go
-if codexImageGenerationBridgeEnabled && ensureOpenAIResponsesImageGenerationToolChoiceAuto(decoded) {
-	markDecodedModified()
-}
-
-if codexBridgeEnabled && ensureOpenAIResponsesImageGenerationToolChoiceAuto(payloadMap) {
-	bridgeModified = true
+if codexImageGenerationBridgeEnabled {
+	ensureOpenAIResponsesImageGenerationTool(decoded)
+	ensureOpenAIResponsesImageGenerationToolChoiceAuto(decoded)
+	applyCodexImageGenerationBridgeInstructions(decoded)
 }
 ```
 
 ### 3. Contracts
 
-- 函数只处理已经包含 `image_generation` 工具、且模型不是 Codex Spark 的请求。
-- `tool_choice` 缺失时写入字符串 `"auto"` 并返回 `true`。
-- `tool_choice` 是字符串，且忽略大小写和首尾空白后等于 `"none"` 时，改写为 `"auto"` 并返回 `true`。
-- `"auto"`、`"required"`、其它字符串、明确工具选择对象和其它非字符串值必须保持，并返回 `false`。
+- `image_generation` 是 OpenAI Responses hosted 工具，由上游执行；已有该工具时不得重复注入，旧 `format` / `compression` 字段仍按既有兼容契约归一化。
+- `image_gen` 是 Codex 客户端工具。只有 namespace 内含 `type=function,name=imagegen` 时才视为可执行；兼容扁平形态严格匹配 `type=function,name=image_gen.imagegen`。
+- 顶层 `tools` 与 `input` 中的 `additional_tools` 都必须参与客户端工具分类。仅在描述文本中出现 `image_gen.imagegen` 不构成工具声明。
+- 已有客户端 `image_gen` 时不得注入 hosted 工具、不得追加 hosted bridge 提示，也不得把客户端 `tool_choice: "none"` 改为 `"auto"`。
+- 没有原生或客户端图片工具且 bridge 有效时，注入一个 `image_generation`；此时 `tool_choice` 缺失或忽略大小写和空白后等于 `none` 时写为 `auto`。
+- `auto`、`required`、其它字符串、明确工具选择对象和其它非字符串值必须保持。
 - HTTP 只在 `codexImageGenerationBridgeEnabled` 为真时调用；WebSocket 只在 `codexBridgeEnabled` 为真时调用。
 - group 禁止图片、全局/频道/账号未启用桥接、账号显式工具策略为 `strip`、compact 请求或 Spark 模型时，不得通过本归一化重新开放图片工具。
 - HTTP 与 WebSocket 不得复制一份独立的 `none` 判断逻辑，避免协议分支漂移。
+- `X-OpenAI-Internal-Codex-Responses-Lite` 只属于入站本地提示，不得进入普通或 passthrough OpenAI 上游 header 白名单。
+- WS payload 的 `client_metadata.ws_request_header_x_openai_internal_codex_responses_lite` 可以保留，但 WS HTTP bridge 不得把它提升为上游 HTTP Lite 标头。
+- passthrough 除账号显式 `strip` 策略外不得改写 payload；bridge 启用也不能在 passthrough 请求中注入 hosted 工具。
 
 ### 4. Validation & Error Matrix
 
-| 条件 | `tool_choice` 结果 | modified |
-|---|---|---|
-| 有图片工具，字段缺失 | `"auto"` | `true` |
-| 有图片工具，值为 `"none"` | `"auto"` | `true` |
-| 有图片工具，值为 `"  NONE  "` | `"auto"` | `true` |
-| 有图片工具，值为 `"auto"` | 保持 | `false` |
-| 有图片工具，值为 `"required"` | 保持 | `false` |
-| 有图片工具，值为明确工具对象 | 保持 | `false` |
-| 无图片工具 | 保持原值或缺失 | `false` |
-| Codex Spark | 保持原值或缺失 | `false` |
-| bridge 关闭或账号策略为 `strip` | 调用点不得执行归一化 | 不适用 |
+| 条件 | hosted 工具 | `tool_choice` | 上游 Lite header |
+|---|---|---|---|
+| 无图片工具，bridge 有效 | 注入一个 | 缺失或 `none` 改为 `auto` | 不发送 |
+| 已有原生 `image_generation` | 不重复注入 | `none` 可改为 `auto`，其它明确选择保持 | 不发送 |
+| 可执行 `image_gen` namespace | 不注入 | 保持客户端值 | 不发送 |
+| 扁平 `image_gen.imagegen` function | 不注入 | 保持客户端值 | 不发送 |
+| 仅描述文本提到 `image_gen.imagegen` | 按无图片工具处理 | 按 hosted 规则处理 | 不发送 |
+| group 禁止、bridge 关闭、`strip`、compact 或 Spark | 不恢复注入 | 保持既有门禁语义 | 不发送 |
+| passthrough + Lite | 不注入 | payload 不变 | 不发送 |
+| WS HTTP bridge + Lite metadata | 按 payload 工具决策 | 按工具域处理 | 不合成 header |
 
 ### 5. Good/Base/Bad Cases
 
 - Good: Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
-- Good: WebSocket `response.create` 携带 `" NONE "` 时，发往上游的 payload 使用 `"auto"`，行为与 HTTP 一致。
+- Good: Lite 请求没有图片工具且 bridge 有效时恢复 hosted fallback，但上游 HTTP header 不含 Lite 标头。
+- Good: WebSocket `additional_tools` 含可执行 `image_gen` 时保持客户端工具、提示和 `none`，不追加 hosted 工具。
 - Base: 客户端明确使用 `"required"` 或图片工具对象时，桥接尊重其选择，不覆盖。
 - Base: 管理员关闭桥接后，文本请求不会被注入图片工具，也不会因为 `none` 被改写。
+- Base: passthrough 请求只过滤内部 Lite header，不因 bridge 开启修改 payload。
 - Bad: 只判断字段是否存在并直接返回，会让 `tool_choice: "none"` 永久禁止已注入的图片工具。
 - Bad: 无条件把所有 `tool_choice` 写成 `"auto"`，会破坏 `required` 和明确工具选择。
+- Bad: 看到 Lite header 或 metadata 就整体关闭 bridge，会让没有客户端图片工具的请求失去 hosted fallback。
+- Bad: 把 Lite header 加入上游白名单，或由 WS metadata 重建该 header，会让不支持 Lite 的模型返回 `unsupported_value`。
 - Bad: 在 HTTP 和 WebSocket 各自实现不同的字符串判断，会再次形成协议分支行为漂移。
 
 ### 6. Tests Required
 
-- 纯函数表驱动测试至少覆盖：缺失、`none`、带空白/大小写的 `none`、`auto`、`required`、明确工具对象、无图片工具和 Spark。
+- 纯函数测试至少覆盖：原生工具、可执行 namespace、空 namespace、顶层/`additional_tools`、扁平 function、相似名称、`none`、`auto`、`required` 和 Spark。
 - HTTP service 回归测试必须断言桥接启用时 `none -> auto`，同时保留现有 bridge disabled、group disabled、`strip` 和明确工具选择测试。
-- 真实 WebSocket ingress 测试必须发送带 `tool_choice: "none"` 的 `response.create`，并断言上游 payload 包含图片工具和 `tool_choice: "auto"`。
+- Lite HTTP 回归必须同时断言 hosted fallback 生效且普通、passthrough 上游 header 均无 Lite；passthrough payload 必须与入站 JSON 等价。
+- 真实 WebSocket ingress 必须分别覆盖 Lite 无工具时注入，以及 Lite 有客户端工具时不接管。
+- WS HTTP bridge 必须断言 metadata 保留但上游 HTTP Lite header 为空。
 - 建议运行：
 
 ```bash
 cd backend
 go test -tags=unit ./internal/service \
-  -run 'ImageGenerationToolChoice|ImageGenerationBridge|ProxyResponsesWebSocketFromClient_InjectsCodexImage' \
+  -run 'ImageGenerationToolChoice|ImageGenerationBridge|ResponsesLite|ImageGenClientTool' \
   -count=1
 ```
 
@@ -1181,31 +1194,24 @@ go test -tags=unit ./internal/service \
 #### Wrong
 
 ```go
-if _, ok := reqBody["tool_choice"]; ok {
-	return false
-}
-reqBody["tool_choice"] = "auto"
+codexBridgeEnabled := isCodexCLI && !isResponsesLite(request)
+openaiAllowedHeaders[responsesLiteHeaderKey] = true
 ```
 
-问题：把字段“存在”误当成“允许工具选择”，无法处理客户端显式发送的阻断值 `none`。
+问题：把客户端布局提示同时当成 bridge 禁用开关和上游能力声明，既丢失 hosted fallback，又可能触发模型拒绝。
 
 #### Correct
 
 ```go
-choice, ok := reqBody["tool_choice"]
-if !ok {
-	reqBody["tool_choice"] = "auto"
-	return true
+codexBridgeEnabled := isCodexCLI && imageGenerationAllowed && bridgePolicyEnabled
+if codexBridgeEnabled {
+	ensureOpenAIResponsesImageGenerationTool(reqBody)
+	ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody)
 }
-choiceValue, isString := choice.(string)
-if !isString || !strings.EqualFold(strings.TrimSpace(choiceValue), "none") {
-	return false
-}
-reqBody["tool_choice"] = "auto"
-return true
+// 上游 header 白名单不包含 Responses Lite 内部标头。
 ```
 
-只解除 `none` 的阻断语义，并保留所有其它显式选择。
+bridge 是否可用只由权限和策略决定，是否实际注入由原生/客户端工具分类决定；Lite header 始终在上游边界过滤。
 
 ---
 

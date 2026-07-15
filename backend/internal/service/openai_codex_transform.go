@@ -599,31 +599,31 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 	return inputContainsImageGenerationTool(reqBody["input"])
 }
 
-func hasOpenAIImageGenNamespaceTool(reqBody map[string]any) bool {
+func hasOpenAIImageGenClientTool(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false
 	}
-	if toolsContainImageGenNamespace(reqBody["tools"]) {
+	if toolsContainImageGenClientTool(reqBody["tools"]) {
 		return true
 	}
-	return inputContainsImageGenNamespace(reqBody["input"])
+	return inputContainsImageGenClientTool(reqBody["input"])
 }
 
-func toolsContainImageGenNamespace(rawTools any) bool {
+func toolsContainImageGenClientTool(rawTools any) bool {
 	tools, ok := rawTools.([]any)
 	if !ok {
 		return false
 	}
 	for _, rawTool := range tools {
 		toolMap, ok := rawTool.(map[string]any)
-		if ok && isImageGenNamespaceToolMap(toolMap) {
+		if ok && isImageGenClientToolMap(toolMap) {
 			return true
 		}
 	}
 	return false
 }
 
-func inputContainsImageGenNamespace(rawInput any) bool {
+func inputContainsImageGenClientTool(rawInput any) bool {
 	input, ok := rawInput.([]any)
 	if !ok {
 		return false
@@ -633,7 +633,7 @@ func inputContainsImageGenNamespace(rawInput any) bool {
 		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "additional_tools" {
 			continue
 		}
-		if toolsContainImageGenNamespace(item["tools"]) {
+		if toolsContainImageGenClientTool(item["tools"]) {
 			return true
 		}
 	}
@@ -662,12 +662,35 @@ func toolsContainImageGeneration(rawTools any) bool {
 
 func isOpenAIImageGenerationToolMap(tool map[string]any) bool {
 	return isOpenAIImageGenerationType(firstNonEmptyString(tool["type"])) ||
-		isImageGenNamespaceToolMap(tool)
+		isImageGenClientToolMap(tool)
+}
+
+func isImageGenClientToolMap(tool map[string]any) bool {
+	return isImageGenNamespaceToolMap(tool) || isImageGenFunctionToolMap(tool)
 }
 
 func isImageGenNamespaceToolMap(tool map[string]any) bool {
-	return strings.TrimSpace(firstNonEmptyString(tool["type"])) == "namespace" &&
-		isOpenAIImageGenNamespaceName(firstNonEmptyString(tool["name"]))
+	if strings.TrimSpace(firstNonEmptyString(tool["type"])) != "namespace" ||
+		!isOpenAIImageGenNamespaceName(firstNonEmptyString(tool["name"])) {
+		return false
+	}
+	nestedTools, ok := tool["tools"].([]any)
+	if !ok {
+		return false
+	}
+	for _, rawNestedTool := range nestedTools {
+		nestedTool, ok := rawNestedTool.(map[string]any)
+		if ok && strings.TrimSpace(firstNonEmptyString(nestedTool["type"])) == "function" &&
+			isOpenAIImageGenNestedFunctionName(firstNonEmptyString(nestedTool["name"])) {
+			return true
+		}
+	}
+	return false
+}
+
+func isImageGenFunctionToolMap(tool map[string]any) bool {
+	return strings.TrimSpace(firstNonEmptyString(tool["type"])) == "function" &&
+		isOpenAIImageGenFunctionName(firstNonEmptyString(tool["name"]))
 }
 
 func inputContainsImageGenerationTool(rawInput any) bool {
@@ -690,8 +713,7 @@ func inputContainsImageGenerationTool(rawInput any) bool {
 	return false
 }
 
-// stripOpenAIImageGenerationTools keeps account-level strip policy symmetric
-// across standard Responses tools, Responses Lite additional_tools, and tool_choice.
+// stripOpenAIImageGenerationTools 统一执行账户级图片工具剥离策略。
 func stripOpenAIImageGenerationTools(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false
@@ -758,8 +780,7 @@ func stripOpenAIImageGenerationToolsFromInput(reqBody map[string]any) bool {
 		if _, hasTools := item["tools"]; hasTools {
 			filteredInput = append(filteredInput, rawItem)
 		}
-		// An empty additional_tools carrier is not useful upstream; drop the item
-		// after its only declared capability has been removed.
+		// 图片能力移除后，空 additional_tools 对上游没有意义，直接删除载体。
 	}
 	if modified {
 		reqBody["input"] = filteredInput
@@ -767,8 +788,7 @@ func stripOpenAIImageGenerationToolsFromInput(reqBody map[string]any) bool {
 	return modified
 }
 
-// stripOpenAIImageGenerationToolsFromRawPayload is the shared adapter for paths
-// that forward raw HTTP or WebSocket payloads without the normal request map.
+// stripOpenAIImageGenerationToolsFromRawPayload 供直接转发原始 HTTP/WS 请求体的路径复用。
 func stripOpenAIImageGenerationToolsFromRawPayload(payload []byte) ([]byte, bool, error) {
 	if !openAIRequestBodyHasImageGenerationDeclaration(payload) {
 		if json.Valid(payload) {
@@ -910,8 +930,8 @@ func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) 
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
-	// namespace 工具由客户端扩展执行，不能覆盖客户端显式的工具选择。
-	if hasOpenAIImageGenNamespaceTool(reqBody) {
+	// image_gen 由客户端扩展执行，不能覆盖客户端显式的工具选择。
+	if hasOpenAIImageGenClientTool(reqBody) {
 		return false
 	}
 	choice, ok := reqBody["tool_choice"]
@@ -934,8 +954,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool {
 	if isCodexSparkModel(firstNonEmptyString(reqBody["model"])) {
 		return false
 	}
-	// namespace 工具自带完整调用契约，旧桥接提示会错误地引导模型改走原生 image_generation。
-	if hasOpenAIImageGenNamespaceTool(reqBody) {
+	// image_gen 自带完整调用契约，桥接提示会错误地引导模型改走 hosted image_generation。
+	if hasOpenAIImageGenClientTool(reqBody) {
 		return false
 	}
 

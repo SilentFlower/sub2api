@@ -159,7 +159,7 @@ func TestStripCodexSparkImageGenerationToolFromRawPayload(t *testing.T) {
 			"model":"gpt-5.3-codex-spark",
 			"input":[
 				{"type":"message","role":"user","content":"hello"},
-				{"type":"additional_tools","tools":[{"type":"namespace","name":"image_gen"}]}
+				{"type":"additional_tools","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}]}
 			],
 			"tool_choice":{"type":"namespace","name":"image_gen"}
 		}`)
@@ -219,7 +219,7 @@ func TestStripOpenAIImageGenerationToolsFromRawPayload(t *testing.T) {
 			],
 			"input":[
 				{"type":"message","role":"user","content":"hello"},
-				{"type":"additional_tools","tools":[{"type":"namespace","name":"image_gen"}]}
+				{"type":"additional_tools","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}]}
 			],
 			"tool_choice":{"type":"namespace","name":"image_gen"}
 		}`)
