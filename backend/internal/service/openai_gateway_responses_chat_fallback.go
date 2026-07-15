@@ -57,12 +57,22 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
 	}
+	webRunToolName, webRunDeclared := findOpenAIResponsesWebRunTool(chatReq, namespaceTools)
+	webRunEnabled := webRunDeclared && s.isOpenAIWebSearchEmulationEnabled(ctx, c, account)
+	if webRunEnabled {
+		narrowOpenAIResponsesWebRunTool(chatReq, webRunToolName)
+	}
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
-	if clientStream {
+	if clientStream && !webRunEnabled {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
+	}
+	if webRunEnabled {
+		// 中间工具轮次必须先由网关消费，不能把 web.run function_call 提前泄漏给客户端。
+		chatReq.Stream = false
+		chatReq.StreamOptions = nil
 	}
 
 	chatBody, err := json.Marshal(chatReq)
@@ -84,6 +94,24 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}
 	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel, billingModel)
+	if webRunEnabled {
+		if err := json.Unmarshal(chatBody, chatReq); err != nil {
+			return nil, fmt.Errorf("parse normalized chat completions fallback request: %w", err)
+		}
+		return s.forwardResponsesViaWebRunChatCompletions(ctx, c, account, chatReq, openAIResponsesWebRunLoopOptions{
+			OriginalModel:   originalModel,
+			BillingModel:    billingModel,
+			UpstreamModel:   upstreamModel,
+			ReasoningEffort: reasoningEffort,
+			ServiceTier:     serviceTier,
+			ClientStream:    clientStream,
+			CustomTools:     customTools,
+			ToolSearch:      toolSearch,
+			NamespaceTools:  namespaceTools,
+			WebRunToolName:  webRunToolName,
+			StartTime:       startTime,
+		})
+	}
 
 	logger.L().Debug("openai responses: forwarding via raw chat completions",
 		zap.Int64("account_id", account.ID),

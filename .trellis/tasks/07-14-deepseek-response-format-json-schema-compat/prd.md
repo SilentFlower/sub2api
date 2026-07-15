@@ -16,6 +16,8 @@
 - DeepSeek 原生 Web Search 已通过官方 Anthropic-compatible 端点 `https://api.deepseek.com/anthropic/v1/messages` 暴露，普通 OpenAI Chat 工具协议没有等价入口。
 - 项目已有 Brave/Tavily 搜索 Manager、Redis 配额、代理故障处理、全局/渠道/账号开关和 Anthropic 模拟输出，但尚未接入 OpenAI Responses 路径。
 - new-api 的增量主要是 AnySearch MCP provider；其模拟器仍只处理纯 Web Search 并只输出 Anthropic。new-api 为 AGPLv3，本项目为 LGPLv3，不能直接复制实现。
+- 2026-07-15 生产验证发现新版 Codex 在 `web_search="live"` 下不再只声明 typed `web_search`，而是通过 Responses Lite `input[].type=additional_tools` 下发 `namespace=web,name=run`，随后产生 `weather` 或 `search_query` 参数的 function call。两者在 `web.run` 协议中是不同命令；现有 typed Web Search 模拟器不会命中任一形态。
+- 同次生产验证中，运行镜像已包含本任务提交，AnySearch 配置为 enabled 且从宿主机、应用容器都可真实搜索成功；`deepseek官渠` 账号为 `web_search_emulation=enabled`。对应五次 `/v1/responses` 请求全部返回 200，但没有模拟器决策/执行日志，Codex 会话也没有对应 `function_call_output`，因此问题属于协议执行缺口，不是 provider 或服务器网络故障。
 
 ## Requirements
 
@@ -25,7 +27,8 @@
 - Web Search 复用现有 `accounts.extra.web_search_emulation=default|enabled|disabled`：
   - `enabled`：满足安全接管条件时本地模拟优先。
   - `disabled`：绝不本地模拟。
-  - 缺失/`default`：跟随渠道 `features_config.web_search_emulation.<platform>`。
+  - 缺失/`default`：跟随渠道 `features_config.web_search_emulation.<platform>`；渠道字段缺失或不是严格布尔值 `true` 时按关闭处理。
+- 全局 Web Search 开关只控制 provider 能力是否可用，不改变账号策略；单独开启全局设置不会自动开启任何账号。
 - Web Search 三态扩展到 OpenAI APIKey 账号；渠道配置扩展 `openai` 平台，不创建含义重复的新键。
 - 配置默认不改变任何存量账号行为，保存时只增删任务拥有的键并保留其它 `extra`。
 - 不新增数据库列或 migration。
@@ -48,10 +51,10 @@
 - 不在同一个 OpenAI DeepSeek 账号内动态切换 `/chat/completions` 与 `/anthropic/v1/messages`。
 - DeepSeek 原生搜索通过独立 Anthropic APIKey 账号接入，管理员显式配置 `base_url=https://api.deepseek.com/anthropic`；整条账号链固定使用现有 Responses->Anthropic->Responses 路径。
 - OpenAI DeepSeek 账号保持现有 Responses/Chat 路径；符合条件的 Web Search 在进入 `force_chat_completions` 分支前由本地模拟器接管。
-- 本地模拟只接管：
+- typed `web_search` 本地模拟只接管：
   - 工具列表中只有一个 Web Search；或
   - `tool_choice={"type":"web_search"}` 明确要求必须搜索。
-- 混合工具且 tool choice 为 auto、required、缺失或指向其它工具时不接管。若实际目标只能走 Chat，则返回明确能力错误，不继续进入会丢弃 Web Search 的桥接。
+- typed `web_search` 与其它工具混合且 tool choice 为 auto、required、缺失或指向其它工具时不接管。若实际目标只能走 Chat，则返回明确能力错误，不继续进入会丢弃 Web Search 的桥接；R9 的 `web.run.search_query` 受控循环是独立例外。
 - `tool_choice={"type":"web_search"}` 保持强制语义：模拟模式真实执行搜索；原生 Anthropic 路径转换为 `{"type":"tool","name":"web_search"}`；无法执行时返回错误，不改成 `auto`。
 - 本地模拟与 `text.format=json_schema` 同时出现时返回明确冲突错误，因为本地搜索摘要无法满足任意输出 Schema。
 - `web_search` 与 `tool_search` 完全独立，不互相转换。
@@ -102,6 +105,19 @@
 - AnySearch：请求格式、可选鉴权、结构化响应、text JSON、超大响应、脱敏错误、Manager 配额回滚。
 - 前端：账号可见性、三态/布尔键保存、`extra` 保留、渠道 OpenAI 开关、AnySearch 配置与类型检查。
 
+### R9. 新版 Codex `web.run` 兼容
+
+- 对 OpenAI APIKey 账号识别顶层 tools 与 `input[].additional_tools` 中的 `namespace=web`、子工具 `name=run`；普通 namespace、function、custom、tool_search 和 typed Web Search 行为保持不变。
+- 只有账号最终 Web Search 策略允许时才执行 `web.run`；全局 Web Search 仅提供 provider 能力，不能单独把任何账号从关闭状态变成开启状态。
+- 进入 Chat fallback 后，只向上游模型暴露 `web.run.search_query` 搜索能力；不暴露 `weather`、`open`、`click`、`find`、`screenshot`、`image_query`、`finance` 或 `sports`。天气类用户问题由模型组织为普通 `search_query[].q`，网关不维护独立天气规则。
+- 当 Chat fallback 模型返回 `namespace=web,name=run` 且参数包含 `search_query` 时，网关执行受控工具循环：校验查询、调用现有 `websearch.Manager`、构造与原 call ID 对应的工具结果、回灌同一上游账号并继续到最终模型回答。
+- `search_query` 是非空数组，每项必须包含非空 `q`；兼容生产已出现的可选 `recency` 和顶层 `response_length`。`response_length` 只控制返回给模型的结果预算；provider 无法严格执行 `recency` 时必须在工具结果中明确说明，不能宣称已经精确过滤。
+- 单个请求最多执行 4 个查询、最多 2 轮搜索工具调用；超过限制或只有未支持命令时返回稳定工具错误，不调用 provider，也不能形成无限循环。
+- provider、参数或续跑失败必须产生可诊断错误，不能让模型在缺少 tool output 的情况下反复猜测“网络中断”；日志仍不得记录查询全文、结果正文、凭据或完整请求体。
+- 成功计费必须累计工具循环内各模型请求的 token，并按实际成功执行的查询数累计 Web Search 调用次数；没有真实执行搜索的 function call 不得收取 Web Search 按次费用。
+- 流式客户端仍只看到合法 Responses 生命周期；namespace/name、call ID、output index 和最终文本顺序必须保持 Codex 可消费。
+- 系统设置、渠道和账号管理端文案必须明确实际优先级与未配置时的安全默认；账号默认选项显示为“跟随渠道（渠道未配置时关闭）”，避免把“全局 provider 已启用”误解为“所有账号已启用”。
+
 ## Acceptance Criteria
 
 - [ ] 开启 JSON Schema 兼容的 OpenAI APIKey 账号只发送 `json_object`，并保留 Schema 的 best-effort 约束；从不降级成 string。
@@ -111,15 +127,19 @@
 - [ ] 本地模拟的非流式和流式响应包含真实 `web_search_call`、可用 URL citations 和完整 Responses 生命周期。
 - [ ] 强制 Web Search 不会被改成 auto；成功表示实际搜索，失败返回明确错误。
 - [ ] AnySearch 通过现有 Manager 参与配额、代理、失败回滚和脱敏配置。
-- [ ] 成功模拟搜索按分组单次价格计费一次，失败不计费。
+- [ ] typed Web Search 成功模拟按分组单次价格计费一次；`web.run.search_query` 按真实成功查询数计费；失败调用不计费。
 - [ ] 原生 DeepSeek 回程保留 server search call 与 citations；无等价能力字段不被静默丢弃。
 - [ ] 账号/渠道/全局管理配置默认不改变存量行为，保存不覆盖无关字段。
+- [ ] 新版 Codex `web.run.search_query` 会真实执行搜索、按原 call ID 回灌工具结果并得到最终模型回答；天气类问题通过普通搜索词完成，不再出现无 tool output 的重复调用。
+- [ ] 模拟策略开启时，`web.run` 的上游 Chat 工具定义只声明 `search_query`；`weather/open/click/find` 等未支持命令不会被执行或伪装成成功。
+- [ ] 开启全局 provider 不会隐式开启任一账号；账号、渠道均未显式启用时 Web Search 保持关闭。
 - [ ] 定向测试、后端完整单测、前端测试/typecheck/lint 和 `git diff --check` 通过。
 
 ## Out of Scope
 
 - 同一 OpenAI 账号按请求动态切换 Chat 与 Anthropic 上游。
-- 混合工具自动选择场景的“模型调用工具 -> 网关执行 -> 再请求模型”完整循环。
+- 除 `namespace=web,name=run` 外的通用混合工具自动执行循环。
+- `web.run` 的 `weather`、`open`、`click`、`find`、`screenshot`、`image_query`、`finance`、`sports` 等非 `search_query` 命令，以及浏览器、网页抓取和页面会话能力。
 - OpenAI Chat `web_search_options`、厂商私有 Chat 搜索字段或没有公开契约的第三方 adapter。
 - 与 OpenAI 等价的 strict JSON Schema 验证器，或根据 400 自动探测/缓存能力。
 - Anthropic `pause_turn` 自动续跑、动态代码过滤和 `web_search_20260209+` 新能力。

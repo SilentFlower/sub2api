@@ -1184,13 +1184,15 @@ return true
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 OpenAI APIKey 账号的 `json_schema` 兼容、Responses Web Search 本地接管、Responses -> Anthropic -> Responses 原生搜索桥或 DeepSeek Anthropic SSE 聚合时，必须按本节检查。
+- Trigger: 修改 OpenAI APIKey 账号的 `json_schema` 兼容、Responses Web Search 本地接管、Responses -> Chat 的 `web.run` 工具循环、Responses -> Anthropic -> Responses 原生搜索桥或 DeepSeek Anthropic SSE 聚合时，必须按本节检查。
 - 适用路径：
   - `backend/internal/pkg/apicompat/json_schema_downgrade.go`
   - `backend/internal/pkg/apicompat/responses_to_anthropic_request.go`
   - `backend/internal/pkg/apicompat/anthropic_to_responses_response.go`
   - `backend/internal/service/openai_json_schema_downgrade.go`
   - `backend/internal/service/openai_responses_websearch.go`
+  - `backend/internal/service/openai_responses_web_run.go`
+  - `backend/internal/service/openai_gateway_responses_chat_fallback.go`
   - `backend/internal/service/gateway_forward_as_responses.go`
 - 目标：显式配置后可把不受上游支持的 Structured Outputs 降为 `json_object`，并让 Web Search 选择原生转发、本地模拟或明确拒绝；不得把 Schema 或搜索工具静默丢弃。
 
@@ -1205,6 +1207,8 @@ func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error)
 func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, error)
 func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse
 func AnthropicEventToResponsesEvents(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent
+func ChatCompletionsResponseToResponsesEvents(resp *ChatCompletionsResponse, model string, customTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName) []ResponsesStreamEvent
+func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(ctx context.Context, c *gin.Context, account *Account, chatReq *apicompat.ChatCompletionsRequest, options openAIResponsesWebRunLoopOptions) (*OpenAIForwardResult, error)
 ```
 
 账号与渠道配置键：
@@ -1224,6 +1228,12 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - 降级 helper 必须基于 `json.RawMessage` 保留未知请求字段、messages 顺序以及 function/tool 参数 Schema；重复调用不能重复注入约束。非法 Schema 或不兼容 instructions 保持原请求，沿既有入口或上游错误处理。
 - `web_search_emulation` 的 `default` 跟随对应渠道平台开关；`enabled` 强制允许本地模拟，`disabled` 强制禁止。全局搜索配置和可用 provider 仍是实际执行的必要条件。
 - Responses 的有效工具必须同时读取顶层 `tools` 与 `input` 中的 `additional_tools`。本地模拟只接管唯一 Web Search 工具，或 `tool_choice` 明确选择 Web Search 的请求。
+- Chat fallback 必须用 namespace 映射精确识别 `namespace=web,name=run`；只有最终账号策略允许模拟时才进入服务端循环。全局 provider 开关不能把关闭或未配置的账号隐式改为开启。
+- 服务端接管后只向 Chat 上游声明 `search_query` 与可选 `response_length`，并设置 `parallel_tool_calls=false`。不能声明或执行 `weather/open/click/find/screenshot/image_query/finance/sports`；天气问题由模型生成普通搜索词。
+- `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
+- `web.run` 内部模型请求固定使用同一账号、映射后模型和非流式 Chat。每个请求最多消费 2 轮 Web 工具调用、累计最多 4 个查询；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
+- 已消费的 `web.run` 调用不能下发给客户端。最终文本或其它客户端工具继续通过现有 Chat -> Responses 转换返回；流式客户端只接收最终结果合成的完整 Responses SSE 生命周期。
+- 所有内部模型轮次的 token usage 必须累加；`WebSearchCalls` 只累计真实成功完成的 provider 查询。参数错误、未支持命令、provider 失败和未实际执行的工具调用不计 Web Search 次数。
 - `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被本地模拟擅自接管。
 - 请求只能走 Chat fallback 且要求执行无法等价转换的 Web Search 时，返回 OpenAI 兼容能力错误；不得先删除服务端工具再让模型生成普通文本。
 - 本地模拟与 `text.format.type=json_schema` 同时命中时返回 `400`。模拟器只生成搜索摘要，不能承诺 Structured Outputs。
@@ -1245,7 +1255,16 @@ channel.features_config.web_search_emulation.anthropic: boolean
 | 强制 Web Search 但未声明 Web Search 工具 | `400 invalid_request_error`，参数指向 `tool_choice` |
 | Chat fallback 无法执行请求要求的 Web Search | `400 invalid_request_error`，参数指向 `tools` |
 | 本地模拟与 `text.format=json_schema` 冲突 | `400 invalid_request_error`，参数指向 `text.format` |
-| 账号允许模拟但全局 provider 不可用 | `503 web_search_unavailable`，不伪造成功、不计费 |
+| typed Web Search 账号允许模拟但全局 provider 不可用 | `503 web_search_unavailable`，不伪造成功、不计费 |
+| `web.run` 未被账号策略开启 | 不做服务端执行，按现有 namespace function call 回给客户端 |
+| `web.run.search_query` 合法 | 逐项执行 provider，回灌同 call ID，并用同一账号续跑模型 |
+| `web.run` 账号允许模拟但全局 provider 不可用 | 回灌 `web_search_unavailable` tool result，允许模型生成可诊断回答，不计 Web Search 次数 |
+| `web.run` 只有未支持命令或参数非法 | 回灌稳定 tool error，不调用 provider、不计 Web Search 次数 |
+| `web.run` provider 普通失败 | 回灌 `web_search_failed` tool result，允许模型生成可诊断回答，失败查询不计费 |
+| `web.run` 账号代理不可用 | 返回 `UpstreamFailoverError`，由既有账号切换链重试 |
+| `web.run` 累计查询超过 4 个 | 回灌 `search_limit_exceeded` tool result，不执行该批 provider 调用 |
+| `web.run` 超过 2 轮搜索 | 返回 `502 api_error`，停止续跑，不执行第三轮 provider 调用 |
+| 同一轮同时返回 `web.run` 与客户端工具 | 返回 `502 api_error`，不能部分执行或错配 tool result |
 | Anthropic 原生工具含无等价高级字段 | 返回转换错误，不发送被截断语义的上游请求 |
 | `web_search_tool_result_error` | 对应 `web_search_call.status=failed`，保留错误码 |
 | citation 先于 text 到达 | 先缓存；文本和引用范围可确定后再输出 annotation |
@@ -1255,10 +1274,13 @@ channel.features_config.web_search_emulation.anthropic: boolean
 
 - Good: OpenAI APIKey 账号开启兼容后，Responses 经原生 `/responses`、Responses shape 经 Chat fallback、直接 Chat 请求都只向上游发送 `json_object`，原 Schema 仍作为输出约束存在。
 - Good: `input` 中通过 `additional_tools` 声明的唯一 Web Search 能被识别；明确强制搜索时本地 provider 执行一次，返回完整 `web_search_call`、摘要和 URL citations。
+- Good: Codex 在 `additional_tools` 声明 `web/run`，模型用 `search_query:[{"q":"杭州天气"}]` 调用时，网关执行搜索、按原 call ID 回灌，并只把最终模型回答返回客户端。
 - Good: DeepSeek 依次发送 index `5` 的搜索调用、index `6` 的搜索结果、挂在 index `5` 上的 citation、index `7` 的文本时，最终 Responses 中搜索调用、文本和引用都完整。
 - Base: 模拟配置关闭且上游原生 Responses 支持 Web Search 时保持 pass，不改变现有上游能力。
+- Base: `web.run` 已声明但账号策略为 disabled 时保持客户端工具语义；网关不收窄 Schema、不调用 provider、不产生 Web Search 费用。
 - Base: `tool_choice=none` 即使声明 Web Search 也不执行搜索。
 - Bad: 在 Responses -> Chat 转换时直接丢弃 `web_search` 和对应 `tool_choice`，让客户端收到看似成功但实际未搜索的文本。
+- Bad: 把 `weather` 当成 `search_query` 的别名直接执行，或把内部 `web.run` function call 提前发给 Codex；前者伪造未实现能力，后者会让客户端与服务端重复执行。
 - Bad: 把原 Schema 序列化成普通 string 作为 `response_format`，会产生无效协议且丢失对象语义。
 - Bad: 使用 `finalResp.Content[event.Index]` 聚合 DeepSeek SSE；稀疏 index 会越界或把 delta 写到错误 block。
 - Bad: citation 到达时没有 text item 就直接发 annotation；会产生空 `item_id` 或错误的字符索引。
@@ -1267,6 +1289,7 @@ channel.features_config.web_search_emulation.anthropic: boolean
 
 - JSON Schema helper 和网关路径必须覆盖：配置 guard、Responses、Chat、Responses -> Chat、Responses shape on Chat、passthrough、幂等、非法 Schema、未知字段和工具 Schema 保留。
 - Web Search 决策必须覆盖：顶层 tools、`additional_tools`、唯一搜索工具、混合工具、`auto|required|none`、强制搜索、强制其它工具、Chat fallback 拒绝、JSON Schema 冲突和 provider 不可用。
+- `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、跨轮次 4 查询上限、2 轮上限、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
 - 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
 - SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。
 - 建议运行：
@@ -1274,6 +1297,7 @@ channel.features_config.web_search_emulation.anthropic: boolean
 ```bash
 cd backend
 go test -tags=unit ./internal/pkg/apicompat ./internal/service -count=1
+go test -tags=unit ./internal/service -run 'WebRun|WebSearch' -count=1
 ```
 
 ### 7. Wrong vs Correct
@@ -1299,3 +1323,24 @@ if ok {
 ```
 
 在 `content_block_start` 建立映射，后续 delta 通过映射定位本地内容；citation 属于非 text block 时先缓存，等 text block 出现后再附加。
+
+#### Wrong
+
+```go
+return streamChatCompletionsAsResponses(c, firstUpstreamResponse)
+```
+
+问题：首个 Chat 响应可能只是 `web.run` function call。直接转发会泄漏服务端应消费的工具调用，且没有对应 tool result，模型无法继续生成最终回答。
+
+#### Correct
+
+```go
+for webRunCall != nil {
+	toolOutput := executeSearch(webRunCall)
+	appendAssistantAndToolResult(chatReq, webRunCall, toolOutput)
+	finalResponse = callSameAccountNonStream(chatReq)
+}
+return writeFinalResponsesResult(finalResponse)
+```
+
+内部轮次缓冲并使用同一账号续跑，只在得到最终文本或客户端工具调用后生成下游 Responses JSON/SSE；循环同时受查询数和工具轮次双重上限约束。

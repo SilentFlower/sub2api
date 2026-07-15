@@ -1029,6 +1029,74 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	return out
 }
 
+// ChatCompletionsResponseToResponsesEvents 将已缓冲的 Chat Completions 响应转换为
+// 完整的 Responses SSE 事件序列。该函数用于必须先在服务端消费工具调用、再把最终
+// 模型结果交给流式客户端的场景。
+//
+// @param resp 已缓冲的 Chat Completions 响应。
+// @param model 下游 Responses 响应展示的模型名。
+// @param customTools 客户端声明的 custom 工具名集合。
+// @param toolSearch 客户端是否声明了 tool_search。
+// @param namespaceTools namespace 摊平名到原始 namespace/name 的映射。
+// @return 按 Responses 生命周期排序的完整事件序列。
+func ChatCompletionsResponseToResponsesEvents(
+	resp *ChatCompletionsResponse,
+	model string,
+	customTools map[string]bool,
+	toolSearch bool,
+	namespaceTools map[string]NamespacedToolName,
+) []ResponsesStreamEvent {
+	state := NewChatCompletionsToResponsesStreamState(model)
+	state.CustomTools = customTools
+	state.ToolSearchDeclared = toolSearch
+	state.NamespaceTools = namespaceTools
+
+	if resp != nil {
+		chunk := &ChatCompletionsChunk{
+			ID:      resp.ID,
+			Object:  "chat.completion.chunk",
+			Created: resp.Created,
+			Model:   resp.Model,
+			Usage:   resp.Usage,
+		}
+		if len(resp.Choices) > 0 {
+			choice := resp.Choices[0]
+			text := chatMessageContentText(choice.Message.Content)
+			var content *string
+			if text != "" {
+				content = &text
+			}
+			var reasoning *string
+			if choice.Message.ReasoningContent != "" {
+				reasoning = &choice.Message.ReasoningContent
+			}
+			toolCalls := append([]ChatToolCall(nil), choice.Message.ToolCalls...)
+			for i := range toolCalls {
+				index := i
+				toolCalls[i].Index = &index
+			}
+			var finishReason *string
+			if choice.FinishReason != "" {
+				finishReason = &choice.FinishReason
+			}
+			chunk.Choices = []ChatChunkChoice{{
+				Index: choice.Index,
+				Delta: ChatDelta{
+					Role:             "assistant",
+					Content:          content,
+					ReasoningContent: reasoning,
+					ToolCalls:        toolCalls,
+				},
+				FinishReason: finishReason,
+			}}
+		}
+		events := ChatCompletionsChunkToResponsesEvents(chunk, state)
+		return append(events, FinalizeChatCompletionsResponsesStream(state)...)
+	}
+
+	return FinalizeChatCompletionsResponsesStream(state)
+}
+
 // ChatCompletionsToResponsesStreamState tracks state while converting Chat
 // Completions SSE chunks into Responses SSE events.
 type ChatCompletionsToResponsesStreamState struct {

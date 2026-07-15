@@ -51,17 +51,24 @@
    - 全局 provider 增加 AnySearch 类型，保持密钥脱敏和旧配置。
    - 更新中英文文案、TypeScript 类型和组件测试。
 
-9. 定向验证
+9. Codex `web.run.search_query` 工具循环
+   - 在 effective tools 中精确识别 `namespace=web,name=run`，覆盖顶层 tools 与 Responses Lite `additional_tools`。
+   - 仅在账号最终 Web Search 策略允许且走 Chat fallback 时，把摊平后的 Web function Schema 收窄为 `search_query`；不声明 weather/open/click/find 等命令。
+   - 校验 `search_query[].q`、`response_length`、查询总数和轮次上限；复用 `SearchWithBestProvider` 执行每个查询并生成同 call ID 的 Chat tool result。
+   - 缓冲内部模型轮次、累计 token usage 与真实 Web Search 调用次数；最终分别输出非流式 Responses JSON 或完整 Responses SSE。
+   - 覆盖天气问题改走普通搜索词、可选 recency 警告、非法参数、未支持命令、provider 失败、其它客户端工具回程和循环上限测试。
+
+10. 定向验证
    - `cd backend && go test -tags=unit ./internal/pkg/apicompat`
    - `cd backend && go test -tags=unit ./internal/pkg/openai_compat ./internal/pkg/websearch`
    - `cd backend && go test -tags=unit ./internal/service -run 'JSONSchema|WebSearch|Responses.*Anthropic|Anthropic.*Responses' -count=1`
    - `cd backend && go test -tags=unit ./internal/handler -run 'Responses|WebSearch|Usage' -count=1`
-   - `cd frontend && pnpm vitest run src/components/account/__tests__/CreateAccountModal.openai.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts`
+   - `cd frontend && pnpm vitest run src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts`
    - `cd frontend && pnpm typecheck`
    - `cd frontend && pnpm lint:check`
    - `git diff --check`
 
-10. 全范围检查
+11. 全范围检查
    - 运行 Trellis check-all 路由。
    - 逐条核对 PRD acceptance 与设计矩阵。
    - 运行后端完整单测及前端受影响测试集。
@@ -70,7 +77,8 @@
 ## Risky Files
 
 - `backend/internal/service/openai_gateway_forward.go`：OpenAI Responses 热路径；配置关闭时不能增加行为变化或无条件完整解码。
-- `backend/internal/service/openai_gateway_responses_chat_fallback.go`：必须在工具被丢弃前完成接管/reject 决策。
+- `backend/internal/service/openai_gateway_responses_chat_fallback.go`：必须在工具被丢弃前完成接管/reject 决策；`web.run` 内部轮次不得把中间 function call 写给客户端，usage 和实际搜索次数必须跨轮次累计。
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`：namespace 摊平/还原是已有通用契约，Web Search 收窄不能改变其它 namespace 工具。
 - `backend/internal/pkg/apicompat/anthropic_to_responses_response.go`：流式状态机需要保持 output_index、content_index、sequence 和收尾事件一致。
 - `backend/internal/pkg/apicompat/types.go`：共享 DTO 变更可能影响 Messages、Responses、Chat 多条转换链。
 - `backend/internal/pkg/websearch/manager.go`：AnySearch 必须进入现有配额/代理逻辑，不能为新 provider 分叉调度。
@@ -88,7 +96,8 @@
 
 - 两项升级保留在同一任务，但实现按独立阶段和回滚点组织。
 - OpenAI DeepSeek 账号不动态切到 Anthropic endpoint。
-- 本地模拟仅接管 pure/forced Web Search；mixed-auto 完整工具循环不在首版。
+- typed 本地模拟仍只接管 pure/forced Web Search；工具循环只对 `namespace=web,name=run` 的 `search_query` 开例外，不扩展为通用工具执行器。
+- `weather` 是 `web.run` 的独立命令，但首版不实现；天气类用户请求通过收窄后的 `search_query` 完成。
 - JSON Schema 只显式配置，不自动重试，不降为 string。
-- 本地模拟成功按现有分组 Web Search 单价计费一次，失败不计费。
+- typed 本地模拟成功按现有分组 Web Search 单价计费一次；`web.run.search_query` 按实际成功查询数计费；失败调用不计费。
 - new-api 仅作为行为研究证据，不复制 AGPLv3 源码。
