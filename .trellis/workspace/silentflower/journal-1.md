@@ -480,3 +480,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: 修复 Codex Responses Lite 生图桥接
+
+**Date**: 2026-07-15
+**Task**: 修复 Codex Responses Lite 生图桥接
+**Branch**: `build`
+
+### Summary
+
+修复 Lite 内部标头泄漏与 hosted 生图 fallback 回归，统一 image_generation/image_gen 工具边界，补齐 HTTP、passthrough、WSv2 和 WS HTTP bridge 测试并同步协议规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a02dca33` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
