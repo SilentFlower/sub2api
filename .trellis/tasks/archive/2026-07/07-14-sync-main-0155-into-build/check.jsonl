@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行 Go 单测、gofmt、lint、接口 stub、生成代码和 migration 质量检查"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行 Vitest、typecheck、lint 与管理页面行为检查"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查 Grok、Anthropic、Codex namespace、tool_choice、reasoning effort 和 usage 契约未回退"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 migration、Ent schema/生成代码和索引文件保持 main 一致组合"}
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"检查 build HA/DR 和发布镜像门禁资产未丢失或被误改"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 Grok Billing、Codex reset、生图设置和前端类型的跨层闭环"}
+{"file":".trellis/tasks/07-14-sync-main-0155-into-build/research/merge-evidence.md","reason":"逐项核对冲突策略、主线替代项、build 保留项和自动合并风险"}

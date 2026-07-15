@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Grok Messages/effort、Anthropic Chat 桥接、Codex namespace 与上游协议语义"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"约束 main migration、Ent schema 与生成代码一致性，禁止修改已应用迁移"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束后台 API envelope、上游错误脱敏和敏感凭据保护"}
+{"file":".trellis/spec/backend/disaster-recovery-guidelines.md","reason":"保护 build HA/DR、镜像同步、状态机和部署资产不被 main 覆盖"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束 Grok Billing、Codex reset 与设置 API 的前后端 snake_case 类型一致性"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核 Grok Billing、图片设置、Codex reset 在服务、API、前端和缓存之间的完整数据流"}
+{"file":".trellis/tasks/07-14-sync-main-0155-into-build/research/merge-evidence.md","reason":"提供固定引用、16 个显式冲突、37 个自动合并文件风险和已确认语义决策"}
