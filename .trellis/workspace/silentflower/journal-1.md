@@ -546,3 +546,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## 会话 17：支持 DeepSeek 混合工具 Web Search
+
+**日期**：2026-07-16
+**任务**：支持 DeepSeek 混合工具 Web Search
+**分支**：`build`
+
+### 摘要
+
+完成 OpenAI APIKey Chat fallback 混合工具 Web Search、来源引用与流式回程支持；定向及全量后端测试、lint 和规范同步均已通过，未执行生产部署或配置变更。
+
+### 主要变更
+
+为 Chat fallback 混合工具请求增加模型驱动搜索循环，保留客户端工具语义，并补齐来源引用、流式事件、usage 与计费处理。
+
+### Git 提交
+
+| 哈希 | 说明 |
+|------|---------|
+| `a0e2aaaf` | 支持 Chat fallback 混合工具 Web Search |
+
+### 验证
+
+- [x] 定向测试、全量后端单测、golangci-lint 与 `git diff --check` 均通过
+
+### 状态
+
+**已完成**
+
+### 后续事项
+
+- 无，任务已完成
