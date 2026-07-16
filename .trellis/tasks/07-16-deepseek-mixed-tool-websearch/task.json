@@ -22,5 +22,17 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-16T09:15:05Z",
+    "completedSteps": [
+      "实现 OpenAI APIKey Chat fallback 混合工具 Web Search",
+      "完成定向与全量后端验证",
+      "完成 Check-All 与协议规范同步",
+      "提交并推送业务变更"
+    ],
+    "partialStep": null,
+    "nextStep": "执行 /trellis:finish-work 归档任务并记录会话",
+    "notes": "未执行生产部署、镜像更新、容器重启或远端配置修改。"
+  }
 }
