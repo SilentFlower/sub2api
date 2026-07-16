@@ -22,5 +22,16 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-17T00:19:49+08:00",
+    "completedSteps": [
+      "同步 main 0.1.157 并解决 12 个冲突",
+      "实现 Responses Lite Header 阻止模型策略",
+      "完成全量验证并更新协议规范"
+    ],
+    "partialStep": null,
+    "nextStep": "等待用户确认收尾并归档任务",
+    "notes": ""
+  }
 }
