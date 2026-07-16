@@ -36,18 +36,22 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	reqStream bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	upstreamPassthroughModel := ""
+	upstreamPassthroughModel := strings.TrimSpace(account.GetMappedModel(reqModel))
+	if upstreamPassthroughModel == "" {
+		upstreamPassthroughModel = strings.TrimSpace(reqModel)
+	}
 	if isOpenAIResponsesCompactPath(c) {
-		compactMappedModel := resolveOpenAICompactForwardModel(account, reqModel)
-		if compactMappedModel != "" && compactMappedModel != reqModel {
-			nextBody, setErr := sjson.SetBytes(body, "model", compactMappedModel)
-			if setErr != nil {
-				return nil, fmt.Errorf("set compact passthrough model: %w", setErr)
-			}
-			body = nextBody
-			upstreamPassthroughModel = compactMappedModel
-			attemptImageIntentInvalidated = true
+		upstreamPassthroughModel = resolveOpenAICompactForwardModel(account, upstreamPassthroughModel)
+	} else {
+		upstreamPassthroughModel = normalizeOpenAIModelForUpstream(account, upstreamPassthroughModel)
+	}
+	if upstreamPassthroughModel != "" && upstreamPassthroughModel != reqModel {
+		nextBody, setErr := sjson.SetBytes(body, "model", upstreamPassthroughModel)
+		if setErr != nil {
+			return nil, fmt.Errorf("set passthrough upstream model: %w", setErr)
 		}
+		body = nextBody
+		attemptImageIntentInvalidated = true
 	}
 
 	if account != nil && account.Type == AccountTypeOAuth {
@@ -453,6 +457,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	s.enforceOpenAIResponsesLiteHTTPHeader(
+		ctx,
+		req,
+		account,
+		strings.TrimSpace(gjson.GetBytes(body, "model").String()),
+	)
 
 	return req, nil
 }
@@ -460,6 +470,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
 	if isOpenAIContextWindowError("", responseBody) {
 		return false
+	}
+	if isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
+		return true
 	}
 	switch statusCode {
 	case http.StatusTooManyRequests, 529:
@@ -576,7 +589,8 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
 	reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-	_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
+	_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
 		AccountID:            account.ID,
@@ -589,12 +603,13 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		Detail:               upstreamDetail,
 		UpstreamResponseBody: upstreamDetail,
 	})
-	return &UpstreamFailoverError{
-		StatusCode:             resp.StatusCode,
-		ResponseBody:           body,
-		ResponseHeaders:        resp.Header.Clone(),
-		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-	}
+	return newOpenAIUpstreamFailoverError(
+		resp.StatusCode,
+		resp.Header,
+		body,
+		upstreamMsg,
+		account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+	)
 }
 
 func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
@@ -637,7 +652,8 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	// 刚被限流的账号。cyber 例外：不冷却账号。
 	if !cyberHit {
 		reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
+		canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
+		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,

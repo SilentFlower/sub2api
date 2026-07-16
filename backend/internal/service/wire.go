@@ -138,6 +138,21 @@ func ProvideOpenAIQuotaService(
 	return service
 }
 
+// ProvideAccountUsageService 创建账号用量服务并注入各平台额度查询依赖。
+//
+// @param accountRepo 账号仓储。
+// @param usageLogRepo 用量日志仓储。
+// @param usageFetcher Claude 用量获取器。
+// @param geminiQuotaService Gemini 额度服务。
+// @param antigravityQuotaFetcher Antigravity 额度获取器。
+// @param grokQuotaFetcher Grok 快照额度获取器。
+// @param grokQuotaService Grok 主额度探测服务。
+// @param openAIQuotaService OpenAI 额度服务。
+// @param cache 用量缓存。
+// @param identityCache 身份缓存。
+// @param tlsFPProfileService TLS 指纹配置服务。
+// @param openAIGatewayService OpenAI 网关服务。
+// @return 完成依赖注入的账号用量服务。
 func ProvideAccountUsageService(
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
@@ -145,6 +160,7 @@ func ProvideAccountUsageService(
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	grokQuotaFetcher *GrokQuotaFetcher,
+	grokQuotaService *GrokQuotaService,
 	openAIQuotaService *OpenAIQuotaService,
 	cache *UsageCache,
 	identityCache IdentityCache,
@@ -158,6 +174,7 @@ func ProvideAccountUsageService(
 		geminiQuotaService,
 		antigravityQuotaFetcher,
 		grokQuotaFetcher,
+		grokQuotaService,
 		openAIQuotaService,
 		cache,
 		identityCache,
@@ -192,14 +209,24 @@ func ProvideAccountTestService(
 	return service
 }
 
+// ProvideGrokQuotaService 创建 Grok 主额度探测服务。
+//
+// @param accountRepo 账号仓储。
+// @param proxyRepo 代理仓储。
+// @param tokenProvider Grok OAuth Token Provider。
+// @param httpUpstream 上游 HTTP transport。
+// @param cfg 系统配置。
+// @param usageLogRepo 用量日志仓储。
+// @return Grok 主额度探测服务。
 func ProvideGrokQuotaService(
 	accountRepo AccountRepository,
 	proxyRepo ProxyRepository,
 	tokenProvider *GrokTokenProvider,
 	httpUpstream HTTPUpstream,
+	cfg *config.Config,
 	usageLogRepo UsageLogRepository,
 ) *GrokQuotaService {
-	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, usageLogRepo)
+	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
 }
 
 // ProvideGrokBillingQuotaService 创建独立 Grok 套餐额度服务。
@@ -445,6 +472,14 @@ func ProvideOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
 	return sink
 }
 
+// ProvideAuditLogService 创建操作审计日志服务并启动异步写入与保留期清理协程。
+// 停止逻辑挂在 cmd/server 的 provideCleanup。
+func ProvideAuditLogService(repo AuditLogRepository, settingService *SettingService) *AuditLogService {
+	svc := NewAuditLogService(repo, settingService)
+	svc.Start()
+	return svc
+}
+
 func buildIdempotencyConfig(cfg *config.Config) IdempotencyConfig {
 	idempotencyCfg := DefaultIdempotencyConfig()
 	if cfg != nil {
@@ -523,6 +558,22 @@ func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthC
 	// Start Pub/Sub subscriber for L1 cache invalidation across instances
 	apiKeyService.StartAuthCacheInvalidationSubscriber(context.Background())
 	return apiKeyService
+}
+
+// ProvideImageTaskService 构造异步图片任务服务。
+//
+// 对象存储是异步图片任务的启用前提：仅当 image_storage 开关打开且凭证齐全时，
+// 服务才启用，并挂上把结果转存到对象存储的 uploader；否则功能整体禁用
+// （handler 返回 404，不创建任务、不写 Redis），从而避免大 base64 结果撑爆 Redis。
+func ProvideImageTaskService(store ImageTaskStore, storage ImageStorage, cfg *config.Config) *ImageTaskService {
+	if !cfg.ImageStorage.Active() {
+		if cfg.ImageStorage.Enabled {
+			logger.L().Warn("image_storage.enabled is true but object storage is not fully configured; async image tasks are disabled")
+		}
+		return NewImageTaskService(store)
+	}
+	uploader := NewImageResultUploader(storage, cfg.ImageStorage.Prefix, cfg.ImageStorage.MaxDownloadByte, nil)
+	return NewImageTaskServiceWithUploader(store, uploader, defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
 }
 
 // ProvideBackupService creates and starts BackupService
@@ -649,6 +700,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
+	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,
 	NewBatchImagePublicService,
 	NewBatchImageDownloadService,
@@ -679,11 +731,13 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
 	NewOpenAICodexResetService,
+	ProvideUpstreamBillingProbeService,
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
 	ProvideOpsSystemLogSink,
 	ProvideOpsService,
+	ProvideAuditLogService,
 	ProvideOpsMetricsCollector,
 	ProvideOpsAggregationService,
 	ProvideOpsAlertEvaluatorService,

@@ -184,11 +184,51 @@ func TestOpenAIWSHTTPBridgeRelaysSSEFramesAsWebSocketMessages(t *testing.T) {
 
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, http.MethodPost, upstream.lastReq.Method)
-	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
 	require.Equal(t, "true", gjson.GetBytes(upstream.lastBody, "client_metadata."+responsesLiteWSMetadataKey).String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "type").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "generate").Exists())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+}
+
+func TestOpenAIWSHTTPBridgeBlocksResponsesLiteHeaderForConfiguredModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.completed","response":{"id":"resp_bridge_blocked","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			"",
+		}, "\n"))),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          8,
+		Name:        "api-key-blocked",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Status:      StatusActive,
+	}
+	payload := []byte(`{"type":"response.create","model":"gpt-5.5","stream":true,"reasoning":{"context":"current_turn"},"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},"input":"hi"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5.5", "", "", "", "", 1,
+		func([]byte) error { return nil },
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Equal(t, "current_turn", gjson.GetBytes(upstream.lastBody, "reasoning.context").String())
 }
 
 func TestProxyOpenAIWSHTTPBridgeTurnForGrokDefaultsEmptyModelTo45(t *testing.T) {
@@ -822,6 +862,14 @@ func TestOpenAIWSHTTPBridge_IdleTimeoutClosesClientSession(t *testing.T) {
 	cancelRead()
 	require.NoError(t, err)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
+
+	closeReadCtx, cancelCloseRead := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _, err = clientConn.Read(closeReadCtx)
+	cancelCloseRead()
+	var clientClose coderws.CloseError
+	require.ErrorAs(t, err, &clientClose)
+	require.Equal(t, coderws.StatusNormalClosure, clientClose.Code)
+	require.Equal(t, "websocket idle timeout", clientClose.Reason)
 
 	select {
 	case proxyErr := <-errCh:

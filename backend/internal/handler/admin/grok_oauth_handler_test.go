@@ -118,7 +118,7 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 		},
 	}}
 	upstream := &grokQuotaHandlerUpstream{}
-	quotaService := service.NewGrokQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
+	quotaService := service.NewGrokQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream, nil)
 	handler := NewGrokOAuthHandler(nil, nil, quotaService, nil, nil)
 
 	router := gin.New()
@@ -226,7 +226,7 @@ func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {
 		Platform: service.PlatformGrok,
 		Type:     service.AccountTypeOAuth,
 	}}
-	quotaService := service.NewGrokQuotaService(repo, nil, nil, nil)
+	quotaService := service.NewGrokQuotaService(repo, nil, nil, nil, nil)
 	handler := NewGrokOAuthHandler(nil, nil, quotaService, nil, nil)
 
 	router := gin.New()

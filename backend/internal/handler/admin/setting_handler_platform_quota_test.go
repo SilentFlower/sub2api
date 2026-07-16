@@ -64,6 +64,19 @@ func TestDiffSettings_NoChangeWhenEqual(t *testing.T) {
 	}
 }
 
+func TestDiffSettings_DetectsOpenAIResponsesLiteHeaderBlockedModelsChange(t *testing.T) {
+	before := &service.SystemSettings{
+		OpenAIResponsesLiteHeaderBlockedModels: []string{"gpt-5.4"},
+	}
+	after := &service.SystemSettings{
+		OpenAIResponsesLiteHeaderBlockedModels: []string{},
+	}
+
+	changed := diffSettings(before, after, nil, nil, UpdateSettingsRequest{})
+
+	require.Contains(t, changed, service.SettingKeyOpenAIResponsesLiteHeaderBlockedModels)
+}
+
 func TestEqualNullableFloat(t *testing.T) {
 	five := 5.0
 	five2 := 5.0

@@ -30,7 +30,8 @@ func TestIsHeaderOverrideEligible(t *testing.T) {
 		{"anthropic oauth", PlatformAnthropic, AccountTypeOAuth, false},
 		{"openai oauth", PlatformOpenAI, AccountTypeOAuth, false},
 		{"gemini apikey", PlatformGemini, AccountTypeAPIKey, false},
-		{"grok apikey", PlatformGrok, AccountTypeAPIKey, false},
+		{"grok apikey", PlatformGrok, AccountTypeAPIKey, true},
+		{"grok oauth", PlatformGrok, AccountTypeOAuth, true},
 		{"antigravity apikey", PlatformAntigravity, AccountTypeAPIKey, false},
 		{"anthropic bedrock", PlatformAnthropic, AccountTypeBedrock, false},
 	}
@@ -75,12 +76,13 @@ func TestGetHeaderOverrides(t *testing.T) {
 	acc := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,
 		credKeyHeaderOverrides: map[string]any{
-			"User-Agent":    "my-agent/1.0",  // 大写 key 归一化为小写
-			" X-App ":       "cli",           // 名称去空白
-			"x-empty":       "",              // 空 value（模板占位）跳过
-			"authorization": "Bearer leaked", // 禁止覆写的头跳过
-			"bad name":      "value",         // 非法 header 名跳过
-			"x-padded":      "  padded  ",    // value 去空白
+			"User-Agent":        "my-agent/1.0",  // 大写 key 归一化为小写
+			" X-App ":           "cli",           // 名称去空白
+			"x-empty":           "",              // 空 value（模板占位）跳过
+			"authorization":     "Bearer leaked", // 禁止覆写的头跳过
+			responsesLiteHeader: "true",          // 协议标记由网关策略统一控制
+			"bad name":          "value",         // 非法 header 名跳过
+			"x-padded":          "  padded  ",    // value 去空白
 		},
 	})
 	overrides := acc.GetHeaderOverrides()
@@ -111,6 +113,7 @@ func TestGetHeaderOverrides(t *testing.T) {
 			"x-big":                    oversizedValue,
 			"sec-websocket-key":        "forged",
 			"content-type":             "application/json", // 名单扩充前落库的数据也要被拦截
+			responsesLiteHeaderKey:     "true",
 			"x-claude-code-session-id": "pinned-session",
 			"x-ok":                     "ok",
 		},
@@ -185,10 +188,11 @@ func TestApplyHeaderOverridesNoOpPaths(t *testing.T) {
 	blocked := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,
 		credKeyHeaderOverrides: map[string]any{
-			"Authorization":  "Bearer evil",
-			"X-Api-Key":      "evil",
-			"Host":           "evil.example.com",
-			"Content-Length": "0",
+			"Authorization":        "Bearer evil",
+			"X-Api-Key":            "evil",
+			"Host":                 "evil.example.com",
+			"Content-Length":       "0",
+			responsesLiteHeaderKey: "true",
 		},
 	})
 	h = http.Header{}
@@ -197,6 +201,20 @@ func TestApplyHeaderOverridesNoOpPaths(t *testing.T) {
 	require.Equal(t, "Bearer real-key", h.Get("Authorization"))
 	require.Empty(t, h.Get("X-Api-Key"))
 	require.Empty(t, h.Get("Host"))
+	require.Empty(t, h.Get(responsesLiteHeader))
+
+	// Grok OAuth 同样不得通过账号覆写注入 OpenAI 内部协议标记。
+	grok := headerOverrideTestAccount(PlatformGrok, AccountTypeOAuth, map[string]any{
+		credKeyHeaderOverrideEnabled: true,
+		credKeyHeaderOverrides: map[string]any{
+			responsesLiteHeader: "true",
+			"x-custom":          "allowed",
+		},
+	})
+	grokHeaders := http.Header{}
+	grok.ApplyHeaderOverrides(grokHeaders)
+	require.Empty(t, grokHeaders.Get(responsesLiteHeader))
+	require.Equal(t, "allowed", getHeaderRaw(grokHeaders, "x-custom"))
 
 	// nil header 不 panic
 	blocked.ApplyHeaderOverrides(nil)
@@ -282,6 +300,7 @@ func TestNormalizeHeaderOverrideCredentials(t *testing.T) {
 			"conversation_id", "x-codex-turn-state", "chatgpt-account-id",
 			"Content-Type", "Cookie", "x-goog-api-key",
 			"X-Claude-Code-Session-Id", "x-client-request-id",
+			responsesLiteHeader,
 		} {
 			err := NormalizeHeaderOverrideCredentials(map[string]any{
 				credKeyHeaderOverrides: map[string]any{name: "v"},

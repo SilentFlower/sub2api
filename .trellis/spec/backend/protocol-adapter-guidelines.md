@@ -1115,36 +1115,79 @@ model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 Codex 图片工具注入、`tool_choice`、Responses Lite 标头、账号显式图片工具策略、HTTP Responses 或 WebSocket Responses 入站归一化时，必须按本节检查。
+- Trigger: 修改 Codex 图片工具注入、`tool_choice`、Responses Lite 标头/WS metadata、阻止模型设置、账号 Header Override、HTTP Responses 或 WebSocket Responses 入站归一化时，必须按本节检查。
 - 适用后端路径：
+  - `backend/internal/service/account_header_override.go`
   - `backend/internal/service/openai_codex_transform.go`
   - `backend/internal/service/openai_gateway_forward.go`
+  - `backend/internal/service/openai_gateway_passthrough.go`
   - `backend/internal/service/openai_gateway_service.go`
+  - `backend/internal/service/openai_responses_lite_policy.go`
   - `backend/internal/service/openai_ws_forwarder_ingress.go`
+  - `backend/internal/service/openai_ws_v2_passthrough_adapter.go`
   - `backend/internal/service/openai_ws_http_bridge.go`
-- 目标：区分上游执行的 hosted `image_generation` 与客户端执行的 `image_gen`，并保证 Lite 内部标头不会泄漏到 OpenAI HTTP 上游。
+- 适用设置链路：`SettingService -> admin settings DTO/handler -> frontend SettingsView`。
+- 目标：区分上游执行的 hosted `image_generation` 与客户端执行的 `image_gen`，并根据每次转发的最终上游模型统一决定 Lite Header/metadata 是否传播。
 
 ### 2. Signatures
 
 ```go
+const SettingKeyOpenAIResponsesLiteHeaderBlockedModels = "openai_responses_lite_header_blocked_models"
+
+func NormalizeOpenAIResponsesLiteHeaderBlockedModels(models []string) ([]string, error)
+func (s *SettingService) ShouldBlockOpenAIResponsesLite(ctx context.Context, finalModel string) bool
+func (s *OpenAIGatewayService) resolveOpenAIResponsesLitePolicyModel(
+	ctx context.Context,
+	account *Account,
+	requestedModel string,
+	compact bool,
+) string
+func (s *OpenAIGatewayService) applyOpenAIResponsesLiteHTTPBodyPolicy(
+	ctx context.Context,
+	account *Account,
+	body []byte,
+	finalModel string,
+	headerValue string,
+) ([]byte, bool, error)
+func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWebSocketPolicy(
+	ctx context.Context,
+	account *Account,
+	body []byte,
+	finalModel string,
+) ([]byte, bool, error)
+func (s *OpenAIGatewayService) enforceOpenAIResponsesLiteHTTPHeader(
+	ctx context.Context,
+	req *http.Request,
+	account *Account,
+	finalModel string,
+)
+
 func hasOpenAIImageGenClientTool(reqBody map[string]any) bool
 func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool
 func ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody map[string]any) bool
 func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 ```
 
-HTTP 与 WebSocket 必须复用同一组工具分类和桥接函数：
+设置 API 字段：
 
-```go
-if codexImageGenerationBridgeEnabled {
-	ensureOpenAIResponsesImageGenerationTool(decoded)
-	ensureOpenAIResponsesImageGenerationToolChoiceAuto(decoded)
-	applyCodexImageGenerationBridgeInstructions(decoded)
+```json
+{
+  "openai_responses_lite_header_blocked_models": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5"]
 }
 ```
 
 ### 3. Contracts
 
+- 设置键缺失时使用三个精确默认项：`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.5`；显式存储 `[]` 表示允许所有模型透传，不能回退默认值。
+- 更新 DTO 使用 `*[]string` 区分“字段未提供”和“显式空数组”；未提供时保留旧值，显式 `[]` 整体覆盖。
+- 每条规则 trim 后不能为空，稳定去重；只支持精确匹配或一个位于末尾的 `*` 前缀规则，匹配保持大小写敏感。
+- 运行时使用 `SettingService` 的 60 秒成功 TTL、5 秒错误 TTL 和 singleflight；存储 JSON 非法时记录不含敏感信息的 warning，并使用默认列表。
+- Lite 决策必须使用完成账号映射、compact 映射、OAuth 归一化和图片主模型转换后的最终上游模型；failover 的每次 attempt 和 WS 的每个 turn 都重新计算。
+- 只有入站 HTTP Header 为 `true` 或 WS metadata 为 `true` 才是 Lite 请求。账号 Header Override 不得注入 `X-OpenAI-Internal-Codex-Responses-Lite`；保存时拒绝，运行时也要防御性丢弃旧数据。
+- OpenAI 最终模型未命中阻止列表时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header，并执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化。
+- OpenAI 最终模型命中阻止列表时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
+- 命中阻止列表只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
+- 非 OpenAI 平台不得收到该内部标记；Grok 普通 Responses、媒体请求和 WS HTTP bridge 都必须保持 Header 为空。
 - `image_generation` 是 OpenAI Responses hosted 工具，由上游执行；已有该工具时不得重复注入，旧 `format` / `compression` 字段仍按既有兼容契约归一化。
 - `image_gen` 是 Codex 客户端工具。只有 namespace 内含 `type=function,name=imagegen` 时才视为可执行；兼容扁平形态严格匹配 `type=function,name=image_gen.imagegen`。
 - 顶层 `tools` 与 `input` 中的 `additional_tools` 都必须参与客户端工具分类。仅在描述文本中出现 `image_gen.imagegen` 不构成工具声明。
@@ -1154,51 +1197,79 @@ if codexImageGenerationBridgeEnabled {
 - HTTP 只在 `codexImageGenerationBridgeEnabled` 为真时调用；WebSocket 只在 `codexBridgeEnabled` 为真时调用。
 - group 禁止图片、全局/频道/账号未启用桥接、账号显式工具策略为 `strip`、compact 请求或 Spark 模型时，不得通过本归一化重新开放图片工具。
 - HTTP 与 WebSocket 不得复制一份独立的 `none` 判断逻辑，避免协议分支漂移。
-- `X-OpenAI-Internal-Codex-Responses-Lite` 只属于入站本地提示，不得进入普通或 passthrough OpenAI 上游 header 白名单。
-- WS payload 的 `client_metadata.ws_request_header_x_openai_internal_codex_responses_lite` 可以保留，但 WS HTTP bridge 不得把它提升为上游 HTTP Lite 标头。
-- passthrough 除账号显式 `strip` 策略外不得改写 payload；bridge 启用也不能在 passthrough 请求中注入 hosted 工具。
+- passthrough 除 Lite 协议归一化和账号显式 `strip` 策略外不得注入 hosted 图片工具。
 
 ### 4. Validation & Error Matrix
 
-| 条件 | hosted 工具 | `tool_choice` | 上游 Lite header |
+| 条件 | Header / metadata | Lite body 归一化 | 结果 |
 |---|---|---|---|
-| 无图片工具，bridge 有效 | 注入一个 | 缺失或 `none` 改为 `auto` | 不发送 |
-| 已有原生 `image_generation` | 不重复注入 | `none` 可改为 `auto`，其它明确选择保持 | 不发送 |
-| 可执行 `image_gen` namespace | 不注入 | 保持客户端值 | 不发送 |
-| 扁平 `image_gen.imagegen` function | 不注入 | 保持客户端值 | 不发送 |
-| 仅描述文本提到 `image_gen.imagegen` | 按无图片工具处理 | 按 hosted 规则处理 | 不发送 |
-| group 禁止、bridge 关闭、`strip`、compact 或 Spark | 不恢复注入 | 保持既有门禁语义 | 不发送 |
-| passthrough + Lite | 不注入 | payload 不变 | 不发送 |
-| WS HTTP bridge + Lite metadata | 按 payload 工具决策 | 按工具域处理 | 不合成 header |
+| 设置键缺失 | 使用三个默认阻止项 | N/A | 不创建空默认 |
+| 设置值为合法 `[]` | 所有 OpenAI 模型允许 | allow 时执行 | 保存后立即生效 |
+| 设置 JSON 非法或元素非法 | 回退默认列表 | 按默认规则 | warning + 5 秒错误缓存 |
+| 更新规则为空或 `*` 位置非法 | N/A | N/A | `400 INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS` |
+| 非 Lite 请求 | 不新增标记 | 不执行 | body 和无关 Header 保持 |
+| Lite + 最终模型 allow | 保留/重建标记 | 执行 | `reasoning.context=all_turns` |
+| Lite + 最终模型 block | 删除/禁止重建 | 跳过 | 客户端原始 body 字段保持 |
+| Lite + 客户端显式 context + block | 删除标记 | 跳过 | 显式 context 原值保持 |
+| Grok 或其它非 OpenAI 平台 | 删除标记 | 不执行 | 内部 Header 不进入上游 |
+| Header Override 配置 Lite Header | 保存拒绝、旧数据丢弃 | 不执行 | 普通请求不能被伪造成 Lite |
+
+图片工具矩阵：
+
+| 条件 | hosted 工具 | `tool_choice` |
+|---|---|---|
+| 无图片工具，bridge 有效 | 注入一个 | 缺失或 `none` 改为 `auto` |
+| 已有原生 `image_generation` | 不重复注入 | `none` 可改为 `auto`，其它明确选择保持 |
+| 可执行 `image_gen` namespace/扁平 function | 不注入 | 保持客户端值 |
+| 仅描述文本提到 `image_gen.imagegen` | 按无图片工具处理 | 按 hosted 规则处理 |
+| group 禁止、bridge 关闭、`strip`、compact 或 Spark | 不恢复注入 | 保持既有门禁语义 |
 
 ### 5. Good/Base/Bad Cases
 
+- Good: Lite 请求从客户端别名映射到默认阻止的 `gpt-5.5` 后，按映射后的模型删除标记且保持客户端显式 context。
+- Good: `gpt-5.6-terra` 未命中阻止列表时，managed、passthrough、WS 和 bridge 均保留 Lite 标记并补齐 `all_turns`。
+- Good: 管理员显式保存空数组后，`gpt-5.5` 的 Lite 请求允许透传，而不是重新套用默认列表。
+- Good: 同一 WS 会话从 allow 模型切到 block 模型再切回 allow，每个 turn 独立更新 metadata 和 context。
+- Good: 旧账号数据试图通过 Header Override 注入 Lite Header 时，OpenAI 普通请求和 Grok 请求都不会收到该标记。
 - Good: Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
-- Good: Lite 请求没有图片工具且 bridge 有效时恢复 hosted fallback，但上游 HTTP header 不含 Lite 标头。
 - Good: WebSocket `additional_tools` 含可执行 `image_gen` 时保持客户端工具、提示和 `none`，不追加 hosted 工具。
+- Base: 非 Lite 请求即使模型位于阻止列表，也不修改 body 或其它 Header。
+- Base: block 模型原始 body 已有 developer message、additional tools 或 `parallel_tool_calls` 时保持原样。
 - Base: 客户端明确使用 `"required"` 或图片工具对象时，桥接尊重其选择，不覆盖。
 - Base: 管理员关闭桥接后，文本请求不会被注入图片工具，也不会因为 `none` 被改写。
-- Base: passthrough 请求只过滤内部 Lite header，不因 bridge 开启修改 payload。
 - Bad: 只判断字段是否存在并直接返回，会让 `tool_choice: "none"` 永久禁止已注入的图片工具。
 - Bad: 无条件把所有 `tool_choice` 写成 `"auto"`，会破坏 `required` 和明确工具选择。
 - Bad: 看到 Lite header 或 metadata 就整体关闭 bridge，会让没有客户端图片工具的请求失去 hosted fallback。
-- Bad: 把 Lite header 加入上游白名单，或由 WS metadata 重建该 header，会让不支持 Lite 的模型返回 `unsupported_value`。
+- Bad: 对所有模型永久删除 Lite 标记，会破坏 Lite-capable 模型的官方请求布局。
+- Bad: 无条件透传或只按客户端原始模型判断，会让非 Lite 模型返回 `unsupported_value`。
+- Bad: 允许 Header Override 注入 Lite Header，会产生“Header 是 Lite、body 未归一化”的不一致请求，并把内部标记泄漏给 Grok。
+- Bad: block 时删除 developer message、additional tools 或客户端 context，属于未经授权的完整协议逆转换。
 - Bad: 在 HTTP 和 WebSocket 各自实现不同的字符串判断，会再次形成协议分支行为漂移。
 
 ### 6. Tests Required
 
+- 设置测试必须覆盖：缺失键的三个默认项、显式 `[]`、非法 JSON 回退、trim、稳定去重、精确/末尾通配符、缓存命中、singleflight 和保存后刷新。
+- Settings API/前端测试必须覆盖：查询/更新字段、未提供时保留、显式空数组、空项和非法通配符校验、中英文 i18n 与 API contract 快照。
+- HTTP managed/passthrough 必须覆盖：allow、默认 block、自定义通配符、显式空列表和映射后最终模型；block 时不强制改写 context。
+- WS 直连和 passthrough 必须覆盖 allow/block、模型映射和会话内 turn 切换；WS HTTP bridge 必须覆盖允许重建和阻止重建。
+- Grok 回归必须断言普通 Responses、媒体和 WS HTTP bridge 不带 Lite Header；Header Override 的保存校验与运行时防御性过滤都要覆盖。
+- 普通 OpenAI 请求必须覆盖：即使账号旧数据包含 Lite Header Override，也不能新增 Header，且 body 不执行 Lite normalizer。
 - 纯函数测试至少覆盖：原生工具、可执行 namespace、空 namespace、顶层/`additional_tools`、扁平 function、相似名称、`none`、`auto`、`required` 和 Spark。
 - HTTP service 回归测试必须断言桥接启用时 `none -> auto`，同时保留现有 bridge disabled、group disabled、`strip` 和明确工具选择测试。
-- Lite HTTP 回归必须同时断言 hosted fallback 生效且普通、passthrough 上游 header 均无 Lite；passthrough payload 必须与入站 JSON 等价。
 - 真实 WebSocket ingress 必须分别覆盖 Lite 无工具时注入，以及 Lite 有客户端工具时不接管。
-- WS HTTP bridge 必须断言 metadata 保留但上游 HTTP Lite header 为空。
 - 建议运行：
 
 ```bash
 cd backend
 go test -tags=unit ./internal/service \
-  -run 'ImageGenerationToolChoice|ImageGenerationBridge|ResponsesLite|ImageGenClientTool' \
+  -run 'HeaderOverride|ImageGenerationToolChoice|ImageGenerationBridge|ResponsesLite|ImageGenClientTool|OpenAIWSHTTPBridge' \
   -count=1
+go test -tags=unit ./internal/server -run TestAPIContracts -count=1
+
+cd ../frontend
+pnpm vitest run src/components/account/__tests__/credentialsBuilder.spec.ts \
+  src/views/admin/__tests__/SettingsView.spec.ts \
+  src/i18n/__tests__/localesMessageCompile.spec.ts
 ```
 
 ### 7. Wrong vs Correct
@@ -1206,24 +1277,28 @@ go test -tags=unit ./internal/service \
 #### Wrong
 
 ```go
-codexBridgeEnabled := isCodexCLI && !isResponsesLite(request)
-openaiAllowedHeaders[responsesLiteHeaderKey] = true
+if isOpenAIResponsesLiteHeader(inboundHeader) {
+	body, _, err = normalizeOpenAIResponsesLiteToolsPayload(body)
+}
+account.ApplyHeaderOverrides(req.Header) // 可以再次注入 Lite Header
 ```
 
-问题：把客户端布局提示同时当成 bridge 禁用开关和上游能力声明，既丢失 hosted fallback，又可能触发模型拒绝。
+问题：没有按最终模型判断，并允许账号覆写在 body 归一化之后制造 Lite Header，造成 Header/body 不一致和非 OpenAI 平台泄漏。
 
 #### Correct
 
 ```go
-codexBridgeEnabled := isCodexCLI && imageGenerationAllowed && bridgePolicyEnabled
-if codexBridgeEnabled {
-	ensureOpenAIResponsesImageGenerationTool(reqBody)
-	ensureOpenAIResponsesImageGenerationToolChoiceAuto(reqBody)
+finalModel := s.resolveOpenAIResponsesLitePolicyModel(ctx, account, requestedModel, compact)
+if isOpenAIResponsesLiteHeader(inboundHeader) {
+	body, _, err = s.applyOpenAIResponsesLiteHTTPBodyPolicy(
+		ctx, account, body, finalModel, inboundHeader,
+	)
 }
-// 上游 header 白名单不包含 Responses Lite 内部标头。
+account.ApplyHeaderOverrides(req.Header) // 禁止覆写名单已包含 Lite Header
+s.enforceOpenAIResponsesLiteHTTPHeader(ctx, req, account, finalModel)
 ```
 
-bridge 是否可用只由权限和策略决定，是否实际注入由原生/客户端工具分类决定；Lite header 始终在上游边界过滤。
+body 归一化只接受真实入站 Lite 信号；Header 在请求构造的最后边界按最终模型再次收口，Header Override 不能绕过协议所有权。图片 bridge 是否可用仍只由权限和图片策略决定，是否实际注入由原生/客户端工具分类决定。
 
 ---
 

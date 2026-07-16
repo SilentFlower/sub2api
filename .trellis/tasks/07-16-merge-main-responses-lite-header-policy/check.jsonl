@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"逐项检查新 Header 策略、最终模型、Lite body、WS turn 和 image_gen/image_generation 边界是否一致。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查冲突索引、Wire 生成、Go 测试、lint、接口 stub 和敏感信息。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 SettingsView Vitest、typecheck、lint、build 和中英文 i18n 完整性。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"反向核对 API 查询/更新字段、显式空数组和组件状态没有类型漂移。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"从设置持久化反查到 managed、passthrough、WS 直连和 WS HTTP bridge，防止漏掉消费者。"}

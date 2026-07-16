@@ -39,8 +39,9 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 
 	captureConn := &openAIWSCaptureConn{
 		events: [][]byte{
-			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
-			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_2","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_1","model":"gpt-5.6-terra","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_2","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_turn_3","model":"gpt-5.6-terra","usage":{"input_tokens":1,"output_tokens":1}}}`),
 		},
 	}
 	captureDialer := &openAIWSCaptureDialer{conn: captureConn}
@@ -73,11 +74,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 	}
 
 	serverErrCh := make(chan error, 1)
-	turnWSModeCh := make(chan bool, 2)
+	turnTerminalCh := make(chan string, 3)
 	hooks := &OpenAIWSIngressHooks{
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
-				turnWSModeCh <- result.OpenAIWSMode
+				turnTerminalCh <- result.UpstreamTerminalEvent
 			}
 		},
 	}
@@ -138,17 +139,23 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 		return message
 	}
 
-	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false}`)
+	writeMessage(`{"type":"response.create","model":"gpt-5.6-terra","stream":false,"reasoning":{"context":"current_turn"},"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"}}`)
 	firstTurnEvent := readMessage()
 	require.Equal(t, "response.completed", gjson.GetBytes(firstTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_1", gjson.GetBytes(firstTurnEvent, "response.id").String())
 
-	writeMessage(`{"type":"response.create","model":"gpt-5.1","stream":false,"previous_response_id":"resp_ingress_turn_1"}`)
+	writeMessage(`{"type":"response.create","model":"gpt-5.5","stream":false,"previous_response_id":"resp_ingress_turn_1","reasoning":{"context":"current_turn"},"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"}}`)
 	secondTurnEvent := readMessage()
 	require.Equal(t, "response.completed", gjson.GetBytes(secondTurnEvent, "type").String())
 	require.Equal(t, "resp_ingress_turn_2", gjson.GetBytes(secondTurnEvent, "response.id").String())
-	require.True(t, <-turnWSModeCh, "首轮 turn 应标记为 WS 模式")
-	require.True(t, <-turnWSModeCh, "第二轮 turn 应标记为 WS 模式")
+	require.Equal(t, "response.completed", <-turnTerminalCh, "首轮 turn 应保留成功终态")
+	require.Equal(t, "response.completed", <-turnTerminalCh, "第二轮 turn 应保留成功终态")
+
+	writeMessage(`{"type":"response.create","model":"gpt-5.6-terra","stream":false,"previous_response_id":"resp_ingress_turn_2","reasoning":{"context":"current_turn"},"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"}}`)
+	thirdTurnEvent := readMessage()
+	require.Equal(t, "response.completed", gjson.GetBytes(thirdTurnEvent, "type").String())
+	require.Equal(t, "resp_ingress_turn_3", gjson.GetBytes(thirdTurnEvent, "response.id").String())
+	require.Equal(t, "response.completed", <-turnTerminalCh, "第三轮 turn 应保留成功终态")
 
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
 
@@ -162,7 +169,16 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 	metrics := svc.SnapshotOpenAIWSPoolMetrics()
 	require.Equal(t, int64(1), metrics.AcquireTotal, "同一 ingress 会话多 turn 应只获取一次上游 lease")
 	require.Equal(t, 1, captureDialer.DialCount(), "同一 ingress 会话应保持同一上游连接")
-	require.Len(t, captureConn.writes, 2, "应向同一上游连接发送两轮 response.create")
+	require.Len(t, captureConn.writes, 3, "应向同一上游连接发送三轮 response.create")
+	firstUpstreamPayload := requestToJSONString(captureConn.writes[0])
+	require.Equal(t, "true", gjson.Get(firstUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).String())
+	require.Equal(t, "all_turns", gjson.Get(firstUpstreamPayload, "reasoning.context").String())
+	secondUpstreamPayload := requestToJSONString(captureConn.writes[1])
+	require.False(t, gjson.Get(secondUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).Exists())
+	require.Equal(t, "current_turn", gjson.Get(secondUpstreamPayload, "reasoning.context").String())
+	thirdUpstreamPayload := requestToJSONString(captureConn.writes[2])
+	require.Equal(t, "true", gjson.Get(thirdUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).String())
+	require.Equal(t, "all_turns", gjson.Get(thirdUpstreamPayload, "reasoning.context").String())
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_IdleTimeoutReleasesStoreDisabledSession(t *testing.T) {
@@ -249,6 +265,14 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_IdleTimeoutRelea
 	cancelRead()
 	require.NoError(t, err)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
+
+	closeReadCtx, cancelCloseRead := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _, err = clientConn.Read(closeReadCtx)
+	cancelCloseRead()
+	var clientClose coderws.CloseError
+	require.ErrorAs(t, err, &clientClose)
+	require.Equal(t, coderws.StatusNormalClosure, clientClose.Code)
+	require.Equal(t, "websocket idle timeout", clientClose.Reason)
 
 	select {
 	case proxyErr := <-serverErrCh:
@@ -530,9 +554,10 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{
 		"type":"response.create",
-		"model":"gpt-5.5",
+		"model":"gpt-5.6-terra",
 		"stream":false,
 		"previous_response_id":"resp_codex_image_bridge",
+		"reasoning":{"effort":"high"},
 		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
 		"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent"}]}],
 		"input":[
@@ -554,7 +579,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{
 		"type":"response.create",
-		"model":"gpt-5.5",
+			"model":"gpt-5.6-terra",
 		"stream":false,
 		"previous_response_id":"resp_codex_image_lite",
 			"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
@@ -608,6 +633,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.Equal(t, "png", gjson.Get(nonLitePayload, `tools.#(type=="image_generation").output_format`).String())
 	require.Equal(t, "auto", gjson.Get(nonLitePayload, "tool_choice").String())
 	require.Contains(t, gjson.Get(nonLitePayload, "instructions").String(), "image_generation")
+	require.False(t, gjson.Get(nonLitePayload, "reasoning.context").Exists())
 
 	litePayload := requestToJSONString(captureConn.writes[1])
 	require.True(t, gjson.Get(litePayload, `tools.#(type=="image_generation")`).Exists())
@@ -618,6 +644,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.Contains(t, gjson.Get(litePayload, `input.#(type=="additional_tools").tools.0.description`).String(), "image_gen.imagegen")
 	require.False(t, gjson.Get(litePayload, `tools.#(type=="namespace")`).Exists())
 	require.Equal(t, "collaboration", gjson.Get(litePayload, `input.#(type=="additional_tools").tools.1.name`).String())
+	require.Equal(t, "high", gjson.Get(litePayload, "reasoning.effort").String())
+	require.Equal(t, "all_turns", gjson.Get(litePayload, "reasoning.context").String())
 
 	imageGenPayload := requestToJSONString(captureConn.writes[2])
 	require.False(t, gjson.Get(imageGenPayload, `tools.#(type=="image_generation")`).Exists())
@@ -929,7 +957,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeade
 
 	upstreamConn := &openAIWSCaptureConn{
 		events: [][]byte{
-			[]byte(`{"type":"response.completed","response":{"id":"resp_passthrough_headers","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_passthrough_headers","model":"gpt-5.6-terra","usage":{"input_tokens":1,"output_tokens":1}}}`),
 		},
 	}
 	captureDialer := &openAIWSCaptureDialer{conn: upstreamConn}
@@ -1006,9 +1034,10 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeade
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{
 		"type":"response.create",
-		"model":"gpt-5.1",
+		"model":"gpt-5.6-terra",
 		"stream":false,
 		"prompt_cache_key":"pcache_passthrough",
+		"reasoning":{"effort":"medium","context":"current_turn"},
 		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
 		"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent"}]}],
 		"input":[{"type":"message","role":"user","content":"hello"}],
@@ -1038,10 +1067,12 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeade
 	require.Equal(t, "turn-meta-1", captureDialer.lastHeaders.Get(openAIWSTurnMetadataHeader))
 	require.Len(t, upstreamConn.writes, 1)
 	forwarded := requestToJSONString(upstreamConn.writes[0])
-	require.False(t, gjson.Get(forwarded, `tools.#(type=="namespace")`).Exists())
+	require.False(t, gjson.Get(forwarded, `tools.#(type=="namespace")`).Exists(), forwarded)
 	require.Equal(t, "collaboration", gjson.Get(forwarded, `input.#(type=="additional_tools").tools.0.name`).String())
 	require.Equal(t, "namespace", gjson.Get(forwarded, "tool_choice.type").String())
 	require.Equal(t, "collaboration", gjson.Get(forwarded, "tool_choice.name").String())
+	require.Equal(t, "medium", gjson.Get(forwarded, "reasoning.effort").String())
+	require.Equal(t, "all_turns", gjson.Get(forwarded, "reasoning.context").String())
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRelaysHTTPStream(t *testing.T) {

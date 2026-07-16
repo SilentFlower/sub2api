@@ -135,6 +135,7 @@ func TestNormalizeOpenAIResponsesLiteTools_ConvertsStringInput(t *testing.T) {
 
 func TestNormalizeOpenAIResponsesLiteTools_KeepsSupportedTopLevelTools(t *testing.T) {
 	reqBody := map[string]any{
+		"reasoning": map[string]any{"context": "all_turns"},
 		"tools": []any{
 			map[string]any{"type": "function", "name": "shell"},
 			map[string]any{"type": "custom", "name": "exec"},
@@ -148,6 +149,46 @@ func TestNormalizeOpenAIResponsesLiteTools_KeepsSupportedTopLevelTools(t *testin
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Len(t, reqBody["tools"], 4)
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_EnsuresReasoningContext(t *testing.T) {
+	tests := []struct {
+		name      string
+		reasoning any
+	}{
+		{name: "missing"},
+		{name: "missing context", reasoning: map[string]any{"effort": "high"}},
+		{name: "wrong context", reasoning: map[string]any{"effort": "medium", "context": "current_turn"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqBody := map[string]any{"input": "hello"}
+			if tt.reasoning != nil {
+				reqBody["reasoning"] = tt.reasoning
+			}
+
+			changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+			require.NoError(t, err)
+			require.True(t, changed)
+			reasoning := reqBody["reasoning"].(map[string]any)
+			require.Equal(t, "all_turns", reasoning["context"])
+			if tt.name != "missing" {
+				require.Equal(t, tt.reasoning.(map[string]any)["effort"], reasoning["effort"])
+			}
+		})
+	}
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_RejectsNonObjectReasoning(t *testing.T) {
+	reqBody := map[string]any{"reasoning": "high"}
+
+	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+	require.ErrorContains(t, err, "reasoning to be an object")
+	require.False(t, changed)
+	require.Equal(t, "high", reqBody["reasoning"])
 }
 
 func TestNormalizeOpenAIResponsesLiteTools_RejectsUnsupportedTools(t *testing.T) {
@@ -240,6 +281,7 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			}
 			body := []byte(`{
 				"model":"gpt-5.6-terra","stream":true,"instructions":"test",
+				"reasoning":{"effort":"high","context":"current_turn"},
 				"tools":[
 					{"type":"function","name":"shell","parameters":{"type":"object"}},
 					{"type":"custom","name":"exec"},
@@ -254,7 +296,9 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+			require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
+			require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+			require.Equal(t, "all_turns", gjson.GetBytes(upstream.lastBody, "reasoning.context").String())
 			require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="namespace")`).Exists())
 			require.Equal(t, "shell", gjson.GetBytes(upstream.lastBody, `tools.#(type=="function").name`).String())
 			require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, `tools.#(type=="custom").name`).String())
@@ -262,6 +306,159 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools").tools.0.name`).String())
 			require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, "tool_choice.type").String())
 			require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, "tool_choice.name").String())
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceForward_HeaderOverrideCannotCreateResponsesLiteRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"usage":{"input_tokens":1,"output_tokens":1}}`)),
+	}}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{
+		ID: 504, Name: "responses-lite-header-override", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+		Credentials: map[string]any{
+			"api_key":                    "sk-test",
+			"base_url":                   "https://example.com",
+			credKeyHeaderOverrideEnabled: true,
+			credKeyHeaderOverrides: map[string]any{
+				responsesLiteHeader: "true",
+				"x-custom":          "override-applied",
+			},
+		},
+		Extra: map[string]any{"use_responses_api": true},
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+	body := []byte(`{
+		"model":"gpt-5.6-terra","stream":false,
+		"reasoning":{"context":"current_turn"},
+		"input":"hello"
+	}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Equal(t, "override-applied", getHeaderRaw(upstream.lastReq.Header, "x-custom"))
+	require.Equal(t, "current_turn", gjson.GetBytes(upstream.lastBody, "reasoning.context").String())
+}
+
+func TestOpenAIGatewayServiceForward_AppliesResponsesLitePolicyToFinalModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name              string
+		requestedModel    string
+		mappedModel       string
+		settingValue      string
+		wantHeader        string
+		wantContext       string
+		wantUpstreamModel string
+	}{
+		{
+			name:              "default blocked exact model",
+			requestedModel:    "gpt-5.5",
+			wantContext:       "current_turn",
+			wantUpstreamModel: "gpt-5.5",
+		},
+		{
+			name:              "mapped model is blocked",
+			requestedModel:    "client-alias",
+			mappedModel:       "gpt-5.5",
+			wantContext:       "current_turn",
+			wantUpstreamModel: "gpt-5.5",
+		},
+		{
+			name:              "explicit empty list allows model",
+			requestedModel:    "gpt-5.5",
+			settingValue:      "[]",
+			wantHeader:        "true",
+			wantContext:       "all_turns",
+			wantUpstreamModel: "gpt-5.5",
+		},
+		{
+			name:              "custom wildcard blocks model",
+			requestedModel:    "gpt-5.6-terra",
+			settingValue:      `["gpt-5.6*"]`,
+			wantContext:       "current_turn",
+			wantUpstreamModel: "gpt-5.6-terra",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, passthrough := range []bool{false, true} {
+				mode := "managed"
+				if passthrough {
+					mode = "passthrough"
+				}
+				t.Run(mode, func(t *testing.T) {
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+					c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+					c.Request.Header.Set(responsesLiteHeader, "true")
+					upstream := &httpUpstreamRecorder{resp: &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+						Body: io.NopCloser(strings.NewReader(
+							"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_lite_policy\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+								"data: [DONE]\n\n",
+						)),
+					}}
+					settingValues := map[string]string{}
+					if tt.settingValue != "" {
+						settingValues[SettingKeyOpenAIResponsesLiteHeaderBlockedModels] = tt.settingValue
+					}
+					svc := &OpenAIGatewayService{
+						cfg:            &config.Config{},
+						httpUpstream:   upstream,
+						settingService: NewSettingService(&settingValuesRepoStub{values: settingValues}, &config.Config{}),
+					}
+					credentials := map[string]any{
+						"access_token":       "oauth-token",
+						"chatgpt_account_id": "chatgpt-account",
+					}
+					if tt.mappedModel != "" {
+						credentials["model_mapping"] = map[string]any{tt.requestedModel: tt.mappedModel}
+					}
+					account := &Account{
+						ID: 502, Name: "responses-lite-policy", Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+						Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+						Credentials: credentials,
+						Extra:       map[string]any{"openai_passthrough": passthrough},
+					}
+					body := []byte(`{
+						"model":"` + tt.requestedModel + `","stream":true,"instructions":"test",
+						"reasoning":{"effort":"high","context":"current_turn"},
+						"input":[
+							{"type":"message","role":"user","content":"hello"},
+							{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"collaboration"}]}
+						]
+					}`)
+
+					result, err := svc.Forward(context.Background(), c, account, body)
+
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					require.Equal(t, tt.wantHeader, upstream.lastReq.Header.Get(responsesLiteHeader))
+					require.Equal(t, tt.wantContext, gjson.GetBytes(upstream.lastBody, "reasoning.context").String())
+					require.Equal(t, tt.wantUpstreamModel, gjson.GetBytes(upstream.lastBody, "model").String())
+					require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools").tools.0.name`).String())
+				})
+			}
 		})
 	}
 }

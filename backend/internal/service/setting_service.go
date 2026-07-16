@@ -45,21 +45,23 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
-	settingRepo                 SettingRepository
-	defaultSubGroupReader       DefaultSubscriptionGroupReader
-	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
-	cfg                         *config.Config
-	onUpdate                    func() // Callback when settings are updated (for cache invalidation)
-	version                     string // Application version
-	webSearchManagerBuilder     WebSearchManagerBuilder
-	antigravityUAVersionCache   atomic.Value // *cachedAntigravityUserAgentVersion
-	antigravityUAVersionSF      singleflight.Group
-	openAICodexUACache          atomic.Value // *cachedOpenAICodexUserAgent
-	openAICodexUASF             singleflight.Group
-	openAIImageGenerationCache  atomic.Value // *cachedOpenAIImageGenerationSettings
-	openAIImageGenerationSF     singleflight.Group
-	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
-	codexRestrictionPolicySF    singleflight.Group
+	settingRepo                          SettingRepository
+	defaultSubGroupReader                DefaultSubscriptionGroupReader
+	proxyRepo                            ProxyRepository // for resolving websearch provider proxy URLs
+	cfg                                  *config.Config
+	onUpdate                             func() // Callback when settings are updated (for cache invalidation)
+	version                              string // Application version
+	webSearchManagerBuilder              WebSearchManagerBuilder
+	antigravityUAVersionCache            atomic.Value // *cachedAntigravityUserAgentVersion
+	antigravityUAVersionSF               singleflight.Group
+	openAICodexUACache                   atomic.Value // *cachedOpenAICodexUserAgent
+	openAICodexUASF                      singleflight.Group
+	openAIImageGenerationCache           atomic.Value // *cachedOpenAIImageGenerationSettings
+	openAIImageGenerationSF              singleflight.Group
+	openAIResponsesLiteHeaderPolicyCache atomic.Value // *cachedOpenAIResponsesLiteHeaderPolicy
+	openAIResponsesLiteHeaderPolicySF    singleflight.Group
+	codexRestrictionPolicyCache          atomic.Value // *cachedCodexRestrictionPolicy
+	codexRestrictionPolicySF             singleflight.Group
 
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group

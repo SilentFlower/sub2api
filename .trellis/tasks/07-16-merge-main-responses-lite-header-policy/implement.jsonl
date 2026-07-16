@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"Responses Lite、OpenAI HTTP/WS/bridge、生图工具执行域与模型映射的现有协议契约；本任务需明确替代旧的全局剥离规则。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"新增系统设置校验和后台 API 错误必须保持项目统一响应及 OpenAI 兼容边界。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 分层、构造器签名、生成代码、测试和 lint。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"设置页列表控件、Icon、i18n、暗色和后台紧凑布局需遵循现有 Vue 组件模式。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"系统设置字段必须从后端 JSON tag 到前端查询/更新类型保持同一 snake_case 契约。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"设置值跨 repository、service、handler DTO、API 类型、SettingsView 和四条转发路径，需要完整数据流核对。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用 SettingService 缓存模式、matchModelPattern 和统一 Lite 决策，避免 HTTP/WS 各写一套。"}
