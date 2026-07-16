@@ -1227,11 +1227,11 @@ bridge 是否可用只由权限和策略决定，是否实际注入由原生/客
 
 ---
 
-## Scenario: OpenAI Structured Outputs 降级与 DeepSeek Web Search 桥接
+## Scenario: OpenAI Structured Outputs 降级与多路径 Web Search 桥接
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 OpenAI APIKey 账号的 `json_schema` 兼容、Responses Web Search 本地接管、Responses -> Chat 的 `web.run` 工具循环、Responses -> Anthropic -> Responses 原生搜索桥或 DeepSeek Anthropic SSE 聚合时，必须按本节检查。
+- Trigger: 修改 OpenAI APIKey 账号的 `json_schema` 兼容、Responses Web Search 本地接管、Responses -> Chat 的 typed Web Search / `web.run` 工具循环、Responses -> Anthropic -> Responses 原生搜索桥或 DeepSeek Anthropic SSE 聚合时，必须按本节检查。
 - 适用路径：
   - `backend/internal/pkg/apicompat/json_schema_downgrade.go`
   - `backend/internal/pkg/apicompat/responses_to_anthropic_request.go`
@@ -1241,7 +1241,7 @@ bridge 是否可用只由权限和策略决定，是否实际注入由原生/客
   - `backend/internal/service/openai_responses_web_run.go`
   - `backend/internal/service/openai_gateway_responses_chat_fallback.go`
   - `backend/internal/service/gateway_forward_as_responses.go`
-- 目标：显式配置后可把不受上游支持的 Structured Outputs 降为 `json_object`，并让 Web Search 选择原生转发、本地模拟或明确拒绝；不得把 Schema 或搜索工具静默丢弃。
+- 目标：显式配置后可把不受上游支持的 Structured Outputs 降为 `json_object`，并让 Web Search 选择原生转发、直接模拟、Chat 内部工具循环或明确拒绝；不得把 Schema、搜索工具或 `tool_choice` 静默丢弃。
 
 ### 2. Signatures
 
@@ -1251,11 +1251,15 @@ func DowngradeChatJSONSchemaToJSONObject(body []byte) ([]byte, bool, error)
 func (a *Account) IsOpenAIJSONSchemaToJSONObjectEnabled() bool
 func (a *Account) GetWebSearchEmulationMode() string
 func EffectiveResponsesTools(req *ResponsesRequest) ([]ResponsesTool, error)
+func (s *OpenAIGatewayService) handleOpenAIResponsesWebSearch(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, bool, error)
+func resolveOpenAIResponsesTypedWebSearchToolConfig(tools []apicompat.ResponsesTool, rawToolChoice json.RawMessage) (*openAIResponsesInternalWebToolConfig, error)
+func addOpenAIResponsesTypedWebSearchTool(req *apicompat.ChatCompletionsRequest, config openAIResponsesInternalWebToolConfig) error
 func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, error)
 func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse
 func AnthropicEventToResponsesEvents(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent
 func ChatCompletionsResponseToResponsesEvents(resp *ChatCompletionsResponse, model string, customTools map[string]bool, toolSearch bool, namespaceTools map[string]NamespacedToolName) []ResponsesStreamEvent
 func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(ctx context.Context, c *gin.Context, account *Account, chatReq *apicompat.ChatCompletionsRequest, options openAIResponsesWebRunLoopOptions) (*OpenAIForwardResult, error)
+func writeOpenAIResponsesFallbackErrorWithParam(c *gin.Context, statusCode int, errType, message, param string)
 ```
 
 账号与渠道配置键：
@@ -1275,14 +1279,24 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - 降级 helper 必须基于 `json.RawMessage` 保留未知请求字段、messages 顺序以及 function/tool 参数 Schema；重复调用不能重复注入约束。非法 Schema 或不兼容 instructions 保持原请求，沿既有入口或上游错误处理。
 - `web_search_emulation` 的 `default` 跟随对应渠道平台开关；`enabled` 强制允许本地模拟，`disabled` 强制禁止。全局搜索配置和可用 provider 仍是实际执行的必要条件。
 - Responses 的有效工具必须同时读取顶层 `tools` 与 `input` 中的 `additional_tools`。本地模拟只接管唯一 Web Search 工具，或 `tool_choice` 明确选择 Web Search 的请求。
+- Web Search 能力决策使用 `native_pass`、`chat_passthrough`、`direct_emulation`、`chat_tool_loop` 和 `reject`。该能力按协议条件作用于所有 OpenAI APIKey Chat fallback 账号，不得按 DeepSeek host、账号名或模型建立白名单。
+- Chat fallback 的混合 typed Web Search 只在账号/渠道策略允许、恰好声明一个 typed `web_search`、`tool_choice` 缺失或为 `auto|required`，且 Responses -> Chat 转换后至少保留一个客户端可执行工具时启用。`image_generation` 等其它服务端工具不能被计入客户端可执行工具，否则会把 `required` 或缺失选择错误降成只剩内部搜索代理。
+- typed Web Search 使用固定内部 function 名 `sub2api_web_search`，只声明 `search_query[].q`，并设置 `parallel_tool_calls=false`。注入前必须扫描转换后的 Chat tools；与 function、custom、namespace 摊平名或 `tool_search` 代理冲突时返回 `400 invalid_request_error`，`param=tools`，不得动态改名。
+- 混合 typed Web Search 的其它 function、custom、namespace 和 `tool_search` Schema 必须原样保留。模型选择客户端工具时直接按既有 Responses 类型回传；模型选择内部搜索代理时由网关消费调用、按同一 call ID 回灌 tool result，再使用同一账号和模型续跑。
+- `tool_choice=none` 或可保留的明确其它客户端工具选择不注入 typed Web Search 代理；明确强制 Web Search 继续走直接模拟。明确选择转换后不存在的服务端工具时必须返回 `400 invalid_request_error`、`param=tool_choice`，不能静默删除选择项。
+- typed Web Search 复用原始工具的 `search_context_size`、`filters.allowed_domains`、`filters.blocked_domains` 和 `max_uses` 约束。`user_location`、`external_web_access`、`return_token_budget` 等无本地等价物的字段返回 `400 invalid_request_error`、`param=tools`。
 - Chat fallback 必须用 namespace 映射精确识别 `namespace=web,name=run`；只有最终账号策略允许模拟时才进入服务端循环。全局 provider 开关不能把关闭或未配置的账号隐式改为开启。
 - 服务端接管后只向 Chat 上游声明 `search_query` 与可选 `response_length`，并设置 `parallel_tool_calls=false`。不能声明或执行 `weather/open/click/find/screenshot/image_query/finance/sports`；天气问题由模型生成普通搜索词。
 - `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
-- `web.run` 内部模型请求固定使用同一账号、映射后模型和非流式 Chat。每个请求最多消费 2 轮 Web 工具调用、累计最多 4 个查询；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
+- `web.run` 和 typed Web Search 共用内部循环：内部模型请求固定使用同一账号、映射后模型和非流式 Chat；每个请求最多消费 2 轮 Web 工具调用、累计最多 4 个查询。typed Web Search 的 `max_uses` 还会收窄自身轮次；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
+- 同一轮只允许一个内部 Web 工具调用；内部搜索与客户端工具并行返回时必须返回 `502 api_error`，不能部分执行。`web.run` 超过两轮时保留既有错误文本 `web.run exceeded the maximum of 2 search tool rounds`，避免依赖稳定诊断文本的客户端回归。
 - 已消费的内部 `web.run` function call 不能下发给客户端。每个已尝试的 `search_query` 必须投影为标准 Responses `web_search_call`：使用稳定 `ws_` ID、`action.type="search"`、原查询文本以及 `completed/failed` 状态，并排列在最终文本或其它客户端工具之前。
 - 流式客户端必须收到 `response.output_item.added/done` 的 `web_search_call` 生命周期，后续最终响应事件的 `output_index` 必须按搜索项数量整体偏移，`response.completed.output` 也必须包含同一批搜索项。内部模型轮次仍保持缓冲，只有循环结束后才提交下游 SSE，避免搜索代理 failover 或后续模型错误发生在响应已提交之后。
 - 所有内部模型轮次的 token usage 必须累加；`WebSearchCalls` 只累计真实成功完成的 provider 查询。参数错误、未支持命令、provider 失败和未实际执行的工具调用不计 Web Search 次数。
-- `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被本地模拟擅自接管。
+- `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被直接摘要模拟器抢先接管，只能由模型驱动的 `chat_tool_loop` 决定是否搜索。
+- typed Web Search 真实成功后，普通文本响应在模型原文末尾追加 `Sources:`，来源仅取本次成功 provider 结果，按去掉 fragment 后的规范化 HTTP(S) URL 去重，最多 5 条。`url_citation` 的 rune 索引只覆盖网关追加的 URL；流式 delta、annotation、done、item 和 completed 快照必须一致。
+- 最终没有文本、只返回客户端工具、没有成功来源，或请求使用 `text.format.type=json_schema|json_object` 时，不追加来源文本和 annotation；已执行搜索仍保留标准 `web_search_call`。
+- 能力决策和循环日志只记录账号 ID、模型、工具选择类型、工具数、模式、轮次、成功查询数和安全 provider 标识；不得记录查询全文、搜索结果、请求体或凭据。
 - 请求只能走 Chat fallback 且要求执行无法等价转换的 Web Search 时，返回 OpenAI 兼容能力错误；不得先删除服务端工具再让模型生成普通文本。
 - 本地模拟与 `text.format.type=json_schema` 同时命中时返回 `400`。模拟器只生成搜索摘要，不能承诺 Structured Outputs。
 - 原生 Responses -> Anthropic 映射使用 `web_search_20250305` 和 `name=web_search`；支持 `filters.allowed_domains`、`filters.blocked_domains`、`max_uses` 和 approximate `user_location`。
@@ -1299,6 +1313,11 @@ channel.features_config.web_search_emulation.anthropic: boolean
 | 合法 Responses/Chat `json_schema` 且账号开启 | 转为 `json_object`，保留 Schema 的 best-effort 约束 |
 | Schema 不是 JSON object、instructions 类型不兼容 | 保持原请求，交给既有入口或上游报错 |
 | 纯 Web Search 或明确强制 Web Search，本地模拟可用 | 实际执行搜索并输出 Responses `web_search_call` 与 citations |
+| Chat fallback + 一个 typed Web Search + 至少一个客户端工具 + 空 choice/`auto|required` | 注入 `sub2api_web_search`，由模型选择是否搜索，保留其它客户端工具 |
+| Chat fallback + typed Web Search + 仅其它服务端工具 + 空 choice/`required` | `400 invalid_request_error`，`param=tools`，不得注入只剩搜索代理的 Chat 请求 |
+| Chat fallback + typed Web Search + 明确选择转换后不存在的服务端工具 | `400 invalid_request_error`，`param=tool_choice` |
+| typed Web Search 内部代理名与转换后的 Chat tool 冲突 | `400 invalid_request_error`，`param=tools` |
+| typed Web Search 含无本地等价字段 | `400 invalid_request_error`，`param=tools`，不调用上游或 provider |
 | `tool_choice=none` | 不执行本地搜索，继续正常能力决策 |
 | 强制 Web Search 但未声明 Web Search 工具 | `400 invalid_request_error`，参数指向 `tool_choice` |
 | Chat fallback 无法执行请求要求的 Web Search | `400 invalid_request_error`，参数指向 `tools` |
@@ -1312,7 +1331,10 @@ channel.features_config.web_search_emulation.anthropic: boolean
 | `web.run` 账号代理不可用 | 返回 `UpstreamFailoverError`，由既有账号切换链重试 |
 | `web.run` 累计查询超过 4 个 | 回灌 `search_limit_exceeded` tool result，不执行该批 provider 调用 |
 | `web.run` 超过 2 轮搜索 | 返回 `502 api_error`，停止续跑，不执行第三轮 provider 调用 |
+| typed Web Search 达到 `max_uses` 或内部循环达到 2 轮 | 返回 `502 api_error`，停止续跑，不执行超限 provider 调用 |
 | 同一轮同时返回 `web.run` 与客户端工具 | 返回 `502 api_error`，不能部分执行或错配 tool result |
+| typed Web Search 成功且最终返回普通文本 | 搜索项位于消息前；追加去重、最多 5 条的真实来源和精确 `url_citation` |
+| typed Web Search 成功但最终返回客户端工具或结构化文本 | 保留 `web_search_call`，不追加 `Sources:` 或 annotation |
 | Anthropic 原生工具含无等价高级字段 | 返回转换错误，不发送被截断语义的上游请求 |
 | `web_search_tool_result_error` | 对应 `web_search_call.status=failed`，保留错误码 |
 | citation 先于 text 到达 | 先缓存；文本和引用范围可确定后再输出 annotation |
@@ -1323,11 +1345,14 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - Good: OpenAI APIKey 账号开启兼容后，Responses 经原生 `/responses`、Responses shape 经 Chat fallback、直接 Chat 请求都只向上游发送 `json_object`，原 Schema 仍作为输出约束存在。
 - Good: `input` 中通过 `additional_tools` 声明的唯一 Web Search 能被识别；明确强制搜索时本地 provider 执行一次，返回完整 `web_search_call`、摘要和 URL citations。
 - Good: Codex 在 `additional_tools` 声明 `web/run`，模型用 `search_query:[{"q":"杭州天气"}]` 调用时，网关执行搜索、按原 call ID 回灌；客户端收到标准 `web_search_call` 和最终模型回答，但看不到内部 `namespace=web,name=run` function call。
+- Good: Chat fallback 请求同时声明 typed `web_search` 与 `wait`，`tool_choice=auto`；上游可选择 `wait` 并原样回给客户端，也可选择 `sub2api_web_search` 后由网关搜索并续跑，入口不再固定返回能力 400。
 - Good: DeepSeek 依次发送 index `5` 的搜索调用、index `6` 的搜索结果、挂在 index `5` 上的 citation、index `7` 的文本时，最终 Responses 中搜索调用、文本和引用都完整。
 - Base: 模拟配置关闭且上游原生 Responses 支持 Web Search 时保持 pass，不改变现有上游能力。
 - Base: `web.run` 已声明但账号策略为 disabled 时保持客户端工具语义；网关不收窄 Schema、不调用 provider、不产生 Web Search 费用。
 - Base: `tool_choice=none` 即使声明 Web Search 也不执行搜索。
+- Base: `web_search + image_generation` 不包含客户端可执行工具；空 choice 或 `required` 明确返回 `param=tools`，不会把 `image_generation` 静默丢弃后改变选择语义。
 - Bad: 在 Responses -> Chat 转换时直接丢弃 `web_search` 和对应 `tool_choice`，让客户端收到看似成功但实际未搜索的文本。
+- Bad: 只按原始 Responses 工具数量判断混合请求可执行；服务端工具在转换后被删除，会让 `required` 实际只剩内部搜索代理并被错误强制执行。
 - Bad: 服务端实际执行了 `web.run` 搜索，却只返回最终 assistant message；Codex 日志中没有 `web_search_call`，用户无法判断回答是否真的联网。
 - Bad: 把 `weather` 当成 `search_query` 的别名直接执行，或把内部 `web.run` function call 提前发给 Codex；前者伪造未实现能力，后者会让客户端与服务端重复执行。
 - Bad: 把原 Schema 序列化成普通 string 作为 `response_format`，会产生无效协议且丢失对象语义。
@@ -1337,8 +1362,9 @@ channel.features_config.web_search_emulation.anthropic: boolean
 ### 6. Tests Required
 
 - JSON Schema helper 和网关路径必须覆盖：配置 guard、Responses、Chat、Responses -> Chat、Responses shape on Chat、passthrough、幂等、非法 Schema、未知字段和工具 Schema 保留。
-- Web Search 决策必须覆盖：顶层 tools、`additional_tools`、唯一搜索工具、混合工具、`auto|required|none`、强制搜索、强制其它工具、Chat fallback 拒绝、JSON Schema 冲突和 provider 不可用。
-- `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、跨轮次 4 查询上限、2 轮上限、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
+- Web Search 决策必须覆盖：顶层 tools、`additional_tools`、唯一搜索工具、混合工具、`auto|required|none`、强制搜索、强制其它工具、Chat fallback 拒绝、转换后零客户端工具、JSON Schema 冲突和 provider 不可用。
+- typed Web Search 循环必须覆盖：模型不搜索、选择 function/custom/namespace/tool_search、代理名冲突、重复 typed 工具、无等价字段、`max_uses`、并行客户端调用、provider 失败、代理 failover、usage/成功调用数累计、流式/非流式来源、Unicode rune 索引、结构化文本和客户端断连。
+- `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、跨轮次 4 查询上限、2 轮上限、旧错误文本、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
 - `web.run` 客户端可见事件必须断言：非流式 `output` 的搜索项位于最终消息之前；流式 `web_search_call added/done` 位于最终文本事件之前；所有后续 `output_index` 正确偏移；provider 普通失败投影为 `status=failed`；任何响应都不泄漏 `namespace=web` 的内部调用。
 - 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
 - SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。
@@ -1394,3 +1420,32 @@ return writeFinalResponsesResult(finalResponse)
 ```
 
 内部轮次缓冲并使用同一账号续跑，只在得到最终文本或客户端工具调用后生成下游 Responses JSON/SSE；循环同时受查询数和工具轮次双重上限约束。
+
+#### Wrong
+
+```go
+if toolCount > webSearchCount {
+	_ = addOpenAIResponsesTypedWebSearchTool(chatReq, *typedWebSearchConfig)
+}
+```
+
+问题：原始混合工具可能只有 `web_search + image_generation`。两者都是服务端工具，转换到 Chat 后没有客户端工具；此时注入代理会把缺失或 `required` 的选择语义收窄成“只能搜索”。
+
+#### Correct
+
+```go
+chatReq, err := apicompat.ResponsesToChatCompletionsRequest(req)
+if err != nil {
+	return err
+}
+if len(chatReq.Tools) == 0 {
+	err := errors.New("chat fallback mixed web_search requires at least one client-executable tool")
+	writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+	return err
+}
+if err := addOpenAIResponsesTypedWebSearchTool(chatReq, *typedWebSearchConfig); err != nil {
+	return err
+}
+```
+
+先以转换后的 Chat 工具集确认至少存在一个客户端可执行工具，再注入内部搜索代理；无法保留的明确其它工具选择则返回 `param=tool_choice`。

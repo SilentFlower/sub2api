@@ -791,9 +791,10 @@ func makeResponsesCompletedEvent(
 	}
 
 	eventType := "response.completed"
-	if status == "incomplete" {
+	switch status {
+	case "incomplete":
 		eventType = "response.incomplete"
-	} else if status == "failed" {
+	case "failed":
 		eventType = "response.failed"
 	}
 	var responseError *ResponsesError

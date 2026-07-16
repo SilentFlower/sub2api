@@ -341,10 +341,18 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 // writeOpenAIResponsesFallbackError 以 /v1/responses 回退路径的既有错误格式回写
 // （裸 error 对象；不调用 MarkResponseCommitted，与原内联写法保持一致）。
 func writeOpenAIResponsesFallbackError(c *gin.Context, statusCode int, errType, message string) {
+	writeOpenAIResponsesFallbackErrorWithParam(c, statusCode, errType, message, "")
+}
+
+func writeOpenAIResponsesFallbackErrorWithParam(c *gin.Context, statusCode int, errType, message, param string) {
+	errorBody := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if value := strings.TrimSpace(param); value != "" {
+		errorBody["param"] = value
+	}
 	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": errorBody,
 	})
 }

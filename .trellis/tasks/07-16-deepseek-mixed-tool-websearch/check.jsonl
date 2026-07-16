@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行 Go 格式、单测、lint、回归覆盖和敏感信息检查"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"复核 tool_choice、其它客户端工具、web_search_call、citation、SSE 与 usage 不回退"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核 400/502/provider/failover 错误语义和 OpenAI error shape"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核新增日志只包含安全结构化字段"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核请求到 Chat、provider、Responses 输出和计费的端到端数据流"}
+{"file":".trellis/tasks/archive/2026-07/07-14-deepseek-response-format-json-schema-compat/research.md","reason":"按官方协议证据检查实现没有猜测 Chat 原生 Web Search 能力"}

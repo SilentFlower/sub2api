@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -21,30 +24,50 @@ import (
 )
 
 const (
-	openAIResponsesWebRunNamespace       = "web"
-	openAIResponsesWebRunName            = "run"
-	openAIResponsesWebRunMaxQueries      = 4
-	openAIResponsesWebRunMaxRounds       = 2
-	openAIResponsesWebRunDefaultLength   = "medium"
-	openAIResponsesWebRunMaxTitleBytes   = 512
-	openAIResponsesWebRunMaxURLBytes     = 2048
-	openAIResponsesWebRunMaxSnippetBytes = 4096
-	openAIResponsesWebRunToolDescription = "Search the public web. Only search_query is supported; use it for current information, including weather queries."
-	openAIResponsesWebRunToolSchema      = `{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1},"recency":{"type":"integer","minimum":0}},"required":["q"],"additionalProperties":false}},"response_length":{"type":"string","enum":["short","medium","long"]}},"required":["search_query"],"additionalProperties":false}`
+	openAIResponsesWebRunNamespace          = "web"
+	openAIResponsesWebRunName               = "run"
+	openAIResponsesTypedWebSearchToolName   = "sub2api_web_search"
+	openAIResponsesWebRunMaxQueries         = 4
+	openAIResponsesWebRunMaxRounds          = 2
+	openAIResponsesWebRunDefaultLength      = "medium"
+	openAIResponsesWebRunMaxTitleBytes      = 512
+	openAIResponsesWebRunMaxURLBytes        = 2048
+	openAIResponsesWebRunMaxSnippetBytes    = 4096
+	openAIResponsesWebRunToolDescription    = "Search the public web. Only search_query is supported; use it for current information, including weather queries."
+	openAIResponsesWebRunToolSchema         = `{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1},"recency":{"type":"integer","minimum":0}},"required":["q"],"additionalProperties":false}},"response_length":{"type":"string","enum":["short","medium","long"]}},"required":["search_query"],"additionalProperties":false}`
+	openAIResponsesTypedWebSearchToolSchema = `{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1}},"required":["q"],"additionalProperties":false}}},"required":["search_query"],"additionalProperties":false}`
+	openAIResponsesWebSearchMaxSources      = 5
 )
 
+type openAIResponsesInternalWebToolKind string
+
+const (
+	openAIResponsesInternalWebToolWebRun      openAIResponsesInternalWebToolKind = "web_run"
+	openAIResponsesInternalWebToolTypedSearch openAIResponsesInternalWebToolKind = "typed_web_search"
+)
+
+type openAIResponsesInternalWebToolConfig struct {
+	Name           string
+	Kind           openAIResponsesInternalWebToolKind
+	MaxResults     int
+	MaxRounds      int
+	AllowedDomains []string
+	BlockedDomains []string
+}
+
 type openAIResponsesWebRunLoopOptions struct {
-	OriginalModel   string
-	BillingModel    string
-	UpstreamModel   string
-	ReasoningEffort *string
-	ServiceTier     *string
-	ClientStream    bool
-	CustomTools     map[string]bool
-	ToolSearch      bool
-	NamespaceTools  map[string]apicompat.NamespacedToolName
-	WebRunToolName  string
-	StartTime       time.Time
+	OriginalModel    string
+	BillingModel     string
+	UpstreamModel    string
+	ReasoningEffort  *string
+	ServiceTier      *string
+	ClientStream     bool
+	CustomTools      map[string]bool
+	ToolSearch       bool
+	NamespaceTools   map[string]apicompat.NamespacedToolName
+	InternalWebTools map[string]openAIResponsesInternalWebToolConfig
+	AppendSources    bool
+	StartTime        time.Time
 }
 
 type openAIResponsesWebRunQuery struct {
@@ -78,6 +101,15 @@ type openAIResponsesWebRunSearchGroup struct {
 type openAIResponsesWebRunOutput struct {
 	SearchQuery []openAIResponsesWebRunSearchGroup `json:"search_query,omitempty"`
 	Error       *openAIResponsesWebRunError        `json:"error,omitempty"`
+}
+
+type openAIResponsesWebSearchSourceProjection struct {
+	OutputIndex  int
+	ContentIndex int
+	ItemID       string
+	Suffix       string
+	FinalText    string
+	Annotations  []apicompat.ResponsesAnnotation
 }
 
 func findOpenAIResponsesWebRunTool(
@@ -116,6 +148,28 @@ func narrowOpenAIResponsesWebRunTool(req *apicompat.ChatCompletionsRequest, tool
 		req.ParallelToolCalls = &parallel
 		return
 	}
+}
+
+func addOpenAIResponsesTypedWebSearchTool(req *apicompat.ChatCompletionsRequest, config openAIResponsesInternalWebToolConfig) error {
+	if req == nil || strings.TrimSpace(config.Name) == "" {
+		return errors.New("typed web_search internal tool configuration is missing")
+	}
+	for _, tool := range req.Tools {
+		if tool.Function != nil && tool.Function.Name == config.Name {
+			return fmt.Errorf("typed web_search internal tool name %q conflicts with a declared client tool", config.Name)
+		}
+	}
+	req.Tools = append(req.Tools, apicompat.ChatTool{
+		Type: "function",
+		Function: &apicompat.ChatFunction{
+			Name:        config.Name,
+			Description: openAIResponsesWebRunToolDescription,
+			Parameters:  json.RawMessage(openAIResponsesTypedWebSearchToolSchema),
+		},
+	})
+	parallel := false
+	req.ParallelToolCalls = &parallel
+	return nil
 }
 
 func parseOpenAIResponsesWebRunArguments(arguments string, remainingQueries int) (*openAIResponsesWebRunArguments, *openAIResponsesWebRunError) {
@@ -167,6 +221,56 @@ func parseOpenAIResponsesWebRunArguments(arguments string, remainingQueries int)
 	return &parsed, nil
 }
 
+func parseOpenAIResponsesTypedWebSearchArguments(arguments string, remainingQueries int) (*openAIResponsesWebRunArguments, *openAIResponsesWebRunError) {
+	if remainingQueries < 1 {
+		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request has reached the maximum of 4 web search queries"}
+	}
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" {
+		return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web_search requires a JSON object containing search_query"}
+	}
+	var parsed struct {
+		SearchQuery []struct {
+			Q string `json:"q"`
+		} `json:"search_query"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web_search search_query arguments are invalid"}
+	}
+	if len(parsed.SearchQuery) == 0 {
+		return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web_search search_query must contain at least one query"}
+	}
+	if len(parsed.SearchQuery) > remainingQueries {
+		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request supports at most 4 web search queries"}
+	}
+	result := &openAIResponsesWebRunArguments{SearchQuery: make([]openAIResponsesWebRunQuery, 0, len(parsed.SearchQuery))}
+	for _, query := range parsed.SearchQuery {
+		query.Q = strings.TrimSpace(query.Q)
+		if query.Q == "" {
+			return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "Each web_search search_query item requires a non-empty q"}
+		}
+		result.SearchQuery = append(result.SearchQuery, openAIResponsesWebRunQuery{Q: query.Q})
+	}
+	return result, nil
+}
+
+func parseOpenAIResponsesInternalWebToolArguments(
+	config openAIResponsesInternalWebToolConfig,
+	arguments string,
+	remainingQueries int,
+) (*openAIResponsesWebRunArguments, *openAIResponsesWebRunError) {
+	switch config.Kind {
+	case openAIResponsesInternalWebToolWebRun:
+		return parseOpenAIResponsesWebRunArguments(arguments, remainingQueries)
+	case openAIResponsesInternalWebToolTypedSearch:
+		return parseOpenAIResponsesTypedWebSearchArguments(arguments, remainingQueries)
+	default:
+		return nil, &openAIResponsesWebRunError{Code: "unsupported_tool", Message: "The selected internal web tool is unsupported"}
+	}
+}
+
 func openAIResponsesWebRunMaxResults(responseLength string) (int, error) {
 	switch responseLength {
 	case "short":
@@ -192,6 +296,7 @@ func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 	ctx context.Context,
 	account *Account,
 	parsed *openAIResponsesWebRunArguments,
+	config openAIResponsesInternalWebToolConfig,
 ) (openAIResponsesWebRunOutput, int, error) {
 	if parsed == nil {
 		return openAIResponsesWebRunOutput{
@@ -203,11 +308,18 @@ func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 			Error: &openAIResponsesWebRunError{Code: "web_search_unavailable", Message: "No global web search provider is available"},
 		}, 0, nil
 	}
-	maxResults, err := openAIResponsesWebRunMaxResults(parsed.ResponseLength)
-	if err != nil {
-		return openAIResponsesWebRunOutput{
-			Error: &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: err.Error()},
-		}, 0, nil
+	maxResults := config.MaxResults
+	if config.Kind == openAIResponsesInternalWebToolWebRun {
+		var err error
+		maxResults, err = openAIResponsesWebRunMaxResults(parsed.ResponseLength)
+		if err != nil {
+			return openAIResponsesWebRunOutput{
+				Error: &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: err.Error()},
+			}, 0, nil
+		}
+	}
+	if maxResults < 1 {
+		maxResults = webSearchDefaultMaxResults
 	}
 
 	searchExecutor := doWebSearchWithMaxResults
@@ -238,6 +350,7 @@ func (s *OpenAIGatewayService) executeOpenAIResponsesWebRunSearch(
 			output.SearchQuery = append(output.SearchQuery, group)
 			continue
 		}
+		response.Results = filterOpenAIResponsesSearchResults(response.Results, config.AllowedDomains, config.BlockedDomains)
 		group.Provider = provider
 		results := response.Results
 		if len(results) > maxResults {
@@ -266,6 +379,17 @@ func sanitizeOpenAIResponsesWebRunResults(results []websearch.SearchResult) []we
 	return out
 }
 
+func collectOpenAIResponsesWebSearchSources(output openAIResponsesWebRunOutput) []websearch.SearchResult {
+	var sources []websearch.SearchResult
+	for _, group := range output.SearchQuery {
+		if group.Error != nil {
+			continue
+		}
+		sources = append(sources, group.Results...)
+	}
+	return sources
+}
+
 func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
@@ -285,6 +409,11 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 	requestID := ""
 	var responseHeaders http.Header
 	var webSearchItems []apicompat.ResponsesOutput
+	var webSearchSources []websearch.SearchResult
+	toolRounds := make(map[string]int, len(options.InternalWebTools))
+	searchModes := make(map[string]bool, len(options.InternalWebTools))
+	searchProviders := make(map[string]bool)
+	typedWebSearchExecuted := false
 	for {
 		chatBody, marshalErr := json.Marshal(chatReq)
 		if marshalErr != nil {
@@ -313,7 +442,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 			return nil, readErr
 		}
 		addOpenAIUsage(&aggregateUsage, usage)
-		choice, webRunCall, callErr := selectOpenAIResponsesWebRunCall(ccResp, options.WebRunToolName)
+		choice, webRunCall, toolConfig, callErr := selectOpenAIResponsesInternalWebToolCall(ccResp, options.InternalWebTools)
 		if callErr != nil {
 			writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", callErr.Error())
 			return nil, callErr
@@ -325,23 +454,42 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 				zap.String("model", options.OriginalModel),
 				zap.Int("search_rounds", webRunRounds),
 				zap.Int("search_calls", webSearchCalls),
+				zap.Strings("search_modes", sortedOpenAIResponsesWebSearchLogValues(searchModes)),
+				zap.Strings("providers", sortedOpenAIResponsesWebSearchLogValues(searchProviders)),
 			}
 			if webRunRounds > 0 {
-				logger.L().Info("openai web.run search loop completed", fields...)
+				logger.L().Info("openai internal web search loop completed", fields...)
 			} else {
-				logger.L().Debug("openai web.run was available but not selected", fields...)
+				logger.L().Debug("openai internal web search tool was available but not selected", fields...)
 			}
-			return s.writeOpenAIResponsesWebRunResult(c, ccResp, responseHeaders, requestID, aggregateUsage, webSearchCalls, webSearchItems, options)
+			resultOptions := options
+			resultOptions.AppendSources = options.AppendSources && typedWebSearchExecuted
+			return s.writeOpenAIResponsesWebRunResult(c, ccResp, responseHeaders, requestID, aggregateUsage, webSearchCalls, webSearchItems, webSearchSources, resultOptions)
 		}
 		if webRunRounds >= openAIResponsesWebRunMaxRounds {
-			err := errors.New("web.run exceeded the maximum of 2 search tool rounds")
+			errMessage := "web search exceeded the maximum of 2 internal tool rounds"
+			if toolConfig.Kind == openAIResponsesInternalWebToolWebRun {
+				errMessage = "web.run exceeded the maximum of 2 search tool rounds"
+			}
+			err := errors.New(errMessage)
+			writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", err.Error())
+			return nil, err
+		}
+		maxToolRounds := toolConfig.MaxRounds
+		if maxToolRounds < 1 {
+			maxToolRounds = openAIResponsesWebRunMaxRounds
+		}
+		if toolRounds[toolConfig.Name] >= maxToolRounds {
+			err := fmt.Errorf("%s exceeded the configured maximum of %d search tool rounds", toolConfig.Name, maxToolRounds)
 			writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", err.Error())
 			return nil, err
 		}
 		webRunRounds++
+		toolRounds[toolConfig.Name]++
+		searchModes[string(toolConfig.Kind)] = true
 
 		remainingQueries := openAIResponsesWebRunMaxQueries - queryCount
-		parsed, argumentErr := parseOpenAIResponsesWebRunArguments(webRunCall.Function.Arguments, remainingQueries)
+		parsed, argumentErr := parseOpenAIResponsesInternalWebToolArguments(toolConfig, webRunCall.Function.Arguments, remainingQueries)
 		toolOutput := ""
 		if argumentErr != nil {
 			toolOutput = marshalOpenAIResponsesWebRunOutput(openAIResponsesWebRunOutput{Error: argumentErr})
@@ -349,16 +497,34 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 			queryCount += len(parsed.SearchQuery)
 			var successfulCalls int
 			var searchOutput openAIResponsesWebRunOutput
-			searchOutput, successfulCalls, err = s.executeOpenAIResponsesWebRunSearch(ctx, account, parsed)
+			searchOutput, successfulCalls, err = s.executeOpenAIResponsesWebRunSearch(ctx, account, parsed, toolConfig)
 			if err != nil {
 				return nil, err
 			}
 			toolOutput = marshalOpenAIResponsesWebRunOutput(searchOutput)
 			webSearchItems = append(webSearchItems, buildOpenAIResponsesWebRunSearchItems(parsed, searchOutput, webRunRounds)...)
+			webSearchSources = append(webSearchSources, collectOpenAIResponsesWebSearchSources(searchOutput)...)
+			for _, group := range searchOutput.SearchQuery {
+				if provider := strings.TrimSpace(group.Provider); group.Error == nil && provider != "" {
+					searchProviders[truncateString(provider, 64)] = true
+				}
+			}
 			webSearchCalls += successfulCalls
+			if toolConfig.Kind == openAIResponsesInternalWebToolTypedSearch && successfulCalls > 0 {
+				typedWebSearchExecuted = true
+			}
 		}
 		appendOpenAIResponsesWebRunMessages(chatReq, choice.Message, webRunCall, toolOutput, webRunRounds)
 	}
+}
+
+func sortedOpenAIResponsesWebSearchLogValues(values map[string]bool) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	slices.Sort(result)
+	return result
 }
 
 func buildOpenAIResponsesWebRunSearchItems(
@@ -385,27 +551,31 @@ func buildOpenAIResponsesWebRunSearchItems(
 	return items
 }
 
-func selectOpenAIResponsesWebRunCall(
+func selectOpenAIResponsesInternalWebToolCall(
 	resp *apicompat.ChatCompletionsResponse,
-	webRunToolName string,
-) (*apicompat.ChatChoice, *apicompat.ChatToolCall, error) {
+	internalTools map[string]openAIResponsesInternalWebToolConfig,
+) (*apicompat.ChatChoice, *apicompat.ChatToolCall, openAIResponsesInternalWebToolConfig, error) {
 	if resp == nil || len(resp.Choices) == 0 {
-		return nil, nil, nil
+		return nil, nil, openAIResponsesInternalWebToolConfig{}, nil
 	}
 	choice := &resp.Choices[0]
-	webRunIndex := -1
+	internalToolIndex := -1
+	var selectedConfig openAIResponsesInternalWebToolConfig
 	for i := range choice.Message.ToolCalls {
-		if choice.Message.ToolCalls[i].Function.Name == webRunToolName {
-			if webRunIndex >= 0 || len(choice.Message.ToolCalls) != 1 {
-				return nil, nil, errors.New("web.run cannot be combined with parallel client tool calls")
-			}
-			webRunIndex = i
+		config, ok := internalTools[choice.Message.ToolCalls[i].Function.Name]
+		if !ok {
+			continue
 		}
+		if internalToolIndex >= 0 || len(choice.Message.ToolCalls) != 1 {
+			return nil, nil, openAIResponsesInternalWebToolConfig{}, errors.New("internal web search cannot be combined with parallel client tool calls")
+		}
+		internalToolIndex = i
+		selectedConfig = config
 	}
-	if webRunIndex < 0 {
-		return choice, nil, nil
+	if internalToolIndex < 0 {
+		return choice, nil, openAIResponsesInternalWebToolConfig{}, nil
 	}
-	return choice, &choice.Message.ToolCalls[webRunIndex], nil
+	return choice, &choice.Message.ToolCalls[internalToolIndex], selectedConfig, nil
 }
 
 func appendOpenAIResponsesWebRunMessages(
@@ -471,13 +641,17 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunResult(
 	usage OpenAIUsage,
 	webSearchCalls int,
 	webSearchItems []apicompat.ResponsesOutput,
+	webSearchSources []websearch.SearchResult,
 	options openAIResponsesWebRunLoopOptions,
 ) (*OpenAIForwardResult, error) {
 	if options.ClientStream {
-		return s.writeOpenAIResponsesWebRunStream(c, ccResp, upstreamHeaders, requestID, usage, webSearchCalls, webSearchItems, options)
+		return s.writeOpenAIResponsesWebRunStream(c, ccResp, upstreamHeaders, requestID, usage, webSearchCalls, webSearchItems, webSearchSources, options)
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
 	prependOpenAIResponsesWebRunSearchItems(responsesResp, webSearchItems)
+	if options.AppendSources {
+		appendOpenAIResponsesWebSearchSources(responsesResp, webSearchSources)
+	}
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstreamHeaders, s.responseHeaderFilter)
 	}
@@ -505,6 +679,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 	usage OpenAIUsage,
 	webSearchCalls int,
 	webSearchItems []apicompat.ResponsesOutput,
+	webSearchSources []websearch.SearchResult,
 	options openAIResponsesWebRunLoopOptions,
 ) (*OpenAIForwardResult, error) {
 	if s.responseHeaderFilter != nil {
@@ -518,6 +693,9 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 
 	events := apicompat.ChatCompletionsResponseToResponsesEvents(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
 	events = addOpenAIResponsesWebRunSearchEvents(events, webSearchItems)
+	if options.AppendSources {
+		events = addOpenAIResponsesWebSearchSourceEvents(events, webSearchSources)
+	}
 	clientDisconnected := false
 	firstTokenMs := int(time.Since(options.StartTime).Milliseconds())
 	for _, event := range events {
@@ -640,4 +818,187 @@ func openAIResponsesEventHasOutputIndex(eventType string) bool {
 	default:
 		return false
 	}
+}
+
+func appendOpenAIResponsesWebSearchSources(
+	response *apicompat.ResponsesResponse,
+	sources []websearch.SearchResult,
+) *openAIResponsesWebSearchSourceProjection {
+	if response == nil {
+		return nil
+	}
+	normalized := normalizeOpenAIResponsesWebSearchSources(sources)
+	if len(normalized) == 0 {
+		return nil
+	}
+	for outputIndex := len(response.Output) - 1; outputIndex >= 0; outputIndex-- {
+		item := &response.Output[outputIndex]
+		if item.Type != "message" || item.Role != "assistant" {
+			continue
+		}
+		for contentIndex := len(item.Content) - 1; contentIndex >= 0; contentIndex-- {
+			part := &item.Content[contentIndex]
+			if part.Type != "output_text" || strings.TrimSpace(part.Text) == "" {
+				continue
+			}
+			finalText, suffix, annotations := buildOpenAIResponsesWebSearchSourceAppendix(part.Text, normalized)
+			if suffix == "" {
+				return nil
+			}
+			part.Text = finalText
+			part.Annotations = append(part.Annotations, annotations...)
+			return &openAIResponsesWebSearchSourceProjection{
+				OutputIndex:  outputIndex,
+				ContentIndex: contentIndex,
+				ItemID:       item.ID,
+				Suffix:       suffix,
+				FinalText:    finalText,
+				Annotations:  annotations,
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeOpenAIResponsesWebSearchSources(sources []websearch.SearchResult) []websearch.SearchResult {
+	if len(sources) == 0 {
+		return nil
+	}
+	// 来源只接受可直接展示的公开 HTTP(S) URL；去掉 fragment 后再去重，避免同一页面
+	// 因页内锚点不同占用多个 citation 名额。
+	seen := make(map[string]bool, min(len(sources), openAIResponsesWebSearchMaxSources))
+	result := make([]websearch.SearchResult, 0, min(len(sources), openAIResponsesWebSearchMaxSources))
+	for _, source := range sources {
+		parsed, err := url.Parse(strings.TrimSpace(source.URL))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+			continue
+		}
+		parsed.Scheme = strings.ToLower(parsed.Scheme)
+		parsed.Host = strings.ToLower(parsed.Host)
+		parsed.Fragment = ""
+		normalizedURL := parsed.String()
+		if len(normalizedURL) > openAIResponsesWebRunMaxURLBytes {
+			continue
+		}
+		if seen[normalizedURL] {
+			continue
+		}
+		seen[normalizedURL] = true
+		title := strings.Join(strings.Fields(source.Title), " ")
+		if title == "" {
+			title = normalizedURL
+		}
+		result = append(result, websearch.SearchResult{
+			URL:   normalizedURL,
+			Title: truncateString(title, openAIResponsesWebRunMaxTitleBytes),
+		})
+		if len(result) >= openAIResponsesWebSearchMaxSources {
+			break
+		}
+	}
+	return result
+}
+
+func buildOpenAIResponsesWebSearchSourceAppendix(
+	baseText string,
+	sources []websearch.SearchResult,
+) (string, string, []apicompat.ResponsesAnnotation) {
+	if strings.TrimSpace(baseText) == "" || len(sources) == 0 {
+		return baseText, "", nil
+	}
+	separator := "\n\n"
+	if strings.HasSuffix(baseText, "\n") {
+		separator = "\n"
+	}
+	var suffix strings.Builder
+	_, _ = suffix.WriteString(separator)
+	_, _ = suffix.WriteString("Sources:\n")
+	// Responses annotation 使用字符位置而不是字节偏移；这里按 rune 计算，确保中文
+	// 回答和标题不会让客户端截取到错误的 URL 范围。
+	baseRunes := utf8.RuneCountInString(baseText)
+	var annotations []apicompat.ResponsesAnnotation
+	for _, source := range sources {
+		_, _ = suffix.WriteString("- ")
+		_, _ = suffix.WriteString(source.Title)
+		_, _ = suffix.WriteString(": ")
+		start := baseRunes + utf8.RuneCountInString(suffix.String())
+		_, _ = suffix.WriteString(source.URL)
+		end := baseRunes + utf8.RuneCountInString(suffix.String())
+		_ = suffix.WriteByte('\n')
+		annotations = append(annotations, apicompat.ResponsesAnnotation{
+			Type:       "url_citation",
+			URL:        source.URL,
+			Title:      source.Title,
+			StartIndex: start,
+			EndIndex:   end,
+		})
+	}
+	return baseText + suffix.String(), suffix.String(), annotations
+}
+
+func addOpenAIResponsesWebSearchSourceEvents(
+	events []apicompat.ResponsesStreamEvent,
+	sources []websearch.SearchResult,
+) []apicompat.ResponsesStreamEvent {
+	if len(events) == 0 || len(sources) == 0 {
+		return events
+	}
+	var projection *openAIResponsesWebSearchSourceProjection
+	// completed.response 是最终快照的唯一来源，先在快照上生成统一投影，再同步更新
+	// output_text.done、content_part.done 和 output_item.done，避免四份文本或索引漂移。
+	for i := range events {
+		if events[i].Type == "response.completed" {
+			projection = appendOpenAIResponsesWebSearchSources(events[i].Response, sources)
+			break
+		}
+	}
+	if projection == nil {
+		return events
+	}
+
+	output := make([]apicompat.ResponsesStreamEvent, 0, len(events)+len(projection.Annotations)+1)
+	for i := range events {
+		event := events[i]
+		matchesText := event.OutputIndex == projection.OutputIndex && event.ContentIndex == projection.ContentIndex && event.ItemID == projection.ItemID
+		if event.Type == "response.output_text.done" && matchesText {
+			output = append(output, apicompat.ResponsesStreamEvent{
+				Type:         "response.output_text.delta",
+				OutputIndex:  projection.OutputIndex,
+				ContentIndex: projection.ContentIndex,
+				ItemID:       projection.ItemID,
+				Delta:        projection.Suffix,
+			})
+			for annotationIndex := range projection.Annotations {
+				index := annotationIndex
+				annotation := projection.Annotations[annotationIndex]
+				output = append(output, apicompat.ResponsesStreamEvent{
+					Type:            "response.output_text.annotation.added",
+					OutputIndex:     projection.OutputIndex,
+					ContentIndex:    projection.ContentIndex,
+					ItemID:          projection.ItemID,
+					Annotation:      &annotation,
+					AnnotationIndex: &index,
+				})
+			}
+			event.Text = projection.FinalText
+		}
+		if event.Type == "response.content_part.done" && matchesText && event.Part != nil {
+			event.Part.Text = projection.FinalText
+			event.Part.Annotations = append(event.Part.Annotations, projection.Annotations...)
+		}
+		if event.Type == "response.output_item.done" && event.OutputIndex == projection.OutputIndex && event.Item != nil && event.Item.ID == projection.ItemID {
+			for contentIndex := range event.Item.Content {
+				if contentIndex != projection.ContentIndex || event.Item.Content[contentIndex].Type != "output_text" {
+					continue
+				}
+				event.Item.Content[contentIndex].Text = projection.FinalText
+				event.Item.Content[contentIndex].Annotations = append(event.Item.Content[contentIndex].Annotations, projection.Annotations...)
+			}
+		}
+		output = append(output, event)
+	}
+	for i := range output {
+		output[i].SequenceNumber = i
+	}
+	return output
 }

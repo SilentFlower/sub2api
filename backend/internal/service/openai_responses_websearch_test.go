@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func newOpenAIResponsesWebSearchTestContext() (*gin.Context, *httptest.ResponseRecorder) {
@@ -63,6 +64,7 @@ func TestOpenAIResponsesWebSearchToolChoiceDecision(t *testing.T) {
 		name       string
 		body       string
 		emulate    bool
+		chatLoop   bool
 		rejectChat bool
 		choice     openAIResponsesToolChoiceKind
 	}{
@@ -73,6 +75,8 @@ func TestOpenAIResponsesWebSearchToolChoiceDecision(t *testing.T) {
 		{name: "forced web search in mixed tools", body: `{"model":"m","input":"q","tools":[{"type":"web_search"},{"type":"function","name":"other"}],"tool_choice":{"type":"web_search"}}`, emulate: true, rejectChat: true, choice: openAIResponsesToolChoiceForcedWebSearch},
 		{name: "forced other in mixed tools", body: `{"model":"m","input":"q","tools":[{"type":"web_search"},{"type":"function","name":"other"}],"tool_choice":{"type":"function","name":"other"}}`, emulate: false, rejectChat: false, choice: openAIResponsesToolChoiceForcedOther},
 		{name: "forced other without other tool", body: `{"model":"m","input":"q","tools":[{"type":"web_search"}],"tool_choice":{"type":"function","name":"other"}}`, emulate: false, rejectChat: true, choice: openAIResponsesToolChoiceForcedOther},
+		{name: "mixed auto", body: `{"model":"m","input":"q","tools":[{"type":"web_search"},{"type":"function","name":"other"}],"tool_choice":"auto"}`, emulate: false, chatLoop: true, rejectChat: true, choice: openAIResponsesToolChoiceAuto},
+		{name: "mixed required", body: `{"model":"m","input":"q","tools":[{"type":"web_search"},{"type":"function","name":"other"}],"tool_choice":"required"}`, emulate: false, chatLoop: true, rejectChat: true, choice: openAIResponsesToolChoiceRequired},
 	}
 
 	for _, tc := range tests {
@@ -81,9 +85,101 @@ func TestOpenAIResponsesWebSearchToolChoiceDecision(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.choice, request.ToolChoice.Kind)
 			require.Equal(t, tc.emulate, shouldEmulateOpenAIResponsesWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind))
+			require.Equal(t, tc.chatLoop, shouldUseChatFallbackWebSearchToolLoop(toolCount, webSearchCount, request.ToolChoice.Kind))
 			require.Equal(t, tc.rejectChat, shouldRejectChatFallbackWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind))
 		})
 	}
+}
+
+func TestHandleOpenAIResponsesWebSearchPassesMixedAutoToChatToolLoop(t *testing.T) {
+	c, recorder := newOpenAIResponsesWebSearchTestContext()
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+			featureKeyWebSearchEmulation:        WebSearchModeEnabled,
+		},
+	}
+	body := []byte(`{"model":"deepseek-v4-pro","input":"latest","tools":[{"type":"web_search"},{"type":"function","name":"other","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
+
+	result, handled, err := (&OpenAIGatewayService{}).handleOpenAIResponsesWebSearch(context.Background(), c, account, body)
+
+	require.False(t, handled)
+	require.Nil(t, result)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestHandleOpenAIResponsesWebSearchRejectsMixedServerOnlyTools(t *testing.T) {
+	tests := []struct {
+		name       string
+		toolChoice string
+		param      string
+	}{
+		{name: "absent", param: "tools"},
+		{name: "required", toolChoice: `,"tool_choice":"required"`, param: "tools"},
+		{name: "forced server tool", toolChoice: `,"tool_choice":{"type":"image_generation"}`, param: "tool_choice"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, recorder := newOpenAIResponsesWebSearchTestContext()
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Extra: map[string]any{
+					openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+					featureKeyWebSearchEmulation:        WebSearchModeEnabled,
+				},
+			}
+			body := []byte(`{"model":"deepseek-v4-pro","input":"latest","tools":[{"type":"web_search"},{"type":"image_generation"}]` + tc.toolChoice + `}`)
+
+			result, handled, err := (&OpenAIGatewayService{}).handleOpenAIResponsesWebSearch(context.Background(), c, account, body)
+
+			require.True(t, handled)
+			require.Nil(t, result)
+			require.Error(t, err)
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.Equal(t, tc.param, gjson.Get(recorder.Body.String(), "error.param").String())
+		})
+	}
+}
+
+func TestResolveOpenAIResponsesTypedWebSearchToolConfig(t *testing.T) {
+	maxUses := 1
+	tools := []apicompat.ResponsesTool{
+		{
+			Type:              "web_search",
+			SearchContextSize: "low",
+			MaxUses:           &maxUses,
+			Filters:           &apicompat.ResponsesWebSearchFilters{AllowedDomains: []string{"example.com"}},
+		},
+		{Type: "function", Name: "wait"},
+	}
+
+	config, err := resolveOpenAIResponsesTypedWebSearchToolConfig(tools, json.RawMessage(`"required"`))
+
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	require.Equal(t, openAIResponsesTypedWebSearchToolName, config.Name)
+	require.Equal(t, openAIResponsesInternalWebToolTypedSearch, config.Kind)
+	require.Equal(t, 3, config.MaxResults)
+	require.Equal(t, 1, config.MaxRounds)
+	require.Equal(t, []string{"example.com"}, config.AllowedDomains)
+
+	_, err = resolveOpenAIResponsesTypedWebSearchToolConfig([]apicompat.ResponsesTool{
+		{Type: "web_search"},
+		{Type: "web_search_preview"},
+		{Type: "function", Name: "wait"},
+	}, json.RawMessage(`"auto"`))
+	require.ErrorContains(t, err, "exactly one")
+
+	_, err = resolveOpenAIResponsesTypedWebSearchToolConfig([]apicompat.ResponsesTool{
+		{Type: "web_search", UserLocation: &apicompat.ResponsesWebSearchUserLocation{Type: "approximate"}},
+		{Type: "function", Name: "wait"},
+	}, json.RawMessage(`"auto"`))
+	require.ErrorContains(t, err, "user_location")
 }
 
 func TestHandleOpenAIResponsesWebSearchHonorsToolChoiceNone(t *testing.T) {

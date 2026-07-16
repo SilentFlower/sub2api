@@ -51,26 +51,51 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	customTools := apicompat.CustomToolNames(effectiveTools)
 	toolSearch := apicompat.HasToolSearchTool(effectiveTools)
 	namespaceTools := apicompat.NamespaceToolNames(effectiveTools)
+	typedWebSearchConfig, err := resolveOpenAIResponsesTypedWebSearchToolConfig(effectiveTools, responsesReq.ToolChoice)
+	if err != nil {
+		writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+		return nil, fmt.Errorf("resolve typed web_search Chat fallback: %w", err)
+	}
+	typedWebSearchEnabled := typedWebSearchConfig != nil && s.isOpenAIWebSearchEmulationEnabled(ctx, c, account)
 
 	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
 	if err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
 	}
+	if typedWebSearchEnabled && len(chatReq.Tools) == 0 {
+		err := errors.New("chat fallback mixed web_search requires at least one client-executable tool")
+		writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+		return nil, err
+	}
 	webRunToolName, webRunDeclared := findOpenAIResponsesWebRunTool(chatReq, namespaceTools)
 	webRunEnabled := webRunDeclared && s.isOpenAIWebSearchEmulationEnabled(ctx, c, account)
+	internalWebTools := make(map[string]openAIResponsesInternalWebToolConfig, 2)
 	if webRunEnabled {
 		narrowOpenAIResponsesWebRunTool(chatReq, webRunToolName)
+		internalWebTools[webRunToolName] = openAIResponsesInternalWebToolConfig{
+			Name:      webRunToolName,
+			Kind:      openAIResponsesInternalWebToolWebRun,
+			MaxRounds: openAIResponsesWebRunMaxRounds,
+		}
 	}
+	if typedWebSearchEnabled {
+		if err := addOpenAIResponsesTypedWebSearchTool(chatReq, *typedWebSearchConfig); err != nil {
+			writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+			return nil, err
+		}
+		internalWebTools[typedWebSearchConfig.Name] = *typedWebSearchConfig
+	}
+	internalWebToolLoopEnabled := len(internalWebTools) > 0
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
-	if clientStream && !webRunEnabled {
+	if clientStream && !internalWebToolLoopEnabled {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
-	if webRunEnabled {
-		// 中间工具轮次必须先由网关消费，不能把 web.run function_call 提前泄漏给客户端。
+	if internalWebToolLoopEnabled {
+		// 中间工具轮次必须先由网关消费，不能把内部 Web function_call 提前泄漏给客户端。
 		chatReq.Stream = false
 		chatReq.StreamOptions = nil
 	}
@@ -94,22 +119,23 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}
 	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel, billingModel)
-	if webRunEnabled {
+	if internalWebToolLoopEnabled {
 		if err := json.Unmarshal(chatBody, chatReq); err != nil {
 			return nil, fmt.Errorf("parse normalized chat completions fallback request: %w", err)
 		}
 		return s.forwardResponsesViaWebRunChatCompletions(ctx, c, account, chatReq, openAIResponsesWebRunLoopOptions{
-			OriginalModel:   originalModel,
-			BillingModel:    billingModel,
-			UpstreamModel:   upstreamModel,
-			ReasoningEffort: reasoningEffort,
-			ServiceTier:     serviceTier,
-			ClientStream:    clientStream,
-			CustomTools:     customTools,
-			ToolSearch:      toolSearch,
-			NamespaceTools:  namespaceTools,
-			WebRunToolName:  webRunToolName,
-			StartTime:       startTime,
+			OriginalModel:    originalModel,
+			BillingModel:     billingModel,
+			UpstreamModel:    upstreamModel,
+			ReasoningEffort:  reasoningEffort,
+			ServiceTier:      serviceTier,
+			ClientStream:     clientStream,
+			CustomTools:      customTools,
+			ToolSearch:       toolSearch,
+			NamespaceTools:   namespaceTools,
+			InternalWebTools: internalWebTools,
+			AppendSources:    !responsesRequestUsesStructuredTextFormat(&responsesReq),
+			StartTime:        startTime,
 		})
 	}
 

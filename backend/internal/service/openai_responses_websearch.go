@@ -25,9 +25,11 @@ import (
 type openAIResponsesWebSearchAction string
 
 const (
-	openAIResponsesWebSearchPass    openAIResponsesWebSearchAction = "pass"
-	openAIResponsesWebSearchEmulate openAIResponsesWebSearchAction = "emulation"
-	openAIResponsesWebSearchReject  openAIResponsesWebSearchAction = "reject"
+	openAIResponsesWebSearchNativePass   openAIResponsesWebSearchAction = "native_pass"
+	openAIResponsesWebSearchChatPass     openAIResponsesWebSearchAction = "chat_passthrough"
+	openAIResponsesWebSearchEmulate      openAIResponsesWebSearchAction = "direct_emulation"
+	openAIResponsesWebSearchChatToolLoop openAIResponsesWebSearchAction = "chat_tool_loop"
+	openAIResponsesWebSearchReject       openAIResponsesWebSearchAction = "reject"
 )
 
 type openAIResponsesWebSearchRequest struct {
@@ -86,10 +88,27 @@ func (s *OpenAIGatewayService) handleOpenAIResponsesWebSearch(
 	localEnabled := s.isOpenAIWebSearchEmulationEnabled(ctx, c, account)
 	chatFallback := !openai_compat.ShouldUseResponsesAPI(account.Extra)
 	eligible := shouldEmulateOpenAIResponsesWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind)
-	action := openAIResponsesWebSearchPass
+	chatToolLoopEligible := shouldUseChatFallbackWebSearchToolLoop(toolCount, webSearchCount, request.ToolChoice.Kind)
+	if chatToolLoopEligible {
+		chatToolLoopEligible = hasOpenAIResponsesChatFallbackClientTool(request.Request)
+	}
+	rejectChatFallback := shouldRejectChatFallbackWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind)
+	rejectParam := "tools"
+	rejectMessage := "this account routes Responses through Chat Completions, which cannot execute the requested web_search tool"
+	if chatFallback && request.ToolChoice.Kind == openAIResponsesToolChoiceForcedOther && !preservesOpenAIResponsesChatFallbackToolChoice(request.Request) {
+		rejectChatFallback = true
+		rejectParam = "tool_choice"
+		rejectMessage = "this account routes Responses through Chat Completions, which cannot preserve the requested tool_choice"
+	}
+	action := openAIResponsesWebSearchNativePass
+	if chatFallback {
+		action = openAIResponsesWebSearchChatPass
+	}
 	if localEnabled && eligible {
 		action = openAIResponsesWebSearchEmulate
-	} else if chatFallback && shouldRejectChatFallbackWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind) {
+	} else if localEnabled && chatFallback && chatToolLoopEligible {
+		action = openAIResponsesWebSearchChatToolLoop
+	} else if chatFallback && rejectChatFallback {
 		action = openAIResponsesWebSearchReject
 	}
 
@@ -102,11 +121,11 @@ func (s *OpenAIGatewayService) handleOpenAIResponsesWebSearch(
 	)
 
 	switch action {
-	case openAIResponsesWebSearchPass:
+	case openAIResponsesWebSearchNativePass, openAIResponsesWebSearchChatPass, openAIResponsesWebSearchChatToolLoop:
 		return nil, false, nil
 	case openAIResponsesWebSearchReject:
-		err := errors.New("this account routes Responses through Chat Completions, which cannot execute the requested web_search tool")
-		writeOpenAIResponsesWebSearchError(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+		err := errors.New(rejectMessage)
+		writeOpenAIResponsesWebSearchError(c, http.StatusBadRequest, "invalid_request_error", err.Error(), rejectParam)
 		return nil, true, err
 	case openAIResponsesWebSearchEmulate:
 		if responsesRequestUsesJSONSchema(request.Request) {
@@ -210,6 +229,95 @@ func shouldRejectChatFallbackWebSearch(toolCount, webSearchCount int, choice ope
 	return choice != openAIResponsesToolChoiceForcedOther || toolCount == webSearchCount
 }
 
+func shouldUseChatFallbackWebSearchToolLoop(toolCount, webSearchCount int, choice openAIResponsesToolChoiceKind) bool {
+	if webSearchCount != 1 || toolCount <= webSearchCount {
+		return false
+	}
+	switch choice {
+	case openAIResponsesToolChoiceAbsent, openAIResponsesToolChoiceAuto, openAIResponsesToolChoiceRequired:
+		return true
+	default:
+		return false
+	}
+}
+
+func hasOpenAIResponsesChatFallbackClientTool(req *apicompat.ResponsesRequest) bool {
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(req)
+	if err != nil {
+		// 转换错误由实际 fallback 路径返回更精确的诊断；能力分类这里只排除
+		// “转换成功但没有任何客户端可执行工具”的静默丢工具场景。
+		return true
+	}
+	return len(chatReq.Tools) > 0
+}
+
+func preservesOpenAIResponsesChatFallbackToolChoice(req *apicompat.ResponsesRequest) bool {
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(req)
+	if err != nil {
+		// 与工具可执行性检查相同，转换失败应由实际 fallback 返回具体冲突原因。
+		return true
+	}
+	return len(bytes.TrimSpace(chatReq.ToolChoice)) > 0
+}
+
+func resolveOpenAIResponsesTypedWebSearchToolConfig(
+	tools []apicompat.ResponsesTool,
+	rawToolChoice json.RawMessage,
+) (*openAIResponsesInternalWebToolConfig, error) {
+	choice, err := classifyOpenAIResponsesToolChoice(rawToolChoice)
+	if err != nil {
+		return nil, err
+	}
+	webSearchCount := 0
+	var selected *apicompat.ResponsesTool
+	for i := range tools {
+		if !isOpenAIResponsesWebSearchTool(tools[i].Type) {
+			continue
+		}
+		webSearchCount++
+		if selected == nil {
+			selected = &tools[i]
+		}
+	}
+	if webSearchCount == 0 {
+		return nil, nil
+	}
+	switch choice.Kind {
+	case openAIResponsesToolChoiceAbsent, openAIResponsesToolChoiceAuto, openAIResponsesToolChoiceRequired:
+	default:
+		return nil, nil
+	}
+	if webSearchCount != 1 {
+		return nil, errors.New("chat fallback supports exactly one typed web_search tool")
+	}
+	if len(tools) <= webSearchCount {
+		return nil, nil
+	}
+	maxResults, err := openAIResponsesWebSearchMaxResults(selected)
+	if err != nil {
+		return nil, err
+	}
+	allowedDomains, blockedDomains, err := normalizeOpenAIResponsesWebSearchDomains(selected)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateLocalOpenAIResponsesWebSearchTool(selected); err != nil {
+		return nil, err
+	}
+	maxRounds := openAIResponsesWebRunMaxRounds
+	if selected != nil && selected.MaxUses != nil && *selected.MaxUses < maxRounds {
+		maxRounds = *selected.MaxUses
+	}
+	return &openAIResponsesInternalWebToolConfig{
+		Name:           openAIResponsesTypedWebSearchToolName,
+		Kind:           openAIResponsesInternalWebToolTypedSearch,
+		MaxResults:     maxResults,
+		MaxRounds:      maxRounds,
+		AllowedDomains: allowedDomains,
+		BlockedDomains: blockedDomains,
+	}, nil
+}
+
 func responsesRequestUsesJSONSchema(req *apicompat.ResponsesRequest) bool {
 	if req == nil || req.Text == nil || len(req.Text.Format) == 0 {
 		return false
@@ -218,6 +326,24 @@ func responsesRequestUsesJSONSchema(req *apicompat.ResponsesRequest) bool {
 		Type string `json:"type"`
 	}
 	return json.Unmarshal(req.Text.Format, &format) == nil && format.Type == "json_schema"
+}
+
+func responsesRequestUsesStructuredTextFormat(req *apicompat.ResponsesRequest) bool {
+	if req == nil || req.Text == nil || len(req.Text.Format) == 0 {
+		return false
+	}
+	var format struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(req.Text.Format, &format) != nil {
+		return false
+	}
+	switch strings.TrimSpace(format.Type) {
+	case "json_schema", "json_object":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *OpenAIGatewayService) isOpenAIWebSearchEmulationEnabled(ctx context.Context, c *gin.Context, account *Account) bool {
@@ -473,14 +599,14 @@ func buildOpenAIResponsesSearchSummary(query string, results []websearch.SearchR
 	for index, result := range results {
 		fmt.Fprintf(&summary, "%d. %s\n", index+1, result.Title)
 		start := utf8.RuneCountInString(summary.String())
-		summary.WriteString(result.URL)
+		_, _ = summary.WriteString(result.URL)
 		end := utf8.RuneCountInString(summary.String())
-		summary.WriteByte('\n')
+		_ = summary.WriteByte('\n')
 		if result.Snippet != "" {
-			summary.WriteString(result.Snippet)
-			summary.WriteByte('\n')
+			_, _ = summary.WriteString(result.Snippet)
+			_ = summary.WriteByte('\n')
 		}
-		summary.WriteByte('\n')
+		_ = summary.WriteByte('\n')
 		if result.URL != "" {
 			annotations = append(annotations, apicompat.ResponsesAnnotation{
 				Type: "url_citation", URL: result.URL, Title: result.Title, StartIndex: start, EndIndex: end,

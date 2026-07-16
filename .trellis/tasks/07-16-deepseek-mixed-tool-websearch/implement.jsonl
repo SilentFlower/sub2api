@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Responses、Chat、Anthropic 工具选择、内部搜索循环、citation、流式事件与 usage 语义"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 OpenAI 兼容错误、provider 失败、上游错误链和敏感信息保护"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"约束能力决策和搜索循环日志不得记录查询、结果、请求体或凭据"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"要求扩展现有 web.run 循环和来源构造逻辑，避免复制第二套搜索执行链"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 Responses 请求、Chat 代理、provider、回程事件、usage 与计费的完整数据流"}
+{"file":".trellis/tasks/archive/2026-07/07-14-deepseek-response-format-json-schema-compat/research.md","reason":"提供 OpenAI、DeepSeek、Anthropic Web Search 协议和当前 Chat fallback 缺口证据"}

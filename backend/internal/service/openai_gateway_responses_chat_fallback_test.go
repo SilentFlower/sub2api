@@ -21,6 +21,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type openAIResponsesWebRunFailingWriter struct {
+	gin.ResponseWriter
+}
+
+func (w *openAIResponsesWebRunFailingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func (w *openAIResponsesWebRunFailingWriter) WriteString(string) (int, error) {
+	return 0, errors.New("write failed")
+}
+
 func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -467,7 +479,7 @@ func TestForwardResponses_WebRunStopsAfterTwoToolRounds(t *testing.T) {
 
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Contains(t, err.Error(), "maximum of 2")
+	require.EqualError(t, err, "web.run exceeded the maximum of 2 search tool rounds")
 	require.Equal(t, 2, providerCalls)
 	require.Len(t, upstream.bodies, 3)
 	require.Equal(t, http.StatusBadGateway, rec.Code)
@@ -626,6 +638,468 @@ func TestForwardResponses_WebRunEnforcesFourQueryLimitAcrossRounds(t *testing.T)
 	require.Equal(t, "已使用现有搜索结果", gjson.Get(rec.Body.String(), "output.3.content.0.text").String())
 }
 
+func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_typed_1", `{"id":"chatcmpl_typed_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"杭州天气\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_2", `{"id":"chatcmpl_typed_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"已找到杭州天气"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}}`),
+	}}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			require.Equal(t, "杭州天气", query)
+			require.Equal(t, 3, maxResults)
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{
+				{Title: "杭州天气", URL: "https://Docs.Example.com/weather#today", Snippet: "晴"},
+				{Title: "重复来源", URL: "https://docs.example.com/weather#details", Snippet: "晴"},
+				{Title: "被过滤", URL: "https://blocked.test/weather", Snippet: "未知"},
+			}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, searchCalls)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, 30, result.Usage.InputTokens)
+	require.Equal(t, 7, result.Usage.OutputTokens)
+	require.Len(t, upstream.bodies, 2)
+	require.Contains(t, string(upstream.bodies[0]), `"name":"sub2api_web_search"`)
+	require.Equal(t, "auto", gjson.GetBytes(upstream.bodies[0], "tool_choice").String())
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "parallel_tool_calls").Bool())
+	require.Equal(t, "call_typed", gjson.GetBytes(upstream.bodies[1], "messages.1.tool_calls.0.id").String())
+	require.Equal(t, "call_typed", gjson.GetBytes(upstream.bodies[1], "messages.2.tool_call_id").String())
+	require.NotContains(t, rec.Body.String(), openAIResponsesTypedWebSearchToolName)
+
+	var response apicompat.ResponsesResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Len(t, response.Output, 2)
+	require.Equal(t, "web_search_call", response.Output[0].Type)
+	require.Equal(t, "杭州天气", response.Output[0].Action.Query)
+	part := response.Output[1].Content[0]
+	require.Contains(t, part.Text, "已找到杭州天气\n\nSources:")
+	require.Equal(t, 1, strings.Count(part.Text, "https://docs.example.com/weather"))
+	require.NotContains(t, part.Text, "blocked.test")
+	require.Len(t, part.Annotations, 1)
+	annotation := part.Annotations[0]
+	require.Equal(t, "https://docs.example.com/weather", annotation.URL)
+	require.Equal(t, annotation.URL, string([]rune(part.Text)[annotation.StartIndex:annotation.EndIndex]))
+}
+
+func TestForwardResponses_TypedWebSearchMixedAutoPreservesOtherClientTool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_other", `{"id":"chatcmpl_typed_other","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			return nil, "", errors.New("unexpected search")
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 0, searchCalls)
+	require.Equal(t, 0, result.WebSearchCalls)
+	require.Equal(t, "function_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "wait", gjson.Get(rec.Body.String(), "output.0.name").String())
+	require.NotContains(t, rec.Body.String(), "web_search_call")
+	require.NotContains(t, rec.Body.String(), "Sources:")
+}
+
+func TestForwardResponses_TypedWebSearchRequiredPreservesToolChoice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	body = bytes.Replace(body, []byte(`"tool_choice":"auto"`), []byte(`"tool_choice":"required"`), 1)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_required", `{"id":"chatcmpl_typed_required","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait_required","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: &SettingService{}}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "required", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+	require.Equal(t, "wait", gjson.Get(rec.Body.String(), "output.0.name").String())
+}
+
+func TestForwardResponses_TypedWebSearchBypassPreservesClientToolChoice(t *testing.T) {
+	tests := []struct {
+		name               string
+		toolChoice         string
+		expectedUpstream   string
+		expectedOutputName string
+	}{
+		{name: "none", toolChoice: `"none"`, expectedUpstream: "none"},
+		{
+			name:               "forced other",
+			toolChoice:         `{"type":"function","name":"wait"}`,
+			expectedUpstream:   "wait",
+			expectedOutputName: "wait",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			body := openAIResponsesTypedWebSearchTestBody(false, "")
+			body = bytes.Replace(body, []byte(`"tool_choice":"auto"`), []byte(`"tool_choice":`+tc.toolChoice), 1)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			responseBody := `{"id":"chatcmpl_typed_bypass","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"未执行搜索"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`
+			if tc.expectedOutputName != "" {
+				responseBody = `{"id":"chatcmpl_typed_bypass","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait_bypass","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`
+			}
+			upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_bypass", responseBody)}
+			searchCalls := 0
+			svc := &OpenAIGatewayService{
+				cfg:            rawChatCompletionsTestConfig(),
+				httpUpstream:   upstream,
+				settingService: &SettingService{},
+				openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
+					searchCalls++
+					return nil, "", errors.New("unexpected search")
+				},
+			}
+			account := forceChatResponsesFallbackAccount()
+			account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+			result, err := svc.Forward(context.Background(), c, account, body)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 0, searchCalls)
+			require.Equal(t, 0, result.WebSearchCalls)
+			require.NotContains(t, string(upstream.lastBody), openAIResponsesTypedWebSearchToolName)
+			if tc.name == "none" {
+				require.Equal(t, tc.expectedUpstream, gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+			} else {
+				require.Equal(t, tc.expectedUpstream, gjson.GetBytes(upstream.lastBody, "tool_choice.function.name").String())
+				require.Equal(t, tc.expectedOutputName, gjson.Get(rec.Body.String(), "output.0.name").String())
+			}
+			require.NotContains(t, rec.Body.String(), "web_search_call")
+		})
+	}
+}
+
+func TestForwardResponses_TypedWebSearchAbsentChoiceKeepsModelSelection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	body = bytes.Replace(body, []byte(`"tool_choice":"auto",`), nil, 1)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_absent", `{"id":"chatcmpl_typed_absent","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait_absent","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: &SettingService{}}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, string(upstream.lastBody), `"name":"sub2api_web_search"`)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "tool_choice").Exists())
+	require.Equal(t, "wait", gjson.Get(rec.Body.String(), "output.0.name").String())
+}
+
+func TestForwardResponses_TypedWebSearchRejectsParallelClientToolCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_parallel", `{"id":"chatcmpl_typed_parallel","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_parallel","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"latest\"}]}"}},{"id":"call_wait_parallel","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			return nil, "", errors.New("unexpected search")
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.ErrorContains(t, err, "cannot be combined with parallel client tool calls")
+	require.Nil(t, result)
+	require.Equal(t, 0, searchCalls)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
+func TestForwardResponses_TypedWebSearchHonorsMaxUses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	body = bytes.Replace(body, []byte(`"type":"web_search",`), []byte(`"type":"web_search","max_uses":1,`), 1)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_typed_max_1", `{"id":"chatcmpl_typed_max_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_max_1","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"one\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_max_2", `{"id":"chatcmpl_typed_max_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_max_2","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"two\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`),
+	}}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			return &websearch.SearchResponse{Query: query}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.ErrorContains(t, err, "exceeded the configured maximum of 1 search tool rounds")
+	require.Nil(t, result)
+	require.Equal(t, 1, searchCalls)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
+func TestForwardResponses_TypedWebSearchStreamingEmitsCitationLifecycle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := openAIResponsesTypedWebSearchTestBody(true, "")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_typed_stream_1", `{"id":"chatcmpl_typed_stream_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_stream","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"中文查询\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":4,"completion_tokens":1,"total_tokens":5}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_stream_2", `{"id":"chatcmpl_typed_stream_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"中文回答"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "中文来源", URL: "https://example.com/source"}}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 1, result.WebSearchCalls)
+	wire := rec.Body.String()
+	require.Contains(t, wire, `"type":"web_search_call"`)
+	require.Contains(t, wire, `"delta":"\n\nSources:\n- 中文来源: https://example.com/source\n"`)
+	require.Contains(t, wire, "event: response.output_text.annotation.added")
+	require.Contains(t, wire, `"annotations":[{"type":"url_citation","url":"https://example.com/source"`)
+	require.NotContains(t, wire, openAIResponsesTypedWebSearchToolName)
+	require.Less(t, strings.Index(wire, `"delta":"\n\nSources:`), strings.Index(wire, "event: response.output_text.annotation.added"))
+	require.Less(t, strings.Index(wire, "event: response.output_text.annotation.added"), strings.Index(wire, "event: response.output_text.done"))
+}
+
+func TestForwardResponses_TypedWebSearchStreamingMarksClientDisconnect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := openAIResponsesTypedWebSearchTestBody(true, "")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Writer = &openAIResponsesWebRunFailingWriter{ResponseWriter: c.Writer}
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_typed_disconnect_1", `{"id":"chatcmpl_typed_disconnect_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_disconnect","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"latest\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":4,"completion_tokens":1,"total_tokens":5}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_disconnect_2", `{"id":"chatcmpl_typed_disconnect_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "Source", URL: "https://example.com/source"}}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, 11, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+}
+
+func TestForwardResponses_TypedWebSearchProxyNameConflictReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, `,{"type":"function","name":"sub2api_web_search","parameters":{"type":"object"}}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "conflicts with a declared client tool")
+	require.Equal(t, "tools", gjson.Get(rec.Body.String(), "error.param").String())
+}
+
+func TestForwardResponses_TypedWebSearchValidationErrorIncludesToolsParam(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	body = bytes.Replace(
+		body,
+		[]byte(`"search_context_size":"low"`),
+		[]byte(`"search_context_size":"low","user_location":{"type":"approximate","country":"CN"}`),
+		1,
+	)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.ErrorContains(t, err, "user_location")
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "tools", gjson.Get(rec.Body.String(), "error.param").String())
+}
+
+func TestForwardResponses_TypedWebSearchStructuredOutputDoesNotAppendSources(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := openAIResponsesTypedWebSearchTestBody(false, "")
+	body = bytes.Replace(body, []byte(`"tool_choice":"auto",`), []byte(`"tool_choice":"auto","text":{"format":{"type":"json_object"}},`), 1)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_typed_json_1", `{"id":"chatcmpl_typed_json_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_json","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"latest\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":4,"completion_tokens":1,"total_tokens":5}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_json_2", `{"id":"chatcmpl_typed_json_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"ok\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "Source", URL: "https://example.com/source"}}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, `{"answer":"ok"}`, gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
+	require.False(t, gjson.Get(rec.Body.String(), "output.1.content.0.annotations").Exists())
+	require.NotContains(t, rec.Body.String(), "Sources:")
+}
+
+func TestAppendOpenAIResponsesWebSearchSourcesCapsAndUsesRuneIndexes(t *testing.T) {
+	response := &apicompat.ResponsesResponse{Output: []apicompat.ResponsesOutput{{
+		Type: "message",
+		ID:   "msg_sources",
+		Role: "assistant",
+		Content: []apicompat.ResponsesContentPart{{
+			Type: "output_text",
+			Text: "中文回答",
+		}},
+	}}}
+	sources := []websearch.SearchResult{
+		{Title: "一", URL: "https://example.com/1"},
+		{Title: "二", URL: "https://example.com/2"},
+		{Title: "三", URL: "https://example.com/3"},
+		{Title: "四", URL: "https://example.com/4"},
+		{Title: "五", URL: "https://example.com/5"},
+		{Title: "六", URL: "https://example.com/6"},
+		{Title: "无效", URL: "javascript:alert(1)"},
+	}
+
+	projection := appendOpenAIResponsesWebSearchSources(response, sources)
+
+	require.NotNil(t, projection)
+	part := response.Output[0].Content[0]
+	require.Len(t, part.Annotations, openAIResponsesWebSearchMaxSources)
+	require.NotContains(t, part.Text, "https://example.com/6")
+	require.NotContains(t, part.Text, "javascript:")
+	for _, annotation := range part.Annotations {
+		require.Equal(t, annotation.URL, string([]rune(part.Text)[annotation.StartIndex:annotation.EndIndex]))
+	}
+}
+
 func TestParseOpenAIResponsesWebRunArgumentsRejectsUnsupportedAndOverLimit(t *testing.T) {
 	parsed, toolErr := parseOpenAIResponsesWebRunArguments(`{"search_query":[{"q":"one"}],"weather":[{"location":"杭州"}]}`, 4)
 	require.Nil(t, parsed)
@@ -674,6 +1148,34 @@ func openAIResponsesWebRunTestBody(stream bool) []byte {
 		"input":[
 			{"role":"user","content":[{"type":"input_text","text":"搜索杭州天气"}]},
 			{"type":"additional_tools","tools":[{"type":"namespace","name":"web","tools":[{"type":"function","name":"run","description":"Browse the web","parameters":{"type":"object","properties":{"search_query":{"type":"array"},"weather":{"type":"array"},"open":{"type":"array"}}}}]}]}
+		]
+	}`)
+}
+
+func openAIResponsesTypedWebSearchTestBody(stream bool, extraTool string) []byte {
+	streamValue := "false"
+	if stream {
+		streamValue = "true"
+	}
+	return []byte(`{
+		"model":"deepseek-v4-pro",
+		"stream":` + streamValue + `,
+		"tool_choice":"auto",
+		"input":[
+			{"role":"user","content":[{"type":"input_text","text":"搜索杭州天气"}]},
+			{"type":"additional_tools","tools":[
+				{"type":"web_search","search_context_size":"low","filters":{"allowed_domains":["example.com"]}},
+				{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"}}}},
+				{"type":"custom","name":"exec","description":"Execute a command"},
+				{"type":"function","name":"tool_1","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_2","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_3","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_4","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_5","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_6","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_7","parameters":{"type":"object"}},
+				{"type":"function","name":"tool_8","parameters":{"type":"object"}}` + extraTool + `
+			]}
 		]
 	}`)
 }
