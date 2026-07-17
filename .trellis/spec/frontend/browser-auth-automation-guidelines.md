@@ -96,6 +96,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - 清空敏感数据必须先获得同一控制台锁。页面卸载只能删除与自身 `run_id` 匹配的任务、事件和清理消息，空闲或旧控制台不得清除其它活动批次。
 - 登录驱动只有在 `run_id`、`account_id`、`tab_marker` 全部匹配且任务未取消、未过期时才能自动动作。标签标识只能放在 URL fragment 或标签私有状态中，禁止携带密码。
 - 登录/授权标签和站点存储清理标签必须使用不同的 URL fragment / `window.name` marker key。登录标签使用 `grok-bulk-login`，清理标签使用 `grok-bulk-cleanup`；清理 ACK 只接受 cleanup marker，不能接受 login marker，即使 `tab_marker` 值相同。
+- 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
 - Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：优先使用标准 `verification_uri`，缺失时回退 `verification_uri_complete`。当前任务必须保存 `verification_url`，登录标签首次进入登录入口后再按该 URL 跳转；不要把清理标签或根路径页面当作登录页证据。
 - xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
@@ -128,7 +129,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | `slow_down` | 在上限内增加轮询间隔 |
 | Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
-| 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败 |
+| 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败；`auth.x.ai` 不得使用根路径承载 |
 | Cookie、站点存储或清理 ACK 失败 | 保持清理失败状态并停止后续账号 |
 | Violentmonkey 或 HttpOnly 权限不足 | 批次开始前失败，不处理任何账号 |
 
@@ -141,12 +142,12 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
 - Good：实际入口是 `http://www.havefun.eu.cc:8080/admin/accounts` 时，元数据包含精确 `:8080` 规则，运行时仍用 host/protocol 校验限制控制台。
 - Good：xAI Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，任务保存基础验证页，登录标签先进入 `accounts.x.ai` 登录入口，登录完成后再跳转验证页。
-- Good：初始 Session 清理打开 `https://auth.x.ai/#grok-bulk-cleanup=...`，即使页面显示 403/404，也不会被用户或脚本误认为登录/授权标签。
+- Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
 - Bad：测试只检查源码包含 `http://www.havefun.eu.cc/*`，却没有覆盖用户实际使用的 `:8080` URL。
 - Bad：只接受 `verification_uri_complete` 或只匹配 `/oauth2/device/complete`，导致当前官方 `/oauth2/device` 基础路径被误判为未知/验证页面。
-- Bad：清理标签也使用 `#grok-bulk-login=...`，导致 `auth.x.ai` 根路径清理页在手工验收时被误认为授权页。
+- Bad：清理标签也使用 `#grok-bulk-login=...`，或继续使用 `https://auth.x.ai/#grok-bulk-cleanup=...` 根路径，导致手工验收时被误认为授权页或错误页。
 - Bad：创建延迟定时器时立即占用动作次数，导致守卫拒绝后无法恢复。
 - Bad：只删除当前 URL 可见 Cookie，遗漏其它 path、子域、HttpOnly 或分区 Cookie。
 - Bad：把整批账号密码写入 localStorage、GM 共享值、页面 DOM 属性、URL 或日志。

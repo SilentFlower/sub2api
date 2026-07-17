@@ -203,13 +203,19 @@ test('标签归属标记只写入 fragment 并可无损读回', () => {
 })
 
 test('清理标签使用独立 fragment 标记，不会被登录标记读取', () => {
-  const marked = core.appendCleanupMarker('https://auth.x.ai/#step=cleanup', 'cleanup-tab-1')
+  const marked = core.appendCleanupMarker('https://auth.x.ai/oauth2/authorize#step=cleanup', 'cleanup-tab-1')
   const parsed = new URL(marked)
 
   assert.equal(core.extractCleanupMarker(parsed.hash), 'cleanup-tab-1')
   assert.equal(core.extractDriverMarker(parsed.hash), '')
+  assert.equal(`${parsed.origin}${parsed.pathname}`, 'https://auth.x.ai/oauth2/authorize')
   assert.equal(parsed.hash.includes('grok-bulk-cleanup='), true)
   assert.equal(parsed.hash.includes('grok-bulk-login='), false)
+})
+
+test('清理承载页不使用 auth.x.ai 根路径', () => {
+  assert.equal(core.CONFIG.storageUrls.includes('https://auth.x.ai/'), false)
+  assert.equal(core.CONFIG.storageUrls.includes('https://auth.x.ai/oauth2/authorize'), true)
 })
 
 test('isExpiredSharedTask 只清理达到过期时间的任务', () => {
@@ -713,7 +719,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.2'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.3'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)

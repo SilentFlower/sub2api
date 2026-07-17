@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.2
+// @version      0.2.3
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -41,7 +41,8 @@
     loginStartUrl: 'https://accounts.x.ai/',
     storageUrls: [
       'https://x.ai/',
-      'https://auth.x.ai/',
+      // auth.x.ai 根路径在真实 Chrome 中可能直接显示 404，清理页改用同源授权端点承载。
+      'https://auth.x.ai/oauth2/authorize',
       'https://accounts.x.ai/',
       'https://grok.com/'
     ],

@@ -63,8 +63,8 @@ second@example.com|ExamplePassword2
 每个账号完成、失败、跳过或停止时，脚本会：
 
 1. 关闭脚本打开的登录标签并删除当前账号共享任务。
-2. 依次在后台打开带随机标记的 `x.ai`、`auth.x.ai`、`accounts.x.ai` 和 `grok.com` 清理标签。
-3. 每个清理标签删除当前 origin 可访问的 localStorage、sessionStorage、IndexedDB、Cache Storage 和 Service Worker，并返回带域名的 ACK；后台标签可能短暂出现在标签栏，也可能显示 403/404，这不是登录页失败。清理标签 URL 会带 `#grok-bulk-cleanup=...`，登录/授权标签才会带 `#grok-bulk-login=...`。
+2. 依次在后台打开带随机标记的 `x.ai`、`auth.x.ai`、`accounts.x.ai` 和 `grok.com` 清理标签；其中 `auth.x.ai` 使用 `https://auth.x.ai/oauth2/authorize` 作为同源承载页，不使用会在 Chrome 中显示 404 的根路径。
+3. 每个清理标签删除当前 origin 可访问的 localStorage、sessionStorage、IndexedDB、Cache Storage 和 Service Worker，并返回带域名的 ACK；后台标签可能短暂出现在标签栏，也可能显示 403/404/Cloudflare 页面，这不是登录页失败。清理标签 URL 会带 `#grok-bulk-cleanup=...`，登录/授权标签才会带 `#grok-bulk-login=...`。
 4. 使用 `GM_cookie` 删除上述目标域 Cookie。
 5. 再次枚举 Cookie；任一目标域存储未确认、Cookie 仍有残留或权限报错时停止队列，不处理下一个账号。
 
@@ -75,7 +75,8 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.2` 已内置精确 include。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.3` 已内置精确 include。
+- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.3` 以后应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续

@@ -21,6 +21,7 @@
 - [x] 修复 Violentmonkey 对 `http://www.havefun.eu.cc:8080/*` 的匹配问题，增加精确 `@include` 并补回归测试。
 - [x] 修复 xAI 登录入口与 Device Flow 验证页混用问题：先打开 `accounts.x.ai` 登录入口，登录完成后再跳转官方 `verification_uri`；授权路径兼容当前 `/oauth2/device` 基础路径。
 - [x] 修复清理标签与登录标签 marker 混用问题：清理标签改用 `#grok-bulk-cleanup=...`，登录/授权标签保留 `#grok-bulk-login=...`，并补清理请求拒绝登录 marker 的回归测试。
+- [x] 修复 `auth.x.ai` 根路径清理承载页 404 问题：改用 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，并补禁止 `https://auth.x.ai/` 进入 `storageUrls` 的回归测试。
 
 ## 重点风险
 
@@ -50,7 +51,7 @@ git diff --check
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
 - 使用两个测试账号串行运行，确认第二号不会继承第一号登录态。
-- 若看到 `auth.x.ai`、`x.ai`、`accounts.x.ai` 或 `grok.com` 根路径后台页，URL 应带 `#grok-bulk-cleanup=...`；带 `#grok-bulk-login=...` 的才是登录/授权标签。
+- 若看到 `x.ai`、`accounts.x.ai` 或 `grok.com` 根路径后台页，URL 应带 `#grok-bulk-cleanup=...`；`auth.x.ai` 清理后台页应是 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，不应再是 `https://auth.x.ai/#grok-bulk-cleanup=...`。带 `#grok-bulk-login=...` 的才是登录/授权标签。
 - 手工关闭登录标签、点击停止、制造 Token 超时，确认轮询取消和敏感共享值删除。
 
 ## 回滚
