@@ -24,14 +24,12 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T04:05:34+08:00",
+    "updatedAt": "2026-07-17T09:06:39+08:00",
     "completedSteps": [
-      "完成 15 个产品/协议域和 5 类分支资产审计",
-      "完成后端与前端 build 私有能力领域隔离",
-      "完成三个原硬冲突的结构化消除与专项测试迁移"
+      "完成 build 私有功能隔离、全量质量验证和 main 0.1.158 无冲突预演"
     ],
-    "partialStep": "隔离实现与任务记录已完成，正在执行最终质量验证",
-    "nextStep": "运行后端/前端定向与完整检查，重新预演 merge-tree，并进入 Phase 2.2 check-all",
-    "notes": "Codex 图片工具主体属于 main 0.1.158，保留 main owner；本子任务未改 ProviderSet、构造器或 Ent schema，无需生成 Wire/Ent；真实 main merge 仍由父任务执行。"
+    "partialStep": null,
+    "nextStep": "返回父任务，重新拉取 main 并执行真实 main -> build 合并",
+    "notes": "最终 merge-tree MERGE_STATUS=0；Wire 已重新生成；本子任务未执行真实 merge。"
   }
 }
