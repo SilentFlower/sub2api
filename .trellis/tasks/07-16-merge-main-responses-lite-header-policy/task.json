@@ -26,16 +26,17 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T10:50:58+08:00",
+    "updatedAt": "2026-07-17T10:57:42+08:00",
     "completedSteps": [
       "同步 main 0.1.157 并解决 12 个冲突",
       "实现 Responses Lite Header 阻止模型策略",
       "完成 build 私有功能隔离与 external_web_access 兼容修复",
       "同步 main 0.1.158：0 个硬冲突，完成 27 个交集文件语义复核并重新生成 Wire",
-      "完成全量验证并更新协议与 build 隔离规范"
+      "完成全量验证并更新协议与 build 隔离规范",
+      "创建 0.1.158 merge commit 并推送 build"
     ],
     "partialStep": null,
-    "nextStep": "进入 Phase 3.4，通过 trellis-push 确认 merge commit 与推送",
+    "nextStep": "等待用户确认是否执行 trellis-finish-work 归档任务",
     "notes": "PostgreSQL integration-tag 测试未运行；其余定向、全量 unit、lint、typecheck、Vitest 和 build 均通过。"
   }
 }
