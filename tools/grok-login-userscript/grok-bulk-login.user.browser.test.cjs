@@ -556,8 +556,56 @@ test('密码提交后登录入口无表单时导航到官方 Device Flow 验证�
   harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
 
-  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device')
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device#grok-bulk-login=tab-1')
   assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
+})
+
+test('密码提交后落到 xAI 账户页时忽略账户控件并跳转 Device Flow', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/account',
+    href: 'https://accounts.x.ai/account',
+    windowName: 'grok-bulk-login:tab-1',
+    title: 'xAI Account',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    button: { textContent: 'Email' }
+  })
+
+  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device#grok-bulk-login=tab-1')
+  assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
+})
+
+test('密码未消费但已落到账户页时先删除共享密码再跳转 Device Flow', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/account',
+    href: 'https://accounts.x.ai/account',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    button: { textContent: 'Email' }
+  })
+
+  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/account')
+
+  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device#grok-bulk-login=tab-1')
 })
 
 test('未提交密码前误入 Device Flow 页面会回到邮箱登录入口', () => {

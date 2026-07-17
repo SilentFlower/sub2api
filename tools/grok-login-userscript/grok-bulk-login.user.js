@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.9
+// @version      0.2.10
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -551,6 +551,35 @@
   }
 
   /**
+   * 判断当前位置是否是 xAI 登录成功后的账户页。
+   * @param {string} currentHref 当前页面地址。
+   * @return {boolean} 是否为已登录账户页。
+   */
+  function isAuthenticatedAccountLanding(currentHref) {
+    try {
+      const current = new URL(String(currentHref || ''))
+      return current.protocol === 'https:'
+        && (current.hostname === 'x.ai' || current.hostname.endsWith('.x.ai'))
+        && /^\/account(?:\/|$)/.test(current.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 判断登录成功落到账户页时是否应强制跳转 Device Flow 验证页。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {number} now 当前时间。
+   * @param {number} firstSeenAt 当前页面首次扫描时间。
+   * @return {boolean} 是否应跳转。
+   */
+  function shouldNavigateFromAuthenticatedLanding(task, currentHref, now, firstSeenAt) {
+    if (!isAuthenticatedAccountLanding(currentHref)) return false
+    return shouldNavigateToVerification(task, currentHref, now, firstSeenAt, false)
+  }
+
+  /**
    * 为脚本打开的标签追加只保存在 URL fragment 中的随机归属标记。
    * @param {string} value 原始地址。
    * @param {string} marker 标签随机标记。
@@ -1018,6 +1047,8 @@
     hasPasswordBeenSubmitted,
     shouldReturnToLoginBeforePassword,
     shouldNavigateToVerification,
+    isAuthenticatedAccountLanding,
+    shouldNavigateFromAuthenticatedLanding,
     appendDriverMarker,
     appendCleanupMarker,
     extractDriverMarker,
@@ -1838,6 +1869,15 @@
         location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
         return
       }
+      if (isAuthenticatedAccountLanding(location.href) && task.password) {
+        task = removeSharedPassword(task) || stripTaskPassword(task)
+        // 刚删除共享密码时停止本轮账户页识别，避免把账户设置里的 Email 按钮当成登录入口点击。
+        return
+      }
+      if (shouldNavigateFromAuthenticatedLanding(task, location.href, Date.now(), firstSeenAt)) {
+        location.href = appendDriverMarker(task.verification_url, task.tab_marker)
+        return
+      }
 
       const descriptors = collectInputDescriptors()
       const password = chooseBestDescriptor(descriptors, 'password')
@@ -1895,7 +1935,7 @@
 
       const hasRecognizedControls = Boolean(password || email || userCode || consentButton || emailMethod)
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
-        location.href = task.verification_url
+        location.href = appendDriverMarker(task.verification_url, task.tab_marker)
         return
       }
 

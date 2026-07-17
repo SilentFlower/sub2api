@@ -209,6 +209,17 @@ test('登录入口无可识别控件时才跳转官方 Device Flow 验证页', (
   assert.equal(core.shouldNavigateToVerification({ verification_url: 'http://accounts.x.ai/oauth2/device' }, 'https://accounts.x.ai/', 2000, 0, false), false)
 })
 
+test('登录成功落到账户页时即使有账户设置控件也跳转 Device Flow', () => {
+  const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
+
+  assert.equal(core.isAuthenticatedAccountLanding('https://accounts.x.ai/account'), true)
+  assert.equal(core.isAuthenticatedAccountLanding('https://accounts.x.ai/account/profile'), true)
+  assert.equal(core.isAuthenticatedAccountLanding('https://accounts.x.ai/sign-in'), false)
+  assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/account', 2000, 0, true), false)
+  assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 2000, 0), true)
+  assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 1000, 0), false)
+})
+
 test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
   const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password: 'fake-password' }
   const submittedTask = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
@@ -754,7 +765,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.9'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.10'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
