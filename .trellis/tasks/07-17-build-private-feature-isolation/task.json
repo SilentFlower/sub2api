@@ -24,12 +24,12 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T09:06:39+08:00",
+    "updatedAt": "2026-07-17T09:57:32+08:00",
     "completedSteps": [
-      "完成 build 私有功能隔离、全量质量验证和 main 0.1.158 无冲突预演"
+      "完成 external_web_access 兼容降级、全量质量验证和 build 私有功能隔离强准则固化"
     ],
     "partialStep": null,
     "nextStep": "返回父任务，重新拉取 main 并执行真实 main -> build 合并",
-    "notes": "最终 merge-tree MERGE_STATUS=0；Wire 已重新生成；本子任务未执行真实 merge。"
+    "notes": "本地 Web Search 接受 external_web_access=true|false 并始终执行实时搜索；后端全量 unit 和 lint 通过；参考 CPA v7.2.81；本子任务未执行真实 merge。"
   }
 }
