@@ -86,7 +86,7 @@ HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协
 }
 ```
 
-清理标签只在请求的 `target_host`、`tab_marker` 与当前页面全部匹配时执行；控制台只接受 `run_id`、`account_id`、`cleanup_id` 和 host 全部匹配的 ACK。
+清理标签只在请求的 `target_host`、`tab_marker` 与当前页面全部匹配时执行；控制台只接受 `run_id`、`account_id`、`cleanup_id` 和 host 全部匹配的 ACK。清理标签使用独立 `grok-bulk-cleanup` URL fragment 和 `window.name` 前缀，登录/授权标签继续使用 `grok-bulk-login`，两者不得混用。
 
 账号结果只在控制台内存保存：
 
@@ -141,7 +141,7 @@ pending
 ## Session 清理
 
 1. 控制台关闭登录标签并删除当前账号共享任务和事件。
-2. 控制台依次为 `x.ai`、`auth.x.ai`、`accounts.x.ai` 和 `grok.com` 打开带独立 `tab_marker` 的后台清理标签。
+2. 控制台依次为 `x.ai`、`auth.x.ai`、`accounts.x.ai` 和 `grok.com` 打开带独立 `grok-bulk-cleanup` fragment 与 `tab_marker` 的后台清理标签。
 3. 每个清理标签只删除当前 origin 可访问的 localStorage、sessionStorage、IndexedDB、Cache Storage 和 Service Worker，并返回带 `cleanup_id` 与 host 的 ACK；任一域超时、标识不匹配或清理报错都立即阻断。
 4. 控制台按 `.x.ai`、`.grok.com` domain 使用 `GM_cookie.list` 全量枚举路径限定和子域 Cookie，逐个保留 path/分区信息调用 `GM_cookie.delete`。
 5. 删除后再次按 domain 全量枚举；任何残留 Cookie 或 API 错误都视为清理失败，不能进入下一账号。

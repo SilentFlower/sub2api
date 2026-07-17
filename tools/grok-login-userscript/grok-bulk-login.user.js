@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.1
+// @version      0.2.2
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -72,6 +72,8 @@
 
   const DRIVER_MARKER_KEY = 'grok-bulk-login'
   const DRIVER_WINDOW_PREFIX = `${DRIVER_MARKER_KEY}:`
+  const CLEANUP_MARKER_KEY = 'grok-bulk-cleanup'
+  const CLEANUP_WINDOW_PREFIX = `${CLEANUP_MARKER_KEY}:`
 
   const STATUS_LABELS = Object.freeze({
     pending: '等待处理',
@@ -487,12 +489,50 @@
    * @param {string} marker 标签随机标记。
    * @return {string} 带归属标记的地址。
    */
-  function appendDriverMarker(value, marker) {
+  function appendHashMarker(value, markerKey, marker) {
     const url = new URL(value)
-    const markerPart = `${DRIVER_MARKER_KEY}=${encodeURIComponent(marker)}`
+    const markerPart = `${markerKey}=${encodeURIComponent(marker)}`
     const currentHash = url.hash.slice(1)
     url.hash = currentHash ? `${currentHash}&${markerPart}` : markerPart
     return url.toString()
+  }
+
+  /**
+   * 为脚本打开的登录标签追加只保存在 URL fragment 中的随机归属标记。
+   * @param {string} value 原始地址。
+   * @param {string} marker 标签随机标记。
+   * @return {string} 带登录归属标记的地址。
+   */
+  function appendDriverMarker(value, marker) {
+    return appendHashMarker(value, DRIVER_MARKER_KEY, marker)
+  }
+
+  /**
+   * 为脚本打开的清理标签追加独立清理标记，避免被误认为登录/授权标签。
+   * @param {string} value 原始地址。
+   * @param {string} marker 清理标签随机标记。
+   * @return {string} 带清理归属标记的地址。
+   */
+  function appendCleanupMarker(value, marker) {
+    return appendHashMarker(value, CLEANUP_MARKER_KEY, marker)
+  }
+
+  /**
+   * 从 URL fragment 中读取指定归属标记。
+   * @param {string} hash URL fragment。
+   * @param {string} markerKey 标记键名。
+   * @return {string} 找到的归属标记；不存在时为空字符串。
+   */
+  function extractHashMarker(hash, markerKey) {
+    const value = String(hash || '').replace(/^#/, '')
+    const escapedKey = String(markerKey).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = value.match(new RegExp(`(?:^|&)${escapedKey}=([^&]+)(?:&|$)`))
+    if (!match) return ''
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return ''
+    }
   }
 
   /**
@@ -501,14 +541,16 @@
    * @return {string} 找到的归属标记；不存在时为空字符串。
    */
   function extractDriverMarker(hash) {
-    const value = String(hash || '').replace(/^#/, '')
-    const match = value.match(new RegExp(`(?:^|&)${DRIVER_MARKER_KEY}=([^&]+)(?:&|$)`))
-    if (!match) return ''
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return ''
-    }
+    return extractHashMarker(hash, DRIVER_MARKER_KEY)
+  }
+
+  /**
+   * 从 URL fragment 中读取清理标签归属标记。
+   * @param {string} hash URL fragment。
+   * @return {string} 找到的清理标记；不存在时为空字符串。
+   */
+  function extractCleanupMarker(hash) {
+    return extractHashMarker(hash, CLEANUP_MARKER_KEY)
   }
 
   /**
@@ -907,7 +949,9 @@
     isDeviceVerificationPath,
     shouldNavigateToVerification,
     appendDriverMarker,
+    appendCleanupMarker,
     extractDriverMarker,
+    extractCleanupMarker,
     isExpiredSharedTask,
     cookieIdentity,
     createCookieAdapter,
@@ -1462,6 +1506,24 @@
   }
 
   /**
+   * 读取当前清理标签标记，并写入独立 window.name，避免与登录标签混淆。
+   * @return {string} 当前清理标签归属标记。
+   */
+  function getCurrentCleanupMarker() {
+    const hashMarker = extractCleanupMarker(location.hash)
+    if (hashMarker) {
+      try {
+        window.name = `${CLEANUP_WINDOW_PREFIX}${hashMarker}`
+      } catch {
+        // 清理标签只需要当前页归属；window.name 失败时仍可用 URL fragment 校验。
+      }
+      return hashMarker
+    }
+    const windowName = String(window.name || '')
+    return windowName.startsWith(CLEANUP_WINDOW_PREFIX) ? windowName.slice(CLEANUP_WINDOW_PREFIX.length) : ''
+  }
+
+  /**
    * 启动 xAI/Grok 页面上的隐藏登录驱动。
    * @return {Promise<void>} 驱动结束 Promise。
    */
@@ -1506,7 +1568,7 @@
      */
     async function handleCleanupRequest(request) {
       if (!request || !request.cleanup_id || activeCleanupId === request.cleanup_id) return
-      if (request.target_host !== location.hostname || request.tab_marker !== getCurrentDriverMarker()) return
+      if (request.target_host !== location.hostname || request.tab_marker !== getCurrentCleanupMarker()) return
       activeCleanupId = request.cleanup_id
       let ok = false
       let errorCode = ''
@@ -2084,7 +2146,7 @@
             target_host: targetHost,
             at: Date.now()
           })
-          cleanupTab = GM_openInTab(appendDriverMarker(targetUrl, tabMarker), { active: false, insert: true })
+          cleanupTab = GM_openInTab(appendCleanupMarker(targetUrl, tabMarker), { active: false, insert: true })
           if (!cleanupTab || typeof cleanupTab.close !== 'function') {
             finish(createCodedError('CLEANUP_TAB_OPEN_FAILED'))
             return

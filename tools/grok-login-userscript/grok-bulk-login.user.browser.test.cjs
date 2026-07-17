@@ -418,7 +418,7 @@ test('清理标签返回包含 cleanup_id 和 host 的成功 ACK', async () => {
     at: Date.now()
   }
   const harness = createDriverHarness({
-    hash: '#grok-bulk-login=cleanup-tab-1',
+    hash: '#grok-bulk-cleanup=cleanup-tab-1',
     values: { [core.CONFIG.sharedKeys.cleanup]: request }
   })
 
@@ -432,9 +432,28 @@ test('清理标签返回包含 cleanup_id 和 host 的成功 ACK', async () => {
   assert.equal(harness.sessionStorage.clearCalls, 1)
 })
 
+test('清理请求不会接受登录标签 marker', async () => {
+  const request = {
+    run_id: 'run-1',
+    account_id: 'account-1',
+    cleanup_id: 'cleanup-login-marker',
+    tab_marker: 'cleanup-tab-login',
+    target_host: 'auth.x.ai',
+    at: Date.now()
+  }
+  const harness = createDriverHarness({
+    hash: '#grok-bulk-login=cleanup-tab-login',
+    values: { [core.CONFIG.sharedKeys.cleanup]: request }
+  })
+
+  await harness.flush()
+
+  assert.equal(harness.values.has(core.CONFIG.sharedKeys.cleanupAck), false)
+})
+
 test('站点存储清理异常返回失败 ACK', async () => {
   const harness = createDriverHarness({
-    hash: '#grok-bulk-login=cleanup-tab-2',
+    hash: '#grok-bulk-cleanup=cleanup-tab-2',
     failStorageCleanup: true,
     values: {
       [core.CONFIG.sharedKeys.cleanup]: {

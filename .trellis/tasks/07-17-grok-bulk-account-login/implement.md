@@ -20,6 +20,7 @@
 - [x] 将清空操作纳入控制台锁，页面卸载只清理自身 `run_id`，避免空闲标签破坏其它活动批次。
 - [x] 修复 Violentmonkey 对 `http://www.havefun.eu.cc:8080/*` 的匹配问题，增加精确 `@include` 并补回归测试。
 - [x] 修复 xAI 登录入口与 Device Flow 验证页混用问题：先打开 `accounts.x.ai` 登录入口，登录完成后再跳转官方 `verification_uri`；授权路径兼容当前 `/oauth2/device` 基础路径。
+- [x] 修复清理标签与登录标签 marker 混用问题：清理标签改用 `#grok-bulk-cleanup=...`，登录/授权标签保留 `#grok-bulk-login=...`，并补清理请求拒绝登录 marker 的回归测试。
 
 ## 重点风险
 
@@ -49,6 +50,7 @@ git diff --check
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
 - 使用两个测试账号串行运行，确认第二号不会继承第一号登录态。
+- 若看到 `auth.x.ai`、`x.ai`、`accounts.x.ai` 或 `grok.com` 根路径后台页，URL 应带 `#grok-bulk-cleanup=...`；带 `#grok-bulk-login=...` 的才是登录/授权标签。
 - 手工关闭登录标签、点击停止、制造 Token 超时，确认轮询取消和敏感共享值删除。
 
 ## 回滚
