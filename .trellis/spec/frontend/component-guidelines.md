@@ -138,6 +138,11 @@ const openai = {
 编译通过、无 key collision，并使用包含工作区改动的临时索引执行 `git merge-tree`
 确认上游热点不再冲突。
 
+> **注意**：对象末尾的 build override 会稳定覆盖 main 同名 key。main 后续修改原 key
+> 时，Git 可以 0 冲突自动合并，但最终页面仍显示旧 override。同步 main 时必须同时读取
+> main 新值和独立 override，把上游新增语义合入 override；不能只检查 marker、文件 diff
+> 或 locale 是否可编译。相邻测试应断言最终有效文案或关键语义词，避免只断言 key 存在。
+
 ---
 
 ## Common Mistakes

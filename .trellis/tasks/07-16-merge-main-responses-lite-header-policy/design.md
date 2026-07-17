@@ -206,3 +206,29 @@ Lite 入站信号
 - `wire_gen.go` 只在依赖图稳定后生成。
 - 验证完成前不创建 merge commit；本任务不自动 push。
 - push 后如需回滚，应使用 `git revert -m 1 <merge-commit>`，禁止 force push。
+
+## 10. 2026-07-17 main 0.1.158 二次同步记录
+
+### 10.1 基线与合并结果
+
+- `build` 合并前 HEAD：`2eec47d123c02e90d4ca818c4f1a50e18d362306`。
+- `origin/main`：`bc2244c83fd8e92769d89ca01eb980513a720486`，版本 `0.1.158`。
+- 共同基线：`b960ec19807ea81d6d83cad63e84ad45fdf7e08a`。
+- 本轮包含 19 个 main 提交、100 个 incoming 文件；`git merge-tree` 与真实 `git merge --no-commit --no-ff origin/main` 均为 0 个硬冲突。
+- main 与 build 同时修改 27 个文件，覆盖 Wire、Grok handler/账号端点、OpenAI WS/Lite/生图、账号弹窗、locale 和类型定义；逐组语义复核后，生产代码均为双方能力叠加。
+
+### 10.2 自动合并后的语义修正
+
+- main 更新了 Codex 图片桥接文案，明确区分 hosted `image_generation` 与客户端本地 `image_gen`。
+- build 的 `accountsOpenAIImageGenerationOverrides.ts` 位于对象末尾，会覆盖 main 同名 key；因此 Git 虽然 0 冲突，最终 UI 仍会显示旧语义。
+- 最终只修改 build 独立的中英文 override：保留 main 的执行域说明，同时加入 build 的 Responses Lite 最终模型阻止列表规则；共享 `accounts.ts` 继续只保留稳定 spread。
+- 该案例形成新规则：对 locale spread、re-export、装饰器等覆盖型薄接入，合并审计必须检查最终运行时有效值，不能把 0 文本冲突视为语义通过。
+
+### 10.3 生成与验证结果
+
+- 执行 `go generate ./cmd/server` 后，`wire_gen.go` 与自动合并结果完全一致，无手工生成文件差异。
+- `git ls-files -u` 为空，`git diff --check HEAD` 通过。
+- 后端定向测试、全量 unit 和 golangci-lint 通过，lint 为 `0 issues`。
+- 前端定向测试 212/212、全量测试 1247/1247、typecheck、lint 和生产 build 通过。
+- PostgreSQL integration-tag 测试未运行；新增 migration 已完成静态检查，历史记录使用可空字段。
+- 当前仍处于未提交 merge 状态，等待 Phase 3.4 通过 `trellis-push` 完成精确提交与推送确认。
