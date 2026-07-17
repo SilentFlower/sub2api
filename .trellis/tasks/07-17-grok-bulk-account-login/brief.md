@@ -8,7 +8,7 @@
 
 - 在 `tools/grok-login-userscript/` 提供可直接安装的 `grok-bulk-login.user.js`、无真实凭据的自动化测试和中文 README。
 - 解析多行 `邮箱|密码`，校验、去重并串行处理账号。
-- 控制台仅在 `www.havefun.eu.cc` 显示；xAI/Grok 页面只运行隐藏的自动填表、人工验证检测、授权推进和站点存储清理逻辑。
+- 控制台仅在 `www.havefun.eu.cc` 的 HTTP/HTTPS 页面显示；xAI/Grok 页面只在 HTTPS 下运行隐藏的自动填表、人工验证检测、授权推进和站点存储清理逻辑。
 - 使用 xAI 官方 Device Flow 创建 device code、打开验证页、有限轮询 Token，并输出一行一个 refresh token。
 - 提供开始、暂停、继续、跳过、停止、失败重试、状态列表、复制结果和清空敏感数据。
 - 每号结束后使用 Violentmonkey `GM_cookie` 清除目标域 Cookie（含授权后的 HttpOnly Cookie）并二次校验；清理失败时阻断后续账号。
@@ -31,12 +31,13 @@
 - Violentmonkey 共享值是持久存储，最多短暂保存当前账号；密码提交及所有终止路径都必须删除。
 - xAI 页面 DOM 无法在当前环境稳定获取，自动化必须依赖语义选择器和低置信度停机，禁止猜测性点击。
 - 当前 Sub2API 已支持 refresh token 多行导入；脚本只需输出 refresh token。
-- `www.havefun.eu.cc` 当前 TLS 证书和 nginx 虚拟主机不匹配，真实使用前必须先保证该页面可正常打开，但本任务不修改服务器配置。
+- `www.havefun.eu.cc` 当前 TLS 证书和 nginx 虚拟主机不匹配；用户明确要求使用 HTTP 控制台并接受对应风险，本任务不修改服务器配置。
+- HTTP/HTTPS 控制台共用带竞争确认、心跳和过期时间的 Violentmonkey 共享租约锁，HTTPS 额外叠加 Web Locks；xAI Device Flow 和登录页面仍只允许 HTTPS。
 
 ## Acceptance
 
 - 输入解析覆盖空行、非法行、重复邮箱和密码含额外 `|`，且不泄露密码。
-- 控制台只在指定站点显示；xAI/Grok 页面不显示脚本 UI 或明文凭据。
+- 控制台只在指定站点的 HTTP/HTTPS 页面显示；HTTP 模式必须提示凭据泄露风险，xAI/Grok 页面不显示脚本 UI 或明文凭据。
 - Device Flow 能正确处理 pending、slow down、拒绝、过期、网络错误、超时和取消，并导出 refresh token。
 - 模拟登录页能自动填入邮箱密码；Cloudflare、验证码、2FA 和未知页面只暂停等待人工处理。
 - 单号失败不影响批次；但 session 清理失败必须阻断队列，防止账号串用。
@@ -46,4 +47,4 @@
 
 ## Next Step
 
-- 用户确认 PRD、设计、实施计划和本摘要后，运行 `task.py start`；进入执行阶段后先通过 `trellis-route(implement)` 决定实现路由，再按 `trellis-before-dev` 注入开发规范。
+- Phase 2.2 Check-All 和 Phase 3.3 浏览器认证规范更新已完成；下一步进入 `trellis-push`。

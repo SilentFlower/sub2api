@@ -65,14 +65,33 @@ output: refresh_token\nrefresh_token\n...
 submitFilledInput(element, button, stageAndUrlKey, afterSubmit)
 ```
 
+控制台独占锁调用关系：
+
+```javascript
+runWithControllerLock(lockManager, leaseStore, lockName, ownerId, callback, options)
+```
+
+跨协议共享租约记录：
+
+```json
+{
+  "owner": "当前控制台随机标识",
+  "acquired_at": 0,
+  "expires_at": 0
+}
+```
+
 xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 `backend/internal/pkg/xai/sso_device.go` 中的公开 client ID、scope、device code
 端点和 Token 端点为核对来源。
 
 ### 3. Contracts
 
-- 控制台只能在明确允许的 HTTPS host 渲染，并使用 `closed` Shadow DOM 隔离账号输入和 Token 结果；认证站点只运行隐藏驱动。
-- 同一浏览器 Profile 的批次必须使用 Web Locks 独占；第二个控制台不得覆盖共享任务或交叉清理 Session。
+- 控制台只能在显式允许的 host 和 HTTP/HTTPS 协议渲染，并使用 `closed` Shadow DOM 隔离账号输入和 Token 结果；认证站点只允许 HTTPS 并只运行隐藏驱动。
+- HTTP 控制台必须醒目提示网络中间人、代理、页面篡改和全局输入监听风险，并把风险确认纳入开始和重试门禁。Shadow DOM 和用户脚本隔离不能被描述为 TLS 替代品。
+- HTTP/HTTPS 控制台必须持有同一个 Violentmonkey 共享租约，提供跨协议互斥；HTTPS 还必须先获得 Web Lock，再在其回调内获得共享租约。只使用 Web Lock 会因锁按 origin 隔离而无法阻止 HTTP 与 HTTPS 标签同时运行。
+- GM 共享值没有 compare-and-swap。租约必须使用随机 owner、有限竞争确认延迟、心跳续租和过期回收；结束时只能删除 owner 仍匹配的租约。锁 API 或共享存储异常时必须显示稳定错误，并保持批次未启动。
+- 清空敏感数据必须先获得同一控制台锁。页面卸载只能删除与自身 `run_id` 匹配的任务、事件和清理消息，空闲或旧控制台不得清除其它活动批次。
 - 登录驱动只有在 `run_id`、`account_id`、`tab_marker` 全部匹配且任务未取消、未过期时才能自动动作。标签标识只能放在 URL fragment 或标签私有状态中，禁止携带密码。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
 - Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
@@ -86,7 +105,13 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 
 | 条件 | 必须行为 |
 | --- | --- |
-| 当前页面不是 HTTPS 控制台 host | 不渲染控制台 |
+| 当前页面不是明确允许的控制台 host，或协议不是 HTTP/HTTPS | 不渲染控制台 |
+| HTTP 控制台未确认明文传输风险 | 不启动或重试批次 |
+| HTTP/HTTPS 任一协议已持有未过期共享租约 | 第二个控制台不处理账号，也不清空共享值 |
+| HTTPS 未获得 Web Lock，或任一协议未获得共享租约 | 不进入批次准备、旧 Session 清理或账号处理 |
+| 租约 owner 在批次期间变化 | 停止当前批次、取消请求并进入当前账号清理 |
+| Web Lock、GM 共享存储或租约调度抛错 | 显示稳定锁失败错误，不处理任何账号 |
+| 旧控制台卸载且共享值属于其它 `run_id` | 保留其它控制台的共享值 |
 | 任务、账号或标签标识不匹配 | 不填表、不点击、不清理其它标签的数据 |
 | 任务过期、停止或跳过 | 取消待执行动作并删除共享密码 |
 | 延迟期间 URL 变化 | 旧动作不执行，且不标记密码已提交 |
@@ -103,15 +128,24 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：密码页填入后短暂出现 Cloudflare 文案，旧定时器被守卫拒绝；用户完成验证后，同一 URL 重新扫描并只提交一次。
 - Good：用户点击停止时，共享任务先投影为不含密码的取消状态，登录驱动随后取消定时器，控制台再中止 Token 请求并清理 Session。
 - Good：清理 ACK 同时匹配批次、账号、`cleanup_id` 和 host，Cookie 删除后二次 domain 枚举为空才进入下一账号。
+- Good：HTTPS 控制台持有 Web Lock 和共享租约时，HTTP 控制台读取同一租约并拒绝启动；反向顺序同样成立。
+- Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
 - Bad：创建延迟定时器时立即占用动作次数，导致守卫拒绝后无法恢复。
 - Bad：只删除当前 URL 可见 Cookie，遗漏其它 path、子域、HttpOnly 或分区 Cookie。
 - Bad：把整批账号密码写入 localStorage、GM 共享值、页面 DOM 属性、URL 或日志。
+- Bad：HTTPS 只使用 Web Lock、HTTP 只使用共享租约；两种锁互不相通，会让两个协议的标签同时处理账号。
 
 ### 6. Tests Required
 
 - 纯逻辑测试至少覆盖：输入解析、邮箱去重、Token 响应分类、轮询退避、挑战页识别、动作门禁、任务归属、密码消费/取消投影、Cookie domain 枚举与二次校验。
+- 控制台与锁测试至少覆盖：
+  - 只允许精确控制台 host 的 HTTP/HTTPS 地址，xAI 验证地址仍只接受 HTTPS。
+  - 未过期租约拒绝、过期租约接管、心跳续租、竞争确认失败和 owner 限定释放。
+  - HTTPS 活动时 HTTP 获取锁失败，HTTP 活动时 HTTPS 获取锁失败。
+  - Web Lock 或共享存储抛错时批次回调不执行，控制台使用稳定锁失败提示。
+  - 页面卸载只删除当前 `run_id` 的共享值，保留其它批次。
 - Node VM 浏览器状态机测试至少覆盖：
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
@@ -152,3 +186,29 @@ deferredSubmit.schedule(150, () => {
 ```
 
 先通过所有执行时守卫，再占用一次动作机会。守卫拒绝表示动作从未发生，因此不得消耗“最多执行一次”的额度。
+
+#### Wrong
+
+```javascript
+if (navigator.locks) {
+  return runWithExclusiveLock(navigator.locks, lockName, callback)
+}
+return runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback)
+```
+
+问题：Web Locks 按 origin 隔离，`http://` 与 `https://` 控制台不会共享同一把锁；两个分支可能同时进入批次。
+
+#### Correct
+
+```javascript
+if (navigator.locks) {
+  let leaseAcquired = false
+  const webLockAcquired = await runWithExclusiveLock(navigator.locks, lockName, async () => {
+    leaseAcquired = await runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback)
+  })
+  return webLockAcquired && leaseAcquired
+}
+return runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback)
+```
+
+共享租约承担跨协议互斥，HTTPS Web Lock 只增加同源原子互斥；两者不是互相替代关系。

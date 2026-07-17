@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.1.0
+// @version      0.2.0
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
+// @match        http://www.havefun.eu.cc/*
 // @match        https://www.havefun.eu.cc/*
 // @match        https://x.ai/*
 // @match        https://*.x.ai/*
@@ -60,7 +61,10 @@
     maxDeviceFlowMs: 30 * 60 * 1000,
     minPollMs: 1000,
     maxPollMs: 30000,
-    controllerLockName: 'grok-bulk-login:controller-v1'
+    controllerLockName: 'grok-bulk-login:controller-v1',
+    controllerLeaseClaimDelayMs: 180,
+    controllerLeaseHeartbeatMs: 10000,
+    controllerLeaseTtlMs: 60000
   })
 
   const DRIVER_MARKER_KEY = 'grok-bulk-login'
@@ -101,8 +105,8 @@
     SCRIPT_STOPPED: '批次已停止',
     TOKEN_MISSING_REFRESH: 'Token 响应缺少 refresh token',
     TOKEN_REQUEST_FAILED: '轮询 xAI Token 失败',
-    VM_API_MISSING: 'Violentmonkey API 不完整',
-    WEB_LOCKS_MISSING: '当前 Chrome 不支持控制台独占锁'
+    CONTROLLER_LOCK_FAILED: '无法建立控制台独占锁，未处理任何账号',
+    VM_API_MISSING: 'Violentmonkey API 不完整'
   })
 
   const TRANSITIONS = Object.freeze({
@@ -126,6 +130,16 @@
    */
   function normalizeEmail(value) {
     return String(value || '').trim().toLowerCase()
+  }
+
+  /**
+   * 判断当前位置是否为允许展示控制台的 HTTP/HTTPS 地址。
+   * @param {string} protocol 页面协议。
+   * @param {string} hostname 页面主机名。
+   * @return {boolean} 是否为允许的控制台地址。
+   */
+  function isControllerLocation(protocol, hostname) {
+    return (protocol === 'http:' || protocol === 'https:') && CONFIG.controllerHosts.has(String(hostname || ''))
   }
 
   /**
@@ -617,6 +631,129 @@
   }
 
   /**
+   * 使用 Violentmonkey 共享值租约尝试独占执行批次。
+   * @param {{get: function(string): object|null, set: function(string, object): void, delete: function(string): void}} leaseStore 共享值适配器。
+   * @param {string} lockName 租约键名。
+   * @param {string} ownerId 当前控制台随机 owner。
+   * @param {function(): Promise<void>} callback 获得租约后执行的批次函数。
+   * @param {{now?: function(): number, wait?: function(number): Promise<void>, setInterval?: function(function, number): unknown, clearInterval?: function(unknown): void, claimDelayMs?: number, heartbeatMs?: number, ttlMs?: number, onLost?: function(): void}} [options] 可注入的租约参数。
+   * @return {Promise<boolean>} 是否获得并持有租约直到批次结束。
+   */
+  async function runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback, options = {}) {
+    const now = options.now || (() => Date.now())
+    const waitFor = options.wait || (delayMs => new Promise(resolve => setTimeout(resolve, delayMs)))
+    const scheduleHeartbeat = options.setInterval || ((handler, delayMs) => setInterval(handler, delayMs))
+    const cancelHeartbeat = options.clearInterval || (timer => clearInterval(timer))
+    const configuredTtlMs = Number(options.ttlMs)
+    const configuredHeartbeatMs = Number(options.heartbeatMs)
+    const configuredClaimDelayMs = Number(options.claimDelayMs)
+    const ttlMs = Math.max(1000, Number.isFinite(configuredTtlMs) ? configuredTtlMs : CONFIG.controllerLeaseTtlMs)
+    const heartbeatMs = Math.max(250, Math.min(Number.isFinite(configuredHeartbeatMs) ? configuredHeartbeatMs : CONFIG.controllerLeaseHeartbeatMs, ttlMs - 1))
+    const claimDelayMs = Math.max(0, Number.isFinite(configuredClaimDelayMs) ? configuredClaimDelayMs : CONFIG.controllerLeaseClaimDelayMs)
+    const normalizedOwner = String(ownerId || '')
+    if (!normalizedOwner) return false
+
+    const current = leaseStore.get(lockName)
+    if (current && current.owner !== normalizedOwner && Number(current.expires_at) > now()) return false
+
+    const acquiredAt = now()
+    leaseStore.set(lockName, {
+      owner: normalizedOwner,
+      acquired_at: acquiredAt,
+      expires_at: acquiredAt + ttlMs
+    })
+
+    // GM 共享值没有 compare-and-swap；等待竞争窗口后只允许最终 owner 进入批次。
+    await waitFor(claimDelayMs)
+    const confirmed = leaseStore.get(lockName)
+    if (!confirmed || confirmed.owner !== normalizedOwner || Number(confirmed.expires_at) <= now()) return false
+
+    let leaseLost = false
+    let heartbeat = null
+
+    function markLeaseLost() {
+      if (leaseLost) return
+      leaseLost = true
+      if (heartbeat !== null) cancelHeartbeat(heartbeat)
+      if (typeof options.onLost === 'function') options.onLost()
+    }
+
+    heartbeat = scheduleHeartbeat(() => {
+      try {
+        const active = leaseStore.get(lockName)
+        if (!active || active.owner !== normalizedOwner) {
+          markLeaseLost()
+          return
+        }
+        leaseStore.set(lockName, {
+          ...active,
+          expires_at: now() + ttlMs
+        })
+      } catch {
+        markLeaseLost()
+      }
+    }, heartbeatMs)
+
+    try {
+      await callback()
+      return !leaseLost
+    } finally {
+      if (heartbeat !== null) cancelHeartbeat(heartbeat)
+      try {
+        const latest = leaseStore.get(lockName)
+        if (latest && latest.owner === normalizedOwner) leaseStore.delete(lockName)
+      } catch {
+        // 租约带过期时间；卸载或存储异常时由后续控制台回收过期记录。
+      }
+    }
+  }
+
+  /**
+   * 使用共享租约提供跨协议互斥，Web Locks 可用时再叠加同源原子锁。
+   * @param {{request?: function(string, object, function): Promise<unknown>}|null} lockManager Web Locks 管理器。
+   * @param {{get: function(string): object|null, set: function(string, object): void, delete: function(string): void}} leaseStore 共享值适配器。
+   * @param {string} lockName 独占锁名称。
+   * @param {string} ownerId 当前控制台随机 owner。
+   * @param {function(): Promise<void>} callback 获得锁后执行的批次函数。
+   * @param {object} [options] 共享租约锁参数。
+   * @return {Promise<boolean>} 是否获得锁并执行了批次。
+   */
+  async function runWithControllerLock(lockManager, leaseStore, lockName, ownerId, callback, options = {}) {
+    if (lockManager && typeof lockManager.request === 'function') {
+      let leaseAcquired = false
+      const webLockAcquired = await runWithExclusiveLock(lockManager, lockName, async () => {
+        leaseAcquired = await runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback, options)
+      })
+      return webLockAcquired && leaseAcquired
+    }
+    return runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback, options)
+  }
+
+  /**
+   * 只删除属于指定批次的共享值，避免其它控制台卸载时清空活动任务。
+   * @param {{get: function(string): object|null, delete: function(string): void}} sharedStore 共享值适配器。
+   * @param {object} sharedKeys 需要检查的共享键。
+   * @param {string} runId 当前控制台批次标识。
+   * @return {number} 删除的共享值数量。
+   */
+  function clearRunScopedSharedValues(sharedStore, sharedKeys, runId) {
+    const normalizedRunId = String(runId || '')
+    if (!normalizedRunId) return 0
+    let deleted = 0
+    Object.values(sharedKeys).forEach(key => {
+      try {
+        const value = sharedStore.get(key)
+        if (!value || value.run_id !== normalizedRunId) return
+        sharedStore.delete(key)
+        deleted++
+      } catch {
+        // 页面卸载阶段逐项尽力清理，单个共享键异常不影响其它键。
+      }
+    })
+    return deleted
+  }
+
+  /**
    * 判断共享消息是否属于指定批次和账号。
    * @param {object|null} value 共享消息。
    * @param {string} runId 批次标识。
@@ -699,6 +836,7 @@
     STATUS_LABELS,
     ERROR_MESSAGES,
     normalizeEmail,
+    isControllerLocation,
     parseAccounts,
     maskEmail,
     canTransition,
@@ -721,6 +859,9 @@
     createActionGate,
     createDeferredActionController,
     runWithExclusiveLock,
+    runWithSharedLeaseLock,
+    runWithControllerLock,
+    clearRunScopedSharedValues,
     taskMatches,
     activeTaskMatches,
     cleanupAckMatches,
@@ -919,7 +1060,6 @@
       && typeof GM_cookie.set === 'function'
       && typeof GM_cookie.delete === 'function'
     if (!/violentmonkey/i.test(handler) || !available) throw createCodedError('VM_API_MISSING')
-    if (!navigator.locks || typeof navigator.locks.request !== 'function') throw createCodedError('WEB_LOCKS_MISSING')
   }
 
   /**
@@ -1487,6 +1627,13 @@
    * @return {object} 控制台元素引用。
    */
   function createControllerUI() {
+    const isHttpController = location.protocol === 'http:'
+    const httpRiskWarning = isHttpController
+      ? '<div class="warning http-risk">当前使用 HTTP：账号密码和 refresh token 可能被网络中间人、代理或被篡改页面窃取。只应在你信任的网络和服务器上运行。</div>'
+      : ''
+    const httpRiskAck = isHttpController
+      ? '我知晓当前 HTTP 页面可能泄露账号密码和 refresh token；'
+      : ''
     const host = document.createElement('div')
     host.id = 'grok-bulk-login-root'
     document.documentElement.appendChild(host)
@@ -1511,6 +1658,7 @@
         textarea { width: 100%; resize: vertical; min-height: 94px; max-height: 210px; border: 1px solid #aab4be; border-radius: 4px; padding: 9px; color: #182026; background: #fff; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
         textarea:focus, button:focus-visible, input:focus-visible { outline: 2px solid #137cbd; outline-offset: 1px; }
         .warning { margin-top: 8px; padding: 8px 10px; border-left: 3px solid #d9822b; background: #fff7e8; color: #7a4b10; }
+        .warning.http-risk { border-left-color: #b23a2b; background: #fff0ed; color: #7c2418; font-weight: 700; }
         .ack { display: flex; align-items: flex-start; gap: 8px; margin-top: 9px; color: #394b59; }
         .toolbar { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px 14px; border-bottom: 1px solid #d9dee3; background: #eef1f4; }
         button { min-height: 34px; border: 1px solid #8a99a8; border-radius: 4px; padding: 0 11px; color: #25313c; background: #fff; font: inherit; font-weight: 600; cursor: pointer; }
@@ -1549,8 +1697,9 @@
         </header>
         <section class="section">
           <textarea id="accounts" spellcheck="false" autocomplete="off" placeholder="一行一个账号：邮箱|密码"></textarea>
+          ${httpRiskWarning}
           <div class="warning">运行会清除当前 Chrome Profile 的 xAI/Grok 登录态。Cloudflare 或其它安全验证只允许人工处理。</div>
-          <label class="ack"><input id="ack" type="checkbox"> <span>我已开启 Violentmonkey 全局及脚本级 HttpOnly Cookie 权限，并确认允许清除当前 Profile 的 xAI/Grok Session。</span></label>
+          <label class="ack"><input id="ack" type="checkbox"> <span>${httpRiskAck}我已开启 Violentmonkey 全局及脚本级 HttpOnly Cookie 权限，并确认允许清除当前 Profile 的 xAI/Grok Session。</span></label>
           <div id="parse-errors" class="errors"></div>
         </section>
         <div class="toolbar">
@@ -1612,10 +1761,16 @@
       apiAvailable: true,
       lockPending: false
     }
+    const sharedValueStore = Object.freeze({
+      get: key => GM_getValue(key, null),
+      set: (key, value) => GM_setValue(key, value),
+      delete: key => GM_deleteValue(key)
+    })
 
     try {
       assertViolentmonkeyApis()
-      ui.runner.textContent = `Violentmonkey ${GM_info.version || ''}`.trim()
+      const protocolLabel = location.protocol === 'http:' ? ' · HTTP 风险模式' : ''
+      ui.runner.textContent = `Violentmonkey ${GM_info.version || ''}${protocolLabel}`.trim()
     } catch (error) {
       runtime.apiAvailable = false
       ui.runner.textContent = '运行器不兼容'
@@ -1733,28 +1888,59 @@
     }
 
     /**
-     * 在浏览器级独占锁内启动批次，防止多个控制台覆盖共享任务或交叉清理 Session。
-     * @param {function(): Promise<void>|void} prepare 获得锁后、启动队列前执行的准备动作。
-     * @return {Promise<boolean>} 是否获得锁并启动了队列。
+     * 在控制台独占锁内执行敏感共享值操作。
+     * @param {function(): Promise<void>|void} callback 获得锁后执行的动作。
+     * @return {Promise<boolean>} 是否获得锁并执行了动作。
      */
-    async function runProcessQueueLocked(prepare) {
+    async function runControllerLocked(callback) {
       if (runtime.running || runtime.lockPending) return false
       runtime.lockPending = true
       render()
       try {
-        const acquired = await runWithExclusiveLock(navigator.locks, CONFIG.controllerLockName, async () => {
-          await prepare()
-          await processQueue()
-        })
+        const acquired = await runWithControllerLock(
+          navigator.locks,
+          sharedValueStore,
+          CONFIG.controllerLockName,
+          createId('controller'),
+          callback,
+          {
+            claimDelayMs: CONFIG.controllerLeaseClaimDelayMs,
+            heartbeatMs: CONFIG.controllerLeaseHeartbeatMs,
+            ttlMs: CONFIG.controllerLeaseTtlMs,
+            onLost() {
+              runtime.stopRequested = true
+              cancelCurrentSharedTask()
+              if (runtime.currentAbort) runtime.currentAbort.abort()
+              setGlobalStatus('控制台独占租约已丢失，正在停止并清理当前账号')
+              render()
+            }
+          }
+        )
         if (!acquired) {
           ui.parseErrors.textContent = '另一个 Grok 批量授权控制台正在运行，请先在原控制台停止或等待完成。'
           setGlobalStatus('检测到其它活动控制台')
         }
         return acquired
+      } catch {
+        ui.parseErrors.textContent = ERROR_MESSAGES.CONTROLLER_LOCK_FAILED
+        setGlobalStatus(ERROR_MESSAGES.CONTROLLER_LOCK_FAILED)
+        return false
       } finally {
         runtime.lockPending = false
         render()
       }
+    }
+
+    /**
+     * 在控制台独占锁内启动批次，防止多个控制台覆盖共享任务或交叉清理 Session。
+     * @param {function(): Promise<void>|void} prepare 获得锁后、启动队列前执行的准备动作。
+     * @return {Promise<boolean>} 是否获得锁并启动了队列。
+     */
+    async function runProcessQueueLocked(prepare) {
+      return runControllerLocked(async () => {
+        await prepare()
+        await processQueue()
+      })
     }
 
     /**
@@ -1985,7 +2171,7 @@
       if (runtime.running || runtime.lockPending) return
       ui.parseErrors.textContent = ''
       if (!ui.ackInput.checked) {
-        ui.parseErrors.textContent = '请先确认 HttpOnly Cookie 权限和当前 Profile Session 清理风险。'
+        ui.parseErrors.textContent = '请先确认当前页面协议风险、HttpOnly Cookie 权限和当前 Profile Session 清理风险。'
         return
       }
       let rawInput = ui.accountsInput.value
@@ -2039,7 +2225,7 @@
     ui.retryButton.addEventListener('click', async () => {
       if (runtime.running || runtime.lockPending) return
       if (!ui.ackInput.checked) {
-        ui.parseErrors.textContent = '请先确认 HttpOnly Cookie 权限和当前 Profile Session 清理风险。'
+        ui.parseErrors.textContent = '请先确认当前页面协议风险、HttpOnly Cookie 权限和当前 Profile Session 清理风险。'
         return
       }
       await runProcessQueueLocked(() => {
@@ -2062,23 +2248,25 @@
       setGlobalStatus('refresh token 已复制')
     })
 
-    ui.clearButton.addEventListener('click', () => {
+    ui.clearButton.addEventListener('click', async () => {
       if (runtime.running || runtime.lockPending) {
         ui.parseErrors.textContent = '请先停止当前批次，再清空敏感数据。'
         return
       }
-      runtime.accounts.forEach(account => {
-        account.password = ''
-        account.refreshToken = ''
+      await runControllerLocked(() => {
+        runtime.accounts.forEach(account => {
+          account.password = ''
+          account.refreshToken = ''
+        })
+        runtime.accounts = []
+        runtime.runId = ''
+        ui.accountsInput.value = ''
+        ui.results.value = ''
+        ui.parseErrors.textContent = ''
+        clearSharedValues()
+        setGlobalStatus('敏感数据已清空')
+        render()
       })
-      runtime.accounts = []
-      runtime.runId = ''
-      ui.accountsInput.value = ''
-      ui.results.value = ''
-      ui.parseErrors.textContent = ''
-      clearSharedValues()
-      setGlobalStatus('敏感数据已清空')
-      render()
     })
 
     window.addEventListener('beforeunload', () => {
@@ -2090,7 +2278,7 @@
       } catch {
         // 页面卸载阶段只做尽力关闭，后续依靠共享值过期保护。
       }
-      clearSharedValues()
+      clearRunScopedSharedValues(sharedValueStore, CONFIG.sharedKeys, runtime.runId)
       if (eventListener !== null) GM_removeValueChangeListener(eventListener)
     }, { once: true })
     render()
@@ -2101,14 +2289,14 @@
    * @return {Promise<void>} 启动完成 Promise。
    */
   async function bootstrap() {
-    if (location.protocol !== 'https:') return
-    if (CONFIG.controllerHosts.has(location.hostname)) {
+    if (isControllerLocation(location.protocol, location.hostname)) {
       if (document.readyState === 'loading') {
         await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }))
       }
       await runController()
       return
     }
+    if (location.protocol !== 'https:') return
     if (CONFIG.authHosts.has(location.hostname) || location.hostname.endsWith('.x.ai') || location.hostname.endsWith('.grok.com')) {
       await runLoginDriver()
     }

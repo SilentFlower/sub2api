@@ -11,7 +11,9 @@
 
 两个上下文通过带 `run_id`、`account_id` 和随机 `tab_marker` 的 Violentmonkey 共享值通信。所有事件都校验当前运行标识；登录驱动还必须验证当前标签 fragment 中的 `tab_marker`，避免旧标签、用户预先打开的标签或旧批次读取当前凭据。
 
-控制台只声明 `https://www.havefun.eu.cc/*` 匹配规则，并在启动入口再次检查 `location.protocol === 'https:'`。控制台使用 `closed` Shadow DOM 隔离页面脚本对账号输入和 refresh token 结果区的直接访问。批次启动由 Chrome Web Locks API 提供浏览器级独占锁，同一 Profile 内第二个控制台不得覆盖共享任务或交叉清理 Session。
+控制台声明 `http://www.havefun.eu.cc/*` 和 `https://www.havefun.eu.cc/*` 匹配规则，并在启动入口再次校验 host 与协议。xAI/Grok 驱动仍只允许 HTTPS。控制台使用 `closed` Shadow DOM 隔离页面脚本对账号输入和 refresh token 结果区的直接访问；HTTP 模式额外显示网络注入和凭据泄露风险，并要求用户显式确认后才能开始或重试。
+
+HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协议互斥：随机 owner 写入锁记录，等待短暂竞争窗口后二次确认归属，批次运行期间定时续租，结束时只释放自己的租约。HTTPS 安全上下文先获得 Chrome Web Lock，再在其回调内获得共享租约，以同时覆盖同源原子互斥和 HTTP/HTTPS 跨协议互斥。未过期的其它 owner 会直接阻止启动；过期租约允许接管。同一 Profile 内第二个控制台不得覆盖共享任务或交叉清理 Session。清空敏感数据也必须先获得同一控制台锁；页面卸载只删除与自身 `run_id` 匹配的任务、事件和清理消息。锁 API 或共享存储异常时显示稳定错误并保持批次未启动。
 
 ## 领域模块
 
@@ -151,7 +153,8 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 - 停止或跳过时，控制台先把共享任务投影为不含密码的 `cancelled_at` 状态，再中止 Token 请求并进入强制 Session 清理。
 - `console` 只输出稳定事件码和脱敏邮箱，不输出请求正文或上游响应正文。
 - UI 采用 `closed` Shadow DOM；复制 refresh token 需要显式点击，“清空敏感数据”会覆盖内存数组并删除全部脚本共享键。
-- Web Locks 独占锁覆盖批次准备、初始清理和完整账号队列，防止多个控制台并发读写同一组 Violentmonkey 共享键。
+- HTTP 模式明确提示 TLS 缺失风险；Shadow DOM 和用户脚本隔离只降低普通页面误读风险，不能抵御网络中间人、被篡改页面或全局输入监听。
+- Violentmonkey 共享租约锁覆盖所有协议，HTTPS 再叠加 Web Locks；两者共同覆盖批次准备、初始清理和完整账号队列。租约释放必须校验 owner，不能删除其它控制台的锁。
 - 所有外部请求只允许 `auth.x.ai`，不加载远程 `@require` 或第三方资源。
 
 ## 兼容与回滚
@@ -159,11 +162,11 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 - 用户脚本为独立文件，删除或禁用脚本即可回滚，不影响 Sub2API。
 - xAI 页面结构变化时，低置信度检测会停止自动化而不是误点。
 - Device Flow 官方契约变化时，错误会停留在当前账号并保留此前成功结果。
-- `www.havefun.eu.cc` TLS/虚拟主机问题不由本任务修改，必须作为运行前置条件处理。
+- `www.havefun.eu.cc` TLS/虚拟主机问题不由本任务修改；HTTP 控制台可运行，但风险提示不能隐藏，后续证书修复后可直接改用 HTTPS。
 
 ## 验证策略
 
 - Node 纯逻辑测试覆盖解析、状态迁移、Token 错误分类、选择器候选评分、脱敏、动作门禁、可取消延迟动作和异常收尾投影。
 - Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、站点存储清理成功与失败 ACK。
-- GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占和 HTTPS/closed Shadow DOM 静态约束。
+- GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占、共享租约竞争/过期/释放、按 `run_id` 卸载清理和 HTTP/HTTPS/closed Shadow DOM 静态约束。
 - 真实 xAI 页面、Cloudflare 和 Violentmonkey HttpOnly 权限只能在用户浏览器中手工验收；测试使用虚构账号和假 Token，不使用用户真实凭据。

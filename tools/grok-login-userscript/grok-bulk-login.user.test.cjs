@@ -155,6 +155,14 @@ test('Device Flow 验证地址只接受 xAI HTTPS 域', () => {
   assert.equal(core.isTrustedVerificationUrl('https://x.ai.example.com/oauth2/device/complete'), false)
 })
 
+test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
+  assert.equal(core.isControllerLocation('http:', 'www.havefun.eu.cc'), true)
+  assert.equal(core.isControllerLocation('https:', 'www.havefun.eu.cc'), true)
+  assert.equal(core.isControllerLocation('ftp:', 'www.havefun.eu.cc'), false)
+  assert.equal(core.isControllerLocation('http:', 'havefun.eu.cc'), false)
+  assert.equal(core.isControllerLocation('http:', 'www.havefun.eu.cc.example.com'), false)
+})
+
 test('标签归属标记只写入 fragment 并可无损读回', () => {
   const marked = core.appendDriverMarker('https://auth.x.ai/oauth2/device/complete?user_code=FAKE#step=1', 'tab-fake-1')
   const parsed = new URL(marked)
@@ -324,6 +332,299 @@ test('runWithExclusiveLock 阻止第二个控制台并发执行', async () => {
   assert.equal(await first, true)
 })
 
+test('runWithSharedLeaseLock 拒绝未过期的其它控制台租约', async () => {
+  const values = new Map([['controller', { owner: 'other', expires_at: 2000 }]])
+  const store = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let callbackCalls = 0
+
+  const acquired = await core.runWithSharedLeaseLock(store, 'controller', 'self', async () => {
+    callbackCalls++
+  }, {
+    now: () => 1000,
+    wait: async () => {},
+    setInterval: () => 1,
+    clearInterval() {}
+  })
+
+  assert.equal(acquired, false)
+  assert.equal(callbackCalls, 0)
+  assert.equal(values.get('controller').owner, 'other')
+})
+
+test('runWithSharedLeaseLock 接管过期租约并在结束后释放自己的 owner', async () => {
+  const values = new Map([['controller', { owner: 'expired', expires_at: 999 }]])
+  const store = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let callbackCalls = 0
+
+  const acquired = await core.runWithSharedLeaseLock(store, 'controller', 'self', async () => {
+    callbackCalls++
+  }, {
+    now: () => 1000,
+    wait: async () => {},
+    setInterval: () => 1,
+    clearInterval() {},
+    ttlMs: 5000
+  })
+
+  assert.equal(acquired, true)
+  assert.equal(callbackCalls, 1)
+  assert.equal(values.has('controller'), false)
+})
+
+test('runWithSharedLeaseLock 心跳按当前时间续租', async () => {
+  const values = new Map()
+  const store = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let nowMs = 1000
+  let heartbeat = null
+  let releaseCallback
+  let notifyEntered
+  const entered = new Promise(resolve => { notifyEntered = resolve })
+  const blocker = new Promise(resolve => { releaseCallback = resolve })
+
+  const running = core.runWithSharedLeaseLock(store, 'controller', 'self', async () => {
+    notifyEntered()
+    await blocker
+  }, {
+    now: () => nowMs,
+    wait: async () => {},
+    setInterval(handler) {
+      heartbeat = handler
+      return 1
+    },
+    clearInterval() {},
+    ttlMs: 5000
+  })
+
+  await entered
+  nowMs = 2500
+  heartbeat()
+  assert.equal(values.get('controller').expires_at, 7500)
+  releaseCallback()
+
+  assert.equal(await running, true)
+  assert.equal(values.has('controller'), false)
+})
+
+test('runWithSharedLeaseLock 竞争确认和释放都限定当前 owner', async () => {
+  const values = new Map()
+  const store = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let callbackCalls = 0
+
+  const acquired = await core.runWithSharedLeaseLock(store, 'controller', 'self', async () => {
+    callbackCalls++
+  }, {
+    now: () => 1000,
+    wait: async () => {
+      values.set('controller', { owner: 'winner', expires_at: 5000 })
+    },
+    setInterval: () => 1,
+    clearInterval() {}
+  })
+
+  assert.equal(acquired, false)
+  assert.equal(callbackCalls, 0)
+  assert.equal(values.get('controller').owner, 'winner')
+})
+
+test('runWithSharedLeaseLock 心跳发现 owner 丢失后停止续租且不误删新租约', async () => {
+  const values = new Map()
+  const store = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let heartbeat = null
+  let releaseCallback
+  let notifyEntered
+  let lostCalls = 0
+  const entered = new Promise(resolve => { notifyEntered = resolve })
+  const blocker = new Promise(resolve => { releaseCallback = resolve })
+
+  const running = core.runWithSharedLeaseLock(store, 'controller', 'self', async () => {
+    notifyEntered()
+    await blocker
+  }, {
+    now: () => 1000,
+    wait: async () => {},
+    setInterval(handler) {
+      heartbeat = handler
+      return 1
+    },
+    clearInterval() {},
+    onLost() {
+      lostCalls++
+    }
+  })
+
+  await entered
+  values.set('controller', { owner: 'replacement', expires_at: 5000 })
+  heartbeat()
+  releaseCallback()
+
+  assert.equal(await running, false)
+  assert.equal(lostCalls, 1)
+  assert.equal(values.get('controller').owner, 'replacement')
+})
+
+test('runWithControllerLock 在 Web Locks 可用时同时持有并释放共享租约', async () => {
+  const lockManager = {
+    async request(_name, _options, callback) {
+      return callback({ name: 'controller' })
+    }
+  }
+  const values = new Map()
+  const leaseStore = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let callbackCalls = 0
+
+  const acquired = await core.runWithControllerLock(lockManager, leaseStore, 'controller', 'self', async () => {
+    callbackCalls++
+    assert.equal(values.get('controller').owner, 'self')
+  }, {
+    wait: async () => {},
+    setInterval: () => 1,
+    clearInterval() {}
+  })
+
+  assert.equal(acquired, true)
+  assert.equal(callbackCalls, 1)
+  assert.equal(values.has('controller'), false)
+})
+
+test('runWithControllerLock 阻止 HTTPS 与 HTTP 控制台同时执行', async () => {
+  const values = new Map()
+  const leaseStore = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let releaseHttps
+  let notifyHttpsEntered
+  const httpsEntered = new Promise(resolve => { notifyHttpsEntered = resolve })
+  const httpsBlocker = new Promise(resolve => { releaseHttps = resolve })
+  const lockManager = {
+    async request(_name, _options, callback) {
+      return callback({ name: 'controller' })
+    }
+  }
+  const leaseOptions = {
+    wait: async () => {},
+    setInterval: () => 1,
+    clearInterval() {}
+  }
+
+  const httpsRun = core.runWithControllerLock(lockManager, leaseStore, 'controller', 'https-owner', async () => {
+    notifyHttpsEntered()
+    await httpsBlocker
+  }, leaseOptions)
+  await httpsEntered
+
+  const httpAcquired = await core.runWithControllerLock(null, leaseStore, 'controller', 'http-owner', async () => {}, leaseOptions)
+  releaseHttps()
+
+  assert.equal(httpAcquired, false)
+  assert.equal(await httpsRun, true)
+})
+
+test('runWithControllerLock 阻止 HTTP 活动批次期间启动 HTTPS 控制台', async () => {
+  const values = new Map()
+  const leaseStore = {
+    get: key => values.get(key) || null,
+    set: (key, value) => values.set(key, value),
+    delete: key => values.delete(key)
+  }
+  let releaseHttp
+  let notifyHttpEntered
+  const httpEntered = new Promise(resolve => { notifyHttpEntered = resolve })
+  const httpBlocker = new Promise(resolve => { releaseHttp = resolve })
+  const lockManager = {
+    async request(_name, _options, callback) {
+      return callback({ name: 'controller' })
+    }
+  }
+  const leaseOptions = {
+    wait: async () => {},
+    setInterval: () => 1,
+    clearInterval() {}
+  }
+
+  const httpRun = core.runWithControllerLock(null, leaseStore, 'controller', 'http-owner', async () => {
+    notifyHttpEntered()
+    await httpBlocker
+  }, leaseOptions)
+  await httpEntered
+
+  const httpsAcquired = await core.runWithControllerLock(lockManager, leaseStore, 'controller', 'https-owner', async () => {}, leaseOptions)
+  releaseHttp()
+
+  assert.equal(httpsAcquired, false)
+  assert.equal(await httpRun, true)
+})
+
+test('runWithControllerLock 传播锁 API 异常且不执行批次', async () => {
+  const lockManager = {
+    async request() {
+      throw new Error('fake lock failure')
+    }
+  }
+  const leaseStore = {
+    get: () => null,
+    set() {},
+    delete() {}
+  }
+  let callbackCalls = 0
+
+  await assert.rejects(core.runWithControllerLock(lockManager, leaseStore, 'controller', 'self', async () => {
+    callbackCalls++
+  }), /fake lock failure/)
+
+  assert.equal(callbackCalls, 0)
+})
+
+test('clearRunScopedSharedValues 只删除当前 run_id 的共享值', () => {
+  const values = new Map([
+    ['task', { run_id: 'run-self', account_id: 'account-1' }],
+    ['event', { run_id: 'run-other', account_id: 'account-2' }],
+    ['cleanup', { run_id: 'run-self', cleanup_id: 'cleanup-1' }],
+    ['empty', null]
+  ])
+  const store = {
+    get: key => values.get(key) || null,
+    delete: key => values.delete(key)
+  }
+
+  const deleted = core.clearRunScopedSharedValues(store, {
+    task: 'task',
+    event: 'event',
+    cleanup: 'cleanup',
+    empty: 'empty'
+  }, 'run-self')
+
+  assert.equal(deleted, 2)
+  assert.equal(values.has('task'), false)
+  assert.equal(values.has('cleanup'), false)
+  assert.equal(values.get('event').run_id, 'run-other')
+})
+
 test('共享消息、清理 ACK 和密码投影保持批次隔离', () => {
   const task = { run_id: 'run-1', account_id: 'account-1', tab_marker: 'tab-1', expires_at: Date.now() + 60000, password: 'fake-password', email: 'user@example.com' }
   const sanitized = core.stripTaskPassword(task, 123)
@@ -370,11 +671,14 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
   })
 })
 
-test('控制台只允许 HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), false)
+test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
+  assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
+  assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
   assert.equal(scriptSource.includes("attachShadow({ mode: 'closed' })"), true)
+  assert.equal(scriptSource.includes('当前使用 HTTP：账号密码和 refresh token 可能被网络中间人'), true)
+  assert.equal(scriptSource.includes('ui.parseErrors.textContent = ERROR_MESSAGES.CONTROLLER_LOCK_FAILED'), true)
 })
 
 test('sanitizeDetail 去除换行并限制长度', () => {

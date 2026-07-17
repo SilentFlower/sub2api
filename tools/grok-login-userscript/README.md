@@ -5,8 +5,8 @@
 ## 安装前提
 
 1. 使用最新版 Violentmonkey。
-2. 浏览器能够通过 `https://www.havefun.eu.cc/` 正常打开控制台页面；脚本不会在 HTTP 页面运行。
-3. 当前该域名存在 TLS 证书和 nginx 虚拟主机问题，必须先修复证书与虚拟主机，使 HTTPS 页面正常加载，再安装和运行本脚本。
+2. 浏览器能够通过 `http://www.havefun.eu.cc/` 或 `https://www.havefun.eu.cc/` 打开控制台页面。
+3. HTTP 模式不能防止网络中间人、代理或被篡改页面窃取账号密码和 refresh token，只应在可信网络和服务器上使用；具备有效证书时仍建议改用 HTTPS。
 4. 运行会清除当前 Chrome Profile 的 xAI/Grok Cookie，并退出已有 Grok/xAI 登录。
 
 ## 安装
@@ -15,7 +15,7 @@
 2. 将 `grok-bulk-login.user.js` 的完整内容粘贴并保存。
 3. 在 Violentmonkey 全局设置中开启 GM Cookie 的 HttpOnly Cookie 访问能力。
 4. 打开该脚本的设置页，开启脚本级“允许访问 HTTP-only Cookie”。
-5. 刷新 `https://www.havefun.eu.cc/`，页面右侧应出现“Grok 批量授权”控制台。
+5. 刷新 `http://www.havefun.eu.cc/` 或 `https://www.havefun.eu.cc/`，页面右侧应出现“Grok 批量授权”控制台。
 
 脚本会在开始批次前写入并删除一个短期 HttpOnly 探针 Cookie。探针失败时不会处理任何账号。
 
@@ -30,7 +30,7 @@ second@example.com|ExamplePassword2
 
 然后：
 
-1. 勾选权限与 Session 清理确认。
+1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
 3. 脚本会串行打开 xAI 登录标签并自动填写邮箱、密码和授权页面。
 4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成。
@@ -48,6 +48,15 @@ second@example.com|ExamplePassword2
 - 控制台、错误列表、日志和导出结果不会显示明文密码。
 - refresh token 只保留在控制台结果区，点击“清空敏感数据”后删除。
 - Cloudflare、验证码、2FA 和异常登录验证不会被自动绕过。
+- HTTP 控制台下，closed Shadow DOM 和 Violentmonkey 隔离不能替代 TLS，也不能阻止网络层注入或全局键盘事件监听。
+- xAI 登录页、Device Flow 和 Token 请求始终使用受信任的 HTTPS 地址，不接受 HTTP xAI 验证地址。
+
+## 控制台独占锁
+
+- HTTP 和 HTTPS 页面共用带随机 owner、竞争确认、心跳和 60 秒过期时间的 Violentmonkey 共享租约锁，确保两个协议之间也能互斥。
+- HTTPS 页面还会叠加 Chrome Web Locks，为同源标签提供原子互斥。
+- 第二个控制台检测到未获得 Web Lock 或未过期共享租约时不会处理账号；控制台异常关闭后，最多等待租约过期即可重新开始。
+- 共享租约是 HTTP 兼容降级，Violentmonkey 共享值本身不提供原子 compare-and-swap；不要在多个标签中同时点击开始。
 
 ## Session 清理
 
@@ -66,8 +75,8 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏使用 HTTPS，脚本不会在 HTTP 页面启动。
-- 检查域名证书和 nginx 配置，确保 HTTPS 页面实际加载成功；不要通过忽略证书错误继续运行。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。
+- 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
 
