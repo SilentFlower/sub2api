@@ -25,6 +25,7 @@
 - [x] 修复邮箱登录入口选择问题：登录标签打开 `https://accounts.x.ai/sign-in`，优先点击 `Login with email`，未提交密码前误入 `/oauth2/device` 时回到邮箱登录入口，不再提前填写设备码。
 - [x] 保留密码提交后的 Device Flow 授权能力：密码提交并删除共享密码后，才允许跳转官方验证页、填写 `user_code` 或点击授权。
 - [x] 控制台 UI 改为默认右下角悬浮球，点击展开完整面板，标题栏可收起，避免长期遮挡 `www.havefun.eu.cc` 页面。
+- [x] 修复 Cloudflare 成功后的等待竞态：看到 Turnstile/Cloudflare “成功”后先等待稳定窗口，再点击登录，避免验证结果尚未写入时卡住或过早提交。
 
 ## 重点风险
 
@@ -51,6 +52,7 @@ git diff --check
 - 分别打开 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 与证书有效的 `https://www.havefun.eu.cc/`，都应先显示右下角 “Grok” 悬浮球；点击后展开控制台，HTTP 页面必须显示额外风险提示并要求确认。
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
+- 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 1 秒后自动点击“登录”。
 - 确认登录标签首先进入 `https://accounts.x.ai/sign-in` 并选择 `Login with email`；若未提交密码前误入 `accounts.x.ai/oauth2/device`，脚本应回到邮箱登录入口，不应填写设备码。
 - 密码提交后若进入 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，脚本才应通过附近文案识别设备码输入框并点击“继续”。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。

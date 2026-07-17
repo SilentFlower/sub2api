@@ -33,7 +33,7 @@ second@example.com|ExamplePassword2
 1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
 3. 脚本会串行打开 `https://accounts.x.ai/sign-in`，优先点击 `Login with email`，然后自动填写邮箱、密码；如果未提交密码前误入 Device Sign-in 页，脚本会先回到邮箱登录入口。
-4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成。
+4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成；Cloudflare 显示“成功”后脚本会再等待短暂稳定时间，然后继续点击登录。
 5. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
 6. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
 
@@ -76,15 +76,16 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.5` 已内置精确 include。
-- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.5` 应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.6` 已内置精确 include。
+- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.6` 应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
 
 - 页面可能处于 Cloudflare 或未知安全验证，请手工完成。
+- 如果 Cloudflare 已显示“成功!”但没有立刻点击登录，等待 1-2 秒；脚本 `0.2.6` 会等验证结果稳定后继续提交。
 - xAI 页面结构可能变化。脚本会选择暂停，不会对低置信度按钮进行猜测性点击。
-- 若未提交密码前页面停在 `accounts.x.ai/oauth2/device`，脚本 `0.2.5` 会回到 `accounts.x.ai/sign-in` 并优先选择邮箱登录；只有密码提交后，才会在 Device Flow 页面填写设备码或点击授权。
+- 若未提交密码前页面停在 `accounts.x.ai/oauth2/device`，脚本 `0.2.6` 会回到 `accounts.x.ai/sign-in` 并优先选择邮箱登录；只有密码提交后，才会在 Device Flow 页面填写设备码或点击授权。
 - 返回控制台查看当前状态，必要时使用“跳过当前”或停止后重试失败项。
 
 ### 清理 Session 失败

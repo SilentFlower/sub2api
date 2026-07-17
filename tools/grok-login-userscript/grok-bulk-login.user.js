@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.5
+// @version      0.2.6
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -65,6 +65,7 @@
     minPollMs: 1000,
     maxPollMs: 30000,
     loginToVerificationDelayMs: 1500,
+    challengePassedGraceMs: 1200,
     controllerLockName: 'grok-bulk-login:controller-v1',
     controllerLeaseClaimDelayMs: 180,
     controllerLeaseHeartbeatMs: 10000,
@@ -326,11 +327,42 @@
   }
 
   /**
+   * 判断页面快照是否显示 Cloudflare / Turnstile 已通过。
+   * @param {{url?: string, title?: string, text?: string, iframeSrcs?: Array<string>}} snapshot 页面快照。
+   * @return {boolean} 是否已通过 Cloudflare / Turnstile。
+   */
+  function isChallengePassedSnapshot(snapshot) {
+    const combined = [snapshot.url, snapshot.title, snapshot.text, ...(snapshot.iframeSrcs || [])]
+      .map(value => String(value || '').toLowerCase())
+      .join(' ')
+    const hasChallengeContext = [
+      'cloudflare',
+      'turnstile',
+      'challenges.cloudflare.com',
+      'cf-turnstile',
+      'cf-chl-'
+    ].some(keyword => combined.includes(keyword))
+    if (!hasChallengeContext) return false
+    return [
+      'success',
+      'successful',
+      'verified',
+      'verification passed',
+      'challenge passed',
+      '成功',
+      '验证成功',
+      '已验证',
+      '已通过'
+    ].some(keyword => combined.includes(keyword))
+  }
+
+  /**
    * 判断页面快照是否属于 Cloudflare 或验证码人工验证。
    * @param {{url?: string, title?: string, text?: string, iframeSrcs?: Array<string>}} snapshot 页面快照。
    * @return {boolean} 是否需要人工处理。
    */
   function isChallengeSnapshot(snapshot) {
+    if (isChallengePassedSnapshot(snapshot)) return false
     const combined = [snapshot.url, snapshot.title, snapshot.text, ...(snapshot.iframeSrcs || [])]
       .map(value => String(value || '').toLowerCase())
       .join(' ')
@@ -972,6 +1004,7 @@
     nextPollDelay,
     scoreInputDescriptor,
     chooseBestDescriptor,
+    isChallengePassedSnapshot,
     isChallengeSnapshot,
     formatRefreshTokens,
     buildCookieDeleteDetails,
@@ -1596,6 +1629,7 @@
     let firstSeenAt = Date.now()
     let lastReported = ''
     let activeCleanupId = ''
+    let challengePassedAt = 0
     const actionGate = createActionGate(CONFIG.maxActionAttemptsPerStage)
     const deferredSubmit = createDeferredActionController()
 
@@ -1668,6 +1702,11 @@
       scanTimer = setTimeout(scan, CONFIG.scanDebounceMs)
     }
 
+    function scheduleScanAfter(delayMs) {
+      clearTimeout(scanTimer)
+      scanTimer = setTimeout(scan, Math.max(CONFIG.scanDebounceMs, Number(delayMs) || 0))
+    }
+
     function reportOnce(type, detail) {
       const key = `${type}:${detail || ''}`
       if (key === lastReported) return
@@ -1693,10 +1732,15 @@
       const expectedUrl = location.href
       deferredSubmit.schedule(150, () => {
         const current = GM_getValue(CONFIG.sharedKeys.task, null)
+        const challengeSnapshot = getChallengeSnapshot()
+        if (isChallengePassedSnapshot(challengeSnapshot)) {
+          if (!challengePassedAt) challengePassedAt = Date.now()
+          if (Date.now() - challengePassedAt < CONFIG.challengePassedGraceMs) return false
+        }
         if (!activeTaskMatches(current, expectedTask)
           || getCurrentDriverMarker() !== expectedTask.tabMarker
           || location.href !== expectedUrl
-          || isChallengeSnapshot(getChallengeSnapshot())) return false
+          || isChallengeSnapshot(challengeSnapshot)) return false
         // 守卫拒绝时不消耗动作次数，人工 challenge 结束后同一 URL 才能自动继续。
         return actionGate.tryAcquire(key)
       }, () => {
@@ -1724,7 +1768,19 @@
     function scan() {
       discardExpiredTask()
       if (!task || !task.run_id || !task.account_id || !ownsCurrentTask()) return
-      if (isChallengeSnapshot(getChallengeSnapshot())) {
+      const challengeSnapshot = getChallengeSnapshot()
+      if (isChallengePassedSnapshot(challengeSnapshot)) {
+        if (!challengePassedAt) challengePassedAt = Date.now()
+        const remainingMs = CONFIG.challengePassedGraceMs - (Date.now() - challengePassedAt)
+        if (remainingMs > 0) {
+          reportOnce('waiting_human', 'CLOUDFLARE_PASSED_SETTLING')
+          scheduleScanAfter(remainingMs)
+          return
+        }
+      } else {
+        challengePassedAt = 0
+      }
+      if (isChallengeSnapshot(challengeSnapshot)) {
         reportOnce('waiting_human', 'CLOUDFLARE_OR_CAPTCHA')
         return
       }
