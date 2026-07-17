@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T14:04:26Z",
+    "updatedAt": "2026-07-17T14:45:56Z",
     "completedSteps": [
       "Phase 2.1：完成 Violentmonkey 批量登录脚本、README、纯逻辑/GM API/Node VM 浏览器测试与桌面/移动端视觉检查",
       "Phase 2.1 修复迭代：关闭 CHK-001 至 CHK-004 的 HTTPS、凭据隔离、Cookie 清理、动作门禁与并发锁问题",
@@ -32,10 +32,14 @@
       "Phase 2.1 第三轮修复：关闭 CHK-008，将动作次数占用延后到守卫通过后，并覆盖同 URL challenge 完成后的单次恢复提交",
       "Phase 2.2：最终 Check-All 通过，CHK-001 至 CHK-008 全部关闭",
       "Phase 3.3：新增浏览器认证自动化 code-spec，并注册到前端规范索引",
-      "Phase 3.4：业务变更已提交并推送到 origin/build"
+      "Phase 3.4：业务变更已提交并推送到 origin/build",
+      "Phase 2.1 HTTP 兼容迭代：允许 http://www.havefun.eu.cc 控制台，增加 HTTP 风险确认、跨协议租约锁、按 run_id 卸载清理和稳定锁失败提示",
+      "Phase 2.2 HTTP 兼容 Check-All：关闭 CHK-009、CHK-010，自动化测试 47/47 通过",
+      "Phase 3.3 HTTP 兼容规范：更新浏览器认证自动化 code-spec",
+      "Phase 3.4 HTTP 兼容变更已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "在安装 Violentmonkey 的真实 Chrome Profile 中验收 xAI 登录、Cloudflare 人工接管和 HttpOnly Cookie 清理；完成后按需执行 trellis-finish-work",
-    "notes": "自动验证 36/36 通过，代码和任务产物已推送；真实浏览器验收会清除当前 Profile 的 Grok/xAI Session，需使用专用测试账号并先确认 HttpOnly Cookie 权限。"
+    "nextStep": "在安装 Violentmonkey 的真实 Chrome Profile 中使用 http://www.havefun.eu.cc 验收控制台显示、HTTP 风险提示、xAI 登录、Cloudflare 人工接管、HttpOnly Cookie 清理和跨协议互斥；完成后按需执行 trellis-finish-work",
+    "notes": "HTTP 站点返回 200，自动验证 47/47 通过；HTTP 不能防止网络注入或输入监听，真实验收需使用专用测试账号，且会清除当前 Profile 的 Grok/xAI Session。"
   }
 }
