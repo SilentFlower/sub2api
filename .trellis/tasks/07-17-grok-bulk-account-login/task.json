@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T16:16:11Z",
+    "updatedAt": "2026-07-17T16:31:56Z",
     "completedSteps": [
       "Phase 2.1：完成 Violentmonkey 批量登录脚本、README、纯逻辑/GM API/Node VM 浏览器测试与桌面/移动端视觉检查",
       "Phase 2.1 修复迭代：关闭 CHK-001 至 CHK-004 的 HTTPS、凭据隔离、Cookie 清理、动作门禁与并发锁问题",
@@ -46,10 +46,13 @@
       "Phase 3.4 清理标签 marker 修复已提交并推送到 origin/build",
       "Phase 2.1 auth.x.ai 清理承载页修复：不再使用 https://auth.x.ai/ 根路径，改为 https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...",
       "Phase 2.2 auth.x.ai 清理承载页检查：node --check、Node 测试 54/54、git diff --check 全部通过",
-      "Phase 3.4 auth.x.ai 清理承载页修复已提交并推送到 origin/build"
+      "Phase 3.4 auth.x.ai 清理承载页修复已提交并推送到 origin/build",
+      "Phase 2.1 中文 Device Sign-in 修复：通过输入框附近短文本识别“输入设备代码”，填入 user_code，并在延迟提交时重查刚启用的继续按钮",
+      "Phase 2.2 中文 Device Sign-in Check-All：node --check、Node 测试 57/57、git diff --check 全部通过",
+      "Phase 3.4 中文 Device Sign-in 修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "更新或确认 Violentmonkey 中的 0.2.3 脚本后，在真实 Chrome Profile 中重跑 http://www.havefun.eu.cc:8080/admin/accounts 验收；auth.x.ai 清理标签应显示 https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...，不应再是 https://auth.x.ai/#grok-bulk-cleanup=...。",
-    "notes": "本轮修复已提交并推送到 origin/build。若仍看到 https://auth.x.ai/#grok-bulk-cleanup=...，说明浏览器里运行的仍是旧版脚本，需要刷新 Violentmonkey 脚本内容或确认脚本版本为 0.2.3。"
+    "nextStep": "更新或确认 Violentmonkey 中的 0.2.4 脚本后，在真实 Chrome Profile 中重跑 http://www.havefun.eu.cc:8080/admin/accounts 验收；若先进入 accounts.x.ai/oauth2/device 中文 Device Sign-in 页，脚本应自动填入设备码并点击“继续”，随后再自动填写邮箱和密码。",
+    "notes": "本轮修复已提交并推送到 origin/build。若仍停在“输入设备代码”页未自动填写，说明浏览器里运行的仍是旧版脚本或 Violentmonkey 未刷新脚本内容，需要确认脚本版本为 0.2.4。"
   }
 }
