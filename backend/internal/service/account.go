@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"hash/fnv"
-	"log/slog"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1583,16 +1582,6 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	return false
 }
 
-// IsOpenAIJSONSchemaToJSONObjectEnabled 返回账号是否启用 JSON Schema 兼容模式。
-//
-// @return 仅 OpenAI APIKey 账号且 extra 中严格配置为 true 时返回 true。
-func (a *Account) IsOpenAIJSONSchemaToJSONObjectEnabled() bool {
-	if a == nil || !a.IsOpenAIApiKey() {
-		return false
-	}
-	return openai_compat.JSONSchemaToJSONObjectEnabled(a.Extra)
-}
-
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。
 //
 // 分类型新字段：
@@ -1778,41 +1767,6 @@ func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
 	return ok && enabled
 }
 
-// WebSearch 模拟三态常量
-const (
-	WebSearchModeDefault  = "default"  // 跟随渠道配置
-	WebSearchModeEnabled  = "enabled"  // 强制开启
-	WebSearchModeDisabled = "disabled" // 强制关闭
-)
-
-// GetWebSearchEmulationMode 返回账号的 WebSearch 模拟模式。
-// 三态：default（跟随渠道）/ enabled（强制开启）/ disabled（强制关闭）。
-// 兼容旧 bool 值：true→enabled, false→default（并记录 debug 日志）。
-func (a *Account) GetWebSearchEmulationMode() string {
-	if a == nil || (a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI) || a.Type != AccountTypeAPIKey || a.Extra == nil {
-		return WebSearchModeDefault
-	}
-	raw := a.Extra[featureKeyWebSearchEmulation]
-	// Tolerant: legacy bool values (pre-migration or stale writes)
-	if b, ok := raw.(bool); ok {
-		slog.Debug("legacy bool web_search_emulation value", "account_id", a.ID, "value", b)
-		if b {
-			return WebSearchModeEnabled
-		}
-		return WebSearchModeDefault
-	}
-	mode, ok := raw.(string)
-	if !ok {
-		return WebSearchModeDefault
-	}
-	switch mode {
-	case WebSearchModeEnabled, WebSearchModeDisabled:
-		return mode
-	default:
-		return WebSearchModeDefault
-	}
-}
-
 // IsCodexCLIOnlyEnabled 返回 OpenAI OAuth 账号是否启用"仅允许 Codex 官方客户端"。
 // 字段：accounts.extra.codex_cli_only。
 // 字段缺失或类型不正确时，按 false（关闭）处理。
@@ -1824,11 +1778,6 @@ func (a *Account) IsCodexCLIOnlyEnabled() bool {
 	return ok && enabled
 }
 
-const (
-	codexCLIOnlyCustomUserAgentPrefixMaxCount  = 32
-	codexCLIOnlyCustomUserAgentPrefixMaxLength = 256
-)
-
 // IsCodexCLIOnlyAppServerAllowed 返回 codex_cli_only 账号是否额外放行 Codex app-server
 // 第三方客户端（运行时与全局 app_server 开关 OR）。字段：accounts.extra.codex_cli_only_allow_app_server。
 // 仅在 codex_cli_only 已启用时有意义；字段缺失或类型不符按 false（不放行）处理。
@@ -1838,52 +1787,6 @@ func (a *Account) IsCodexCLIOnlyAppServerAllowed() bool {
 	}
 	v, ok := a.Extra["codex_cli_only_allow_app_server"].(bool)
 	return ok && v
-}
-
-// GetCodexCLIOnlyCustomUserAgentPrefixes 返回 codex_cli_only 之上额外放行的自定义 User-Agent 前缀规则。
-// 仅 OpenAI OAuth 账号生效；缺失或类型不符时返回空。规则中的 `*` 由 openai 包按通配符处理。
-func (a *Account) GetCodexCLIOnlyCustomUserAgentPrefixes() []string {
-	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
-		return nil
-	}
-	raw, ok := a.Extra["codex_cli_only_custom_user_agent_prefixes"]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		return compactCodexCustomUserAgentPrefixes(v)
-	case []any:
-		result := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				result = append(result, s)
-			}
-		}
-		return compactCodexCustomUserAgentPrefixes(result)
-	}
-	return nil
-}
-
-func compactCodexCustomUserAgentPrefixes(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		pattern := strings.TrimSpace(value)
-		if pattern == "" || len(pattern) > codexCLIOnlyCustomUserAgentPrefixMaxLength {
-			continue
-		}
-		key := strings.ToLower(pattern)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, pattern)
-		if len(result) >= codexCLIOnlyCustomUserAgentPrefixMaxCount {
-			break
-		}
-	}
-	return result
 }
 
 // WindowCostSchedulability 窗口费用调度状态

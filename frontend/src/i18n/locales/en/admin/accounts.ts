@@ -1,3 +1,10 @@
+import codexCustomClientMessages from './accountsCodexCustomClients'
+import grokBillingQuotaMessages from './accountsGrokBillingQuota'
+import openAICodexResetMessages from './accountsOpenAICodexReset'
+import openAICompatibilityMessages from './accountsOpenAICompatibility'
+import openAIImageGenerationOverrides from './accountsOpenAIImageGenerationOverrides'
+import webSearchMessages from './accountsWebSearch'
+
 export default {
     accounts: {
       title: 'Account Management',
@@ -465,9 +472,7 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
-        jsonSchemaDowngrade: 'JSON Schema compatibility mode',
-        jsonSchemaDowngradeDesc:
-          'For upstreams without json_schema support, sends json_object and keeps the original Schema as a best-effort output constraint. Strict Schema enforcement is not guaranteed, and tool parameter Schemas are unchanged.',
+        ...openAICompatibilityMessages,
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',
@@ -492,14 +497,6 @@ export default {
         codexCLIOnlyAppServer: 'Allow Codex app-server clients',
         codexCLIOnlyAppServerDesc:
           "Effective only when the switch above is on. When enabled, this account also allows third-party clients that embed the Codex engine over the app-server protocol (e.g. Claude Code's codex plugin); they still pass the global engine-fingerprint gate. OR-combined with the global app-server toggle.",
-        codexCLIOnlyCustomUA: 'Custom allowed UA prefixes',
-        codexCLIOnlyCustomUADesc:
-          'Only takes effect when the switch above is on. Enter one User-Agent pattern per line; * is supported, and any matching line is allowed.',
-        codexCLIOnlyCustomUABulkDesc:
-          'Bulk overwrite custom User-Agent allow rules for the selected OpenAI OAuth accounts.',
-        codexCLIOnlyCustomUABulkHint:
-          'When checked, one pattern per line is submitted. Empty content clears custom UA rules on the selected accounts.',
-        codexCLIOnlyCustomUAPlaceholder: 'my-client/*\ncustom-codex-wrapper/*',
         codexImageTool: 'Codex image tool',
         codexImageToolDesc:
           'One policy for the image_generation tool on Codex /responses text requests: whether it is auto-injected, and whether client-provided tools pass through. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -533,6 +530,9 @@ export default {
         testModeDefault: 'Default request',
         testModeCompact: 'Compact probe',
         modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
+        ...codexCustomClientMessages,
+        // 保留 main 文案块作为上游所有权，build 只在稳定末尾覆盖最终策略文案。
+        ...(openAIImageGenerationOverrides as Record<string, string>),
       },
       grok: {
         baseUrlHint: 'Grok OAuth accounts forward to the official xAI API base URL.',
@@ -548,10 +548,11 @@ export default {
         apiKeyAuthSchemeBearer: 'Authorization: Bearer',
         webSearchEmulation: 'Web Search Emulation',
         webSearchEmulationDesc:
-          'For pure or explicitly forced web_search requests, let the gateway call a configured search provider and construct the response locally. Default follows channel config. For native DeepSeek search, use a separate Anthropic-compatible API Key account.',
+          'Enable web search emulation for this API Key account. When a pure web_search request is detected, the gateway calls a third-party search API and constructs the response locally. Default follows channel config.',
         webSearchDefault: 'Default',
         webSearchEnabled: 'Enabled',
         webSearchDisabled: 'Disabled',
+        ...(webSearchMessages as Record<string, string>),
       },
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
@@ -1284,27 +1285,7 @@ export default {
         grokLastStatus: 'Status {status}',
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
-        grokBillingTitle: 'Grok Plan Quota',
-        grokBillingRefresh: 'Refresh Grok plan quota',
-        grokBillingExpand: 'Expand Grok plan quota',
-        grokBillingCollapse: 'Collapse Grok plan quota',
-        grokBillingEmpty: 'No plan quota data yet',
-        grokBillingMonthly: 'Monthly',
-        grokBillingMonthlyShort: 'Mon',
-        grokBillingWeekly: 'Weekly',
-        grokBillingWeeklyShort: 'Wk',
-        grokBillingProductUsage: '{product} usage',
-        grokBillingPayAsYouGo: 'Pay as you go',
-        grokBillingPayAsYouGoShort: 'PAYG',
-        grokBillingPayAsYouGoDisabled: 'Disabled',
-        grokBillingRemainingPercent: '{percent} remaining',
-        grokBillingUsedPercent: '{percent} used',
-        grokBillingReset: 'Resets {time}',
-        grokBillingUpdated: 'Updated {time}',
-        grokBillingStale: 'Stale · updated {time}',
-        grokBillingPartial: 'Some quota windows failed to update',
-        grokBillingPlanSuperGrok: 'SuperGrok',
-        grokBillingPlanSuperGrokHeavy: 'SuperGrok Heavy',
+        ...grokBillingQuotaMessages,
         passiveSampled: 'Passive',
         activeQuery: 'Query'
       },
@@ -1327,36 +1308,7 @@ export default {
         confirmTitle: 'Confirm Weekly Limit Reset',
         confirmMessage: 'This will consume 1 reset credit to immediately restore the current window ({count} remaining). This action cannot be undone. Continue?'
       },
-      openaiCodexReset: {
-        menu: 'Codex Invite Reset',
-        title: 'Codex Invite Reset',
-        noEmail: 'No email saved',
-        availableCredits: 'Available reset credits',
-        totalCredits: '{count} total',
-        consume: 'Use reset credit',
-        consuming: 'Using...',
-        consumeSuccess: 'Reset credit used: {credit}',
-        noAvailableCredit: 'No reset credit is currently available',
-        creditList: 'Reset credit details',
-        noCredits: 'No reset credits',
-        expiresAt: 'Expires: {time}',
-        inviteEmails: 'Invite emails',
-        invitePlaceholder: 'Enter emails separated by commas, spaces, or new lines',
-        inviteHint: '{count} emails detected, up to 5',
-        maxEmails: '5 max',
-        availableStatus: 'available',
-        consent: 'I confirm the recipients agreed to receive Codex invitations',
-        sendInvite: 'Send invites',
-        sending: 'Sending...',
-        inviteSuccess: 'Sent {count} invites',
-        failedEmails: 'Failed emails',
-        rules: 'Eligibility and rules',
-        tooManyEmails: 'Send at most 5 emails at a time',
-        invalidEmail: 'Invalid email: {email}',
-        loadFailed: 'Failed to load Codex reset status',
-        consumeFailed: 'Failed to use reset credit',
-        inviteFailed: 'Failed to send invites'
-      },
+      ...openAICodexResetMessages,
       tier: {
         free: 'Free',
         pro: 'Pro',

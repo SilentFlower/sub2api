@@ -1132,36 +1132,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 }
 
-func resolveOpenAIMessagesSessionHash(gatewayService *service.OpenAIGatewayService, c *gin.Context, reqModel string, body []byte) (string, string) {
-	if gatewayService == nil {
-		return resolveOpenAIMessagesMetadataSession("", "", reqModel, body)
-	}
-	// Anthropic metadata.user_id 是 Claude Code 会话内稳定的账号粘性信号。
-	// 只有显式 session_id/conversation_id/prompt_cache_key 可以覆盖它；内容
-	// fallback 放到最后，避免首条用户消息或工具定义变化导致同一会话漂到不同账号。
-	sessionHash := gatewayService.GenerateExplicitSessionHash(c, body)
-	promptCacheKey := gatewayService.ExtractSessionID(c, body)
-	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
-	if sessionHash == "" {
-		sessionHash = gatewayService.GenerateSessionHash(c, body)
-	}
-	return sessionHash, promptCacheKey
-}
-
-func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
-	// Anthropic metadata.user_id 只作为账号粘性信号。上游 GPT/Codex 缓存键
-	// 交给 ForwardAsAnthropic 从 cache_control 或完整消息 digest 派生，避免
-	// 固定 metadata key 压住后续 turn 的缓存滚动。
-	if sessionHash != "" {
-		return sessionHash, promptCacheKey
-	}
-	if userID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String()); userID != "" {
-		seed := reqModel + "-" + userID
-		sessionHash = service.DeriveSessionHashFromSeed(seed)
-	}
-	return sessionHash, promptCacheKey
-}
-
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
 	c.JSON(status, gin.H{

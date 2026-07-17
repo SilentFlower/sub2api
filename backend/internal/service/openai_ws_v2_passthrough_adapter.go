@@ -270,13 +270,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// model would miss any admin-configured model whitelist and be silently
 	// passed through, defeating that policy on every frame after the first.
 	capturedSessionModel := openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
-	if isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
-		liteFirstMessage, _, liteErr := s.applyOpenAIResponsesLiteWebSocketPolicy(ctx, account, firstClientMessage, capturedSessionModel)
-		if liteErr != nil {
-			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
-		}
-		firstClientMessage = liteFirstMessage
+	liteFirstMessage, liteErr := s.applyOpenAIResponsesLiteWebSocketPayloadPolicy(ctx, account, firstClientMessage, capturedSessionModel)
+	if liteErr != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
 	}
+	firstClientMessage = liteFirstMessage
 	initialRequestModel := ""
 	if hooks != nil {
 		initialRequestModel = hooks.InitialRequestModel
@@ -458,11 +456,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				model = capturedSessionModel
 			}
 			if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
-				litePayload, _, liteErr := s.applyOpenAIResponsesLiteWebSocketPolicy(ctx, account, payload, model)
-				if liteErr != nil {
-					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
+				payload, err = s.applyOpenAIResponsesLiteWebSocketPayloadPolicy(ctx, account, payload, model)
+				if err != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 				}
-				payload = litePayload
 				if hooks != nil && hooks.BeforeRequest != nil {
 					turnNo := int(completedTurns.Load()) + 1
 					if turnNo < 2 {

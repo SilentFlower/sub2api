@@ -1,3 +1,10 @@
+import codexCustomClientMessages from './accountsCodexCustomClients'
+import grokBillingQuotaMessages from './accountsGrokBillingQuota'
+import openAICodexResetMessages from './accountsOpenAICodexReset'
+import openAICompatibilityMessages from './accountsOpenAICompatibility'
+import openAIImageGenerationOverrides from './accountsOpenAIImageGenerationOverrides'
+import webSearchMessages from './accountsWebSearch'
+
 export default {
     accounts: {
       title: '账号管理',
@@ -355,27 +362,7 @@ export default {
         grokLastStatus: '状态 {status}',
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
-        grokBillingTitle: 'Grok 套餐额度',
-        grokBillingRefresh: '刷新 Grok 套餐额度',
-        grokBillingExpand: '展开 Grok 套餐额度',
-        grokBillingCollapse: '收起 Grok 套餐额度',
-        grokBillingEmpty: '暂无套餐额度数据',
-        grokBillingMonthly: '月额度',
-        grokBillingMonthlyShort: '月',
-        grokBillingWeekly: '周额度',
-        grokBillingWeeklyShort: '周',
-        grokBillingProductUsage: '{product} 用量',
-        grokBillingPayAsYouGo: '按量付费',
-        grokBillingPayAsYouGoShort: '按量',
-        grokBillingPayAsYouGoDisabled: '未启用',
-        grokBillingRemainingPercent: '剩余 {percent}',
-        grokBillingUsedPercent: '已用 {percent}',
-        grokBillingReset: '重置 {time}',
-        grokBillingUpdated: '更新 {time}',
-        grokBillingStale: '已过期 · 更新 {time}',
-        grokBillingPartial: '部分额度更新失败',
-        grokBillingPlanSuperGrok: 'SuperGrok',
-        grokBillingPlanSuperGrokHeavy: 'SuperGrok Heavy',
+        ...grokBillingQuotaMessages,
         passiveSampled: '被动采样',
         activeQuery: '查询'
       },
@@ -398,36 +385,7 @@ export default {
         confirmTitle: '确认重置周限',
         confirmMessage: '将消耗 1 次重置次数立即恢复当前窗口，剩余 {count} 次。此操作不可撤销，确定继续吗？'
       },
-      openaiCodexReset: {
-        menu: 'Codex 邀请重置',
-        title: 'Codex 邀请重置',
-        noEmail: '未保存邮箱',
-        availableCredits: '可用重置次数',
-        totalCredits: '共 {count} 次',
-        consume: '使用重置次数',
-        consuming: '正在使用...',
-        consumeSuccess: '已使用重置次数：{credit}',
-        noAvailableCredit: '当前没有可用重置次数',
-        creditList: '重置次数明细',
-        noCredits: '暂无重置次数',
-        expiresAt: '过期时间：{time}',
-        inviteEmails: '邀请邮箱',
-        invitePlaceholder: '输入邮箱，支持逗号、空格或换行分隔',
-        inviteHint: '已识别 {count} 个邮箱，最多 5 个',
-        maxEmails: '最多 5 个',
-        availableStatus: '可用',
-        consent: '确认已获得收件人同意接收 Codex 邀请',
-        sendInvite: '发送邀请',
-        sending: '正在发送...',
-        inviteSuccess: '已发送 {count} 个邀请',
-        failedEmails: '失败邮箱',
-        rules: '邀请资格与规则',
-        tooManyEmails: '一次最多发送 5 个邮箱',
-        invalidEmail: '邮箱格式无效：{email}',
-        loadFailed: '获取 Codex reset 状态失败',
-        consumeFailed: '使用重置次数失败',
-        inviteFailed: '发送邀请失败'
-      },
+      ...openAICodexResetMessages,
       tier: {
         free: 'Free',
         pro: 'Pro',
@@ -617,9 +575,7 @@ export default {
         responsesModeForceResponses: '强制 Responses',
         responsesModeForceChatCompletions: '强制 Chat Completions',
         responsesModeTextDisabledHint: '未启用 Responses / Chat Completions 端点时，此设置不适用。',
-        jsonSchemaDowngrade: 'JSON Schema 兼容模式',
-        jsonSchemaDowngradeDesc:
-          '上游不支持 json_schema 时，将格式改为 json_object，并把原 Schema 作为尽力遵循的输出约束；不保证 strict Schema，也不会修改工具参数 Schema。',
+        ...openAICompatibilityMessages,
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。文本端点会跟随上方 Responses API 支持显示为 Responses、Chat Completions 或自动模式；Embeddings 独立控制 /v1/embeddings。',
@@ -641,11 +597,6 @@ export default {
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许 Codex 官方客户端家族访问；关闭后完全绕过并保持原逻辑。',
         codexCLIOnlyAppServer: '允许 Codex app-server 客户端',
         codexCLIOnlyAppServerDesc: '仅在上方开关开启时生效。开启后本账号额外放行内嵌 Codex 引擎、经 app-server 协议接入的第三方客户端（如 Claude Code 的 codex 插件），仍需通过全局引擎指纹门；与全局 app-server 开关取 OR（任一开即放行）。',
-        codexCLIOnlyCustomUA: '自定义放行 UA 前缀',
-        codexCLIOnlyCustomUADesc: '仅在上方开关开启时生效。每行一个 User-Agent pattern，支持 * 通配符；命中任一行即放行。',
-        codexCLIOnlyCustomUABulkDesc: '批量覆盖所选 OpenAI OAuth 账号的自定义 User-Agent 放行规则。',
-        codexCLIOnlyCustomUABulkHint: '勾选后提交：每行一个 pattern，空内容会清空所选账号的自定义 UA 规则。',
-        codexCLIOnlyCustomUAPlaceholder: 'my-client/*\ncustom-codex-wrapper/*',
         codexImageTool: 'Codex 图片工具',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 image_generation 图片工具：是否自动注入，以及客户端自带该工具时是否放行。账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
@@ -679,6 +630,9 @@ export default {
         testModeDefault: '常规请求',
         testModeCompact: 'Compact 探测',
         modelRestrictionDisabledByPassthrough: '已开启自动透传：模型白名单/映射不会生效。',
+        ...codexCustomClientMessages,
+        // 保留 main 文案块作为上游所有权，build 只在稳定末尾覆盖最终策略文案。
+        ...(openAIImageGenerationOverrides as Record<string, string>),
       },
       grok: {
         baseUrlHint: 'Grok OAuth 账号会转发到官方 xAI API Base URL。',
@@ -694,10 +648,11 @@ export default {
         apiKeyAuthSchemeBearer: 'Authorization: Bearer',
         webSearchEmulation: 'Web Search 模拟',
         webSearchEmulationDesc:
-          '对于纯 web_search 或明确强制搜索的请求，由网关调用已配置的搜索服务并在本地构造响应；默认跟随渠道配置。DeepSeek 原生搜索请使用独立的 Anthropic-compatible API Key 账号。',
+          '为该 API Key 账号启用 web search 模拟。客户端发送纯 web_search 请求时，由网关调用第三方搜索 API 并构造响应返回。默认跟随渠道配置。',
         webSearchDefault: '默认',
         webSearchEnabled: '开启',
         webSearchDisabled: '关闭',
+        ...(webSearchMessages as Record<string, string>),
       },
       modelRestriction: '模型限制（可选）',
       modelWhitelist: '模型白名单',

@@ -4,9 +4,12 @@
  */
 
 import { apiClient } from '../client'
-import type { GrokBillingQuota, GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
+import { queryBillingQuota } from '@/features/grokBillingQuota/api'
+import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
 
+export { queryBillingQuota }
 export type { GrokBillingSummary, GrokQuotaWindow } from '@/types'
+export type { GrokBillingQuotaResult } from '@/features/grokBillingQuota/types'
 
 export interface GrokAuthUrlResponse {
   auth_url: string
@@ -119,13 +122,6 @@ export interface GrokQuotaResetResult {
   message: string
 }
 
-/** 独立 Grok 套餐额度刷新结果。 */
-export interface GrokBillingQuotaResult {
-  source: 'grok_cli_billing_quota'
-  snapshot?: GrokBillingQuota | null
-  fetched_at: number
-}
-
 export async function generateAuthUrl(
   payload: GrokAuthUrlRequest
 ): Promise<GrokAuthUrlResponse> {
@@ -160,17 +156,6 @@ export async function refreshGrokToken(
 
 export async function queryQuota(id: number): Promise<GrokQuotaProbeResult> {
   const { data } = await apiClient.get<GrokQuotaProbeResult>(`/admin/grok/accounts/${id}/quota`)
-  return data
-}
-
-/**
- * 主动刷新独立 Grok 套餐额度。
- *
- * @param id Grok OAuth 账号 ID。
- * @returns 独立套餐额度刷新结果。
- */
-export async function queryBillingQuota(id: number): Promise<GrokBillingQuotaResult> {
-  const { data } = await apiClient.get<GrokBillingQuotaResult>(`/admin/grok/accounts/${id}/billing-quota`)
   return data
 }
 

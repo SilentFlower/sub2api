@@ -176,7 +176,7 @@ Lite 入站信号
 | `backend/internal/service/openai_responses_lite_tools_test.go` | 旧 build 断言 Header 全局为空及生图工具边界 | PR #4380 断言 Header 透传和 `all_turns` | 改为新策略矩阵：`gpt-5.6-terra` 透传 + `all_turns`；默认阻止的 `gpt-5.5`/`gpt-5.4-mini` 删除 Header且不强制 context；managed/passthrough 都覆盖 |
 | `backend/internal/service/openai_ws_forwarder_ingress_session_test.go` | Lite 生图 fallback、客户端 `image_gen` 不接管 | Lite namespace 迁移和 `all_turns` | 保留图片矩阵并拆分 allow/block 模型；同一会话增加模型切换，断言 metadata/context 每轮重新判断 |
 | `backend/internal/service/openai_ws_http_bridge.go` | 使用统一 `extractOpenAIUpstreamReasoningEffort` | WS `UpstreamTerminalEvent` 与调度成功语义；metadata 重建 Header | 保留 build reasoning helper和 main 终态字段；Header 重建改成按最终模型条件执行 |
-| `backend/internal/service/wire.go` | Codex reset、独立 `GrokBillingQuotaService` | Grok quota `cfg`、`ProvideUpstreamBillingProbeService` | ProviderSet 同时注册；`ProvideGrokQuotaService` 接受 `cfg + usageLogRepo`；恢复 AccountUsage 对主 quota service 的注入 |
+| `backend/internal/service/wire.go` | Codex reset、独立 `GrokBillingQuotaService` | Grok quota `cfg`、`ProvideUpstreamBillingProbeService` | ProviderSet 同时注册；`ProvideGrokQuotaService` 接受 `cfg + usageLogRepo`；`AccountUsageService` 不注入主 quota service，避免账号列表跨入 main Billing 探测链路 |
 | `frontend/src/components/account/CreateAccountModal.vue` | Web Search/JSON Schema 相关 extra 构建 | Grok OAuth 自定义 base URL、请求头和切平台清理 | 使用空格缩进合并两套状态；先构建 credentials 并应用上游配置，再用 `buildGrokExtra` 保留其它 extra |
 | `frontend/src/components/account/EditAccountModal.vue` | JSON Schema/Web Search extra 增删 | 上游计费探测开关 | 基于既有 `extra` 副本逐键更新，三类字段同时保留；APIKey/非 APIKey 清理边界不互相覆盖 |
 
@@ -184,7 +184,7 @@ Lite 入站信号
 
 仅解决 12 个 `UU` 不足以保证合并正确，至少复核以下自动合并链路：
 
-- `AccountUsageService`：恢复 `main` 的 `GrokQuotaService` 主动 billing refresh，同时保留 `build` 独立 `GrokBillingQuotaService` 管理端入口。
+- `AccountUsageService`：只读取既有 Grok 快照并投影本地窗口，不注入 `GrokQuotaService`、不主动调用 `ProbeBilling`；main `/quota` 与 build 独立 `/billing-quota` 各自由自己的入口触发。
 - `GrokQuotaService`：同时保留 `cfg`、`usageLogRepo` 和现有 variadic 测试兼容签名，生产 Provider 使用完整参数。
 - `openaiAllowedHeaders` / `openaiPassthroughAllowedHeaders`：恢复 main 候选项后由新策略终态过滤。
 - `SettingService -> handler DTO -> frontend API -> SettingsView`：字段名、空数组语义和默认值必须完整往返。

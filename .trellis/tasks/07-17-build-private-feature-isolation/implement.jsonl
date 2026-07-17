@@ -1,0 +1,10 @@
+{"file":".trellis/tasks/07-17-build-private-feature-isolation/research/build-private-feature-inventory.md","reason":"提供 build 独有提交、假想合并树、功能域归属、高冲突热点和三个预演冲突的 Git 证据。"}
+{"file":".trellis/tasks/07-17-build-private-feature-isolation/research/build-commit-classification.md","reason":"逐项分类 45 个非 bookkeeping 候选提交并补充 merge-only 增量，用于区分当前仍独有、main 已替代、维护和分支资产。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Anthropic bridge、Grok force-chat/Billing、reasoning effort、Codex 身份、Alpha Search、Responses Lite、生图与 Web Search 等 build 能力的行为不变量。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"约束 Go 功能文件落点、分层依赖、命名和中央 route/handler/service/repository 边界。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束生成代码、interface stub、gofmt、测试、lint 和中央契约同步。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"指导 Create/Edit/Bulk 与 SettingsView 的 typed props/emits、局部状态、i18n 和组件拆分边界。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"约束组件、composable、utils、API、共享类型和 locale 扩展模块的目录归属。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"保证组件迁移后 snake_case API 字段、unknown 收窄、props/emits 和共享类型不漂移。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"避免为隔离复制规则、创建万能 helper 或在多个表单重复 extra/payload 更新。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"保证后端设置/策略、API 类型、前端状态、locale 和各转发入口迁移后完整往返。"}

@@ -233,17 +233,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		if isOpenAIResponsesLiteWebSocketPayload(normalized) {
-			litePayload, _, liteErr := s.applyOpenAIResponsesLiteWebSocketPolicy(ctx, account, normalized, upstreamModel)
-			if liteErr != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
-					coderws.StatusPolicyViolation,
-					liteErr.Error(),
-					liteErr,
-				)
-			}
-			normalized = litePayload
+		litePayload, liteErr := s.applyOpenAIResponsesLiteWebSocketPayloadPolicy(ctx, account, normalized, upstreamModel)
+		if liteErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
+				coderws.StatusPolicyViolation,
+				liteErr.Error(),
+				liteErr,
+			)
 		}
+		normalized = litePayload
 		apiKey := getAPIKeyFromContext(c)
 		imageGenerationAllowed := GroupAllowsImageGeneration(apiKeyGroup(apiKey))
 		codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow

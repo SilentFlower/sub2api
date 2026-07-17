@@ -1,0 +1,23 @@
+export default {
+  grokBillingTitle: 'Grok 套餐额度',
+  grokBillingRefresh: '刷新 Grok 套餐额度',
+  grokBillingExpand: '展开 Grok 套餐额度',
+  grokBillingCollapse: '收起 Grok 套餐额度',
+  grokBillingEmpty: '暂无套餐额度数据',
+  grokBillingMonthly: '月额度',
+  grokBillingMonthlyShort: '月',
+  grokBillingWeekly: '周额度',
+  grokBillingWeeklyShort: '周',
+  grokBillingProductUsage: '{product} 用量',
+  grokBillingPayAsYouGo: '按量付费',
+  grokBillingPayAsYouGoShort: '按量',
+  grokBillingPayAsYouGoDisabled: '未启用',
+  grokBillingRemainingPercent: '剩余 {percent}',
+  grokBillingUsedPercent: '已用 {percent}',
+  grokBillingReset: '重置 {time}',
+  grokBillingUpdated: '更新 {time}',
+  grokBillingStale: '已过期 · 更新 {time}',
+  grokBillingPartial: '部分额度更新失败',
+  grokBillingPlanSuperGrok: 'SuperGrok',
+  grokBillingPlanSuperGrokHeavy: 'SuperGrok Heavy'
+}

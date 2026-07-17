@@ -1,3 +1,7 @@
+import openAIImageGenerationMessages from './settingsOpenAIImageGeneration'
+import responsesLiteMessages from './settingsResponsesLite'
+import webSearchAnySearchMessages from './settingsWebSearchAnySearch'
+
 export default {
     settings: {
       title: 'System Settings',
@@ -356,23 +360,8 @@ export default {
         openaiCodexUserAgent: 'OpenAI Codex UA',
         openaiCodexUserAgentPlaceholder: 'codex-tui/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.125.0)',
         openaiCodexUserAgentHint: 'Used to bypass Cloudflare browser-UA challenges on the OpenAI upstream. Only applies when the client User-Agent is detected as a browser (Mozilla/...). Leave empty to use the built-in default.',
-        openaiImageMainModel: 'OpenAI Image Main Model',
-        openaiImageMainModelPlaceholder: 'gpt-5.4-mini',
-        openaiImageMainModelHint: 'Conversation model used for OpenAI OAuth image generation Responses requests. Leave empty to use gpt-5.4-mini.',
-        openaiImageReasoningEffort: 'OpenAI Image Reasoning Effort',
-        openaiImageReasoningEffortHint: 'Controls reasoning.effort for OpenAI OAuth image generation Responses requests.',
-        openaiImageReasoningEffortLow: 'low',
-        openaiImageReasoningEffortMedium: 'medium',
-        openaiImageReasoningEffortHigh: 'high',
-        openaiImageReasoningEffortXHigh: 'xhigh',
-        openaiImageReasoningEffortMax: 'max',
-        openaiResponsesLiteBlockedModels: 'Responses Lite Header blocked models',
-        openaiResponsesLiteBlockedModelsHint: 'Remove the Responses Lite Header and WebSocket metadata according to the final upstream model. Supports exact names and prefix rules with one trailing *; an empty list allows all models.',
-        openaiResponsesLiteBlockedModelPlaceholder: 'For example, gpt-5.4 or gpt-5.4*',
-        openaiResponsesLiteBlockedModelAdd: 'Add model rule',
-        openaiResponsesLiteBlockedModelRemove: 'Remove model rule',
-        openaiResponsesLiteBlockedModelEmpty: 'A Responses Lite blocked-model rule cannot be empty.',
-        openaiResponsesLiteBlockedModelWildcardInvalid: 'A Responses Lite blocked-model rule supports only one trailing *.',
+        ...openAIImageGenerationMessages,
+        ...responsesLiteMessages,
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:
@@ -411,14 +400,14 @@ export default {
       },
       webSearchEmulation: {
         title: 'Web Search Emulation',
-        description: 'Configure local web search providers for eligible OpenAI and Anthropic API Key accounts',
+        description: 'Inject web search capability for Anthropic API Key accounts that don\'t natively support it',
         enabled: 'Enable Web Search Emulation',
         enabledHint: 'Global switch. When disabled, web search emulation is inactive for all channels and accounts.',
         providers: 'Search Providers',
         addProvider: 'Add Provider',
         providerType: 'Provider Type',
         apiKey: 'API Key',
-        apiKeyPlaceholder: 'Enter API Key (optional for AnySearch)',
+        apiKeyPlaceholder: 'Enter API Key',
         apiKeyConfigured: 'Configured',
         showApiKey: 'Show',
         hideApiKey: 'Hide',
@@ -442,6 +431,7 @@ export default {
         testResultTitle: 'Search Results',
         testResultProvider: 'Provider',
         testNoResults: 'No results found',
+        ...(webSearchAnySearchMessages as Record<string, string>),
       },
       site: {
         title: 'Site Settings',

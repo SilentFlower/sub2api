@@ -1,3 +1,7 @@
+import openAIImageGenerationMessages from './settingsOpenAIImageGeneration'
+import responsesLiteMessages from './settingsResponsesLite'
+import webSearchAnySearchMessages from './settingsWebSearchAnySearch'
+
 export default {
     settings: {
       title: '系统设置',
@@ -350,23 +354,8 @@ export default {
         openaiCodexUserAgent: 'OpenAI Codex UA',
         openaiCodexUserAgentPlaceholder: 'codex-tui/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.125.0)',
         openaiCodexUserAgentHint: '用于规避 OpenAI 上游 Cloudflare 对浏览器 UA 的访问质询。仅在检测到客户端 User-Agent 为浏览器（Mozilla/...）时生效，其他客户端原样透传。留空使用内置默认值。',
-        openaiImageMainModel: 'OpenAI 生图对话主模型',
-        openaiImageMainModelPlaceholder: 'gpt-5.4-mini',
-        openaiImageMainModelHint: 'OpenAI OAuth 生图 Responses 请求使用的对话主模型。留空使用 gpt-5.4-mini。',
-        openaiImageReasoningEffort: 'OpenAI 生图思考预算',
-        openaiImageReasoningEffortHint: '控制 OpenAI OAuth 生图 Responses 请求中的 reasoning.effort。',
-        openaiImageReasoningEffortLow: 'low',
-        openaiImageReasoningEffortMedium: 'medium',
-        openaiImageReasoningEffortHigh: 'high',
-        openaiImageReasoningEffortXHigh: 'xhigh',
-        openaiImageReasoningEffortMax: 'max',
-        openaiResponsesLiteBlockedModels: 'Responses Lite Header 阻止模型',
-        openaiResponsesLiteBlockedModelsHint: '按最终上游模型决定是否移除 Responses Lite Header 与 WebSocket metadata。支持精确模型名和仅末尾 * 的前缀规则；空列表表示全部允许透传。',
-        openaiResponsesLiteBlockedModelPlaceholder: '例如 gpt-5.4 或 gpt-5.4*',
-        openaiResponsesLiteBlockedModelAdd: '添加模型规则',
-        openaiResponsesLiteBlockedModelRemove: '删除模型规则',
-        openaiResponsesLiteBlockedModelEmpty: 'Responses Lite 阻止模型规则不能为空。',
-        openaiResponsesLiteBlockedModelWildcardInvalid: 'Responses Lite 阻止模型规则仅支持一个位于末尾的 *。',
+        ...openAIImageGenerationMessages,
+        ...responsesLiteMessages,
         codexHardeningTitle: 'Codex 设置',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:
@@ -405,14 +394,14 @@ export default {
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',
-        description: '为符合条件的 OpenAI 和 Anthropic API Key 账号配置本地网页搜索服务',
+        description: '为不原生支持搜索的 Anthropic API Key 账号注入 web search 能力',
         enabled: '启用 Web Search 模拟',
         enabledHint: '全局开关。关闭后所有渠道和账号的 web search 模拟均不生效。',
         providers: '搜索服务商',
         addProvider: '添加服务商',
         providerType: '服务商类型',
         apiKey: 'API Key',
-        apiKeyPlaceholder: '输入 API Key（AnySearch 可选）',
+        apiKeyPlaceholder: '输入 API Key',
         apiKeyConfigured: '已配置',
         showApiKey: '显示',
         hideApiKey: '隐藏',
@@ -436,6 +425,7 @@ export default {
         testResultTitle: '搜索结果',
         testResultProvider: '服务商',
         testNoResults: '无搜索结果',
+        ...(webSearchAnySearchMessages as Record<string, string>),
       },
       site: {
         title: '站点设置',

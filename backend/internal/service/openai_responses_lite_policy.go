@@ -219,6 +219,26 @@ func (s *OpenAIGatewayService) applyOpenAIResponsesLiteHTTPBodyPolicy(
 	return normalized, true, nil
 }
 
+func (s *OpenAIGatewayService) applyOpenAIResponsesLiteHTTPIngressPolicy(
+	ctx context.Context,
+	account *Account,
+	body []byte,
+	headerValue string,
+	compact bool,
+) ([]byte, error) {
+	if !isOpenAIResponsesLiteHeader(headerValue) {
+		return body, nil
+	}
+	finalModel := s.resolveOpenAIResponsesLitePolicyModel(
+		ctx,
+		account,
+		strings.TrimSpace(gjson.GetBytes(body, "model").String()),
+		compact,
+	)
+	updated, _, err := s.applyOpenAIResponsesLiteHTTPBodyPolicy(ctx, account, body, finalModel, headerValue)
+	return updated, err
+}
+
 func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWebSocketPolicy(
 	ctx context.Context,
 	account *Account,
@@ -238,6 +258,38 @@ func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWebSocketPolicy(
 		return body, false, err
 	}
 	return normalized, true, nil
+}
+
+func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWebSocketPayloadPolicy(
+	ctx context.Context,
+	account *Account,
+	body []byte,
+	finalModel string,
+) ([]byte, error) {
+	updated, _, err := s.applyOpenAIResponsesLiteWebSocketPolicy(ctx, account, body, finalModel)
+	return updated, err
+}
+
+func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWSHTTPBridgePolicy(
+	ctx context.Context,
+	req *http.Request,
+	account *Account,
+	wsPayload []byte,
+	httpBody []byte,
+	originalModel string,
+) {
+	if req == nil {
+		return
+	}
+	finalModel := strings.TrimSpace(gjson.GetBytes(httpBody, "model").String())
+	if finalModel == "" && originalModel != "" {
+		finalModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+	}
+	if isOpenAIResponsesLiteWebSocketPayload(wsPayload) && s.shouldForwardOpenAIResponsesLite(ctx, account, finalModel) {
+		req.Header.Set(responsesLiteHeader, "true")
+		return
+	}
+	req.Header.Del(responsesLiteHeader)
 }
 
 func stripOpenAIResponsesLiteWebSocketMetadata(body []byte) ([]byte, error) {

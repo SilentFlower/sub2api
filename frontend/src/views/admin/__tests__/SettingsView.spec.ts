@@ -22,6 +22,15 @@ const {
   updateProvider,
   createProvider,
   deleteProvider,
+  listAffiliateUsers,
+  lookupAffiliateUsers,
+  updateAffiliateUserSettings,
+  clearAffiliateUserSettings,
+  batchSetAffiliateRate,
+  listAffiliateInviteRecords,
+  listAffiliateRebateRecords,
+  listAffiliateTransferRecords,
+  getAffiliateUserOverview,
   fetchPublicSettings,
   adminSettingsFetch,
   showError,
@@ -44,6 +53,15 @@ const {
   updateProvider: vi.fn(),
   createProvider: vi.fn(),
   deleteProvider: vi.fn(),
+  listAffiliateUsers: vi.fn(),
+  lookupAffiliateUsers: vi.fn(),
+  updateAffiliateUserSettings: vi.fn(),
+  clearAffiliateUserSettings: vi.fn(),
+  batchSetAffiliateRate: vi.fn(),
+  listAffiliateInviteRecords: vi.fn(),
+  listAffiliateRebateRecords: vi.fn(),
+  listAffiliateTransferRecords: vi.fn(),
+  getAffiliateUserOverview: vi.fn(),
   fetchPublicSettings: vi.fn(),
   adminSettingsFetch: vi.fn(),
   showError: vi.fn(),
@@ -81,6 +99,33 @@ vi.mock("@/api", () => ({
     },
   },
 }));
+
+vi.mock("@/api/admin/affiliates", () => {
+  const affiliatesAPI = {
+    listUsers: listAffiliateUsers,
+    lookupUsers: lookupAffiliateUsers,
+    updateUserSettings: updateAffiliateUserSettings,
+    clearUserSettings: clearAffiliateUserSettings,
+    batchSetRate: batchSetAffiliateRate,
+    listInviteRecords: listAffiliateInviteRecords,
+    listRebateRecords: listAffiliateRebateRecords,
+    listTransferRecords: listAffiliateTransferRecords,
+    getUserOverview: getAffiliateUserOverview,
+  };
+  return {
+    affiliatesAPI,
+    default: affiliatesAPI,
+    listUsers: listAffiliateUsers,
+    lookupUsers: lookupAffiliateUsers,
+    updateUserSettings: updateAffiliateUserSettings,
+    clearUserSettings: clearAffiliateUserSettings,
+    batchSetRate: batchSetAffiliateRate,
+    listInviteRecords: listAffiliateInviteRecords,
+    listRebateRecords: listAffiliateRebateRecords,
+    listTransferRecords: listAffiliateTransferRecords,
+    getUserOverview: getAffiliateUserOverview,
+  };
+});
 
 vi.mock("@/stores", () => ({
   useAppStore: () => ({
@@ -196,8 +241,6 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.defaults.platformQuotaNotice": "月限额为 30 天滚动窗口，非自然月",
     "admin.settings.authSourceDefaults.platformQuotasOverride": "平台限额覆盖",
     "admin.settings.authSourceDefaults.platformQuotasOverrideHint": "留空的字段继承「系统默认平台限额」；填 0 表示禁止该窗口使用。",
-    "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelEmpty": "Responses Lite 阻止模型规则不能为空。",
-    "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelWildcardInvalid": "Responses Lite 阻止模型规则仅支持一个位于末尾的 *。",
   };
   return {
     ...actual,
@@ -411,13 +454,6 @@ const baseSettingsResponse = {
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
-  openai_image_generation_main_model: "gpt-5.4-mini",
-  openai_image_generation_reasoning_effort: "medium",
-  openai_responses_lite_header_blocked_models: [
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-  ],
   payment_enabled: true,
   payment_min_amount: 1,
   payment_max_amount: 10000,
@@ -536,17 +572,7 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
-async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
-  const gatewayTabButton = wrapper
-    .findAll("button")
-    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
-
-  expect(gatewayTabButton).toBeDefined();
-  await gatewayTabButton?.trigger("click");
-  await flushPromises();
-}
-
-describe("admin SettingsView payment and Web Search controls", () => {
+describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();
@@ -565,6 +591,15 @@ describe("admin SettingsView payment and Web Search controls", () => {
     updateProvider.mockReset();
     createProvider.mockReset();
     deleteProvider.mockReset();
+    listAffiliateUsers.mockReset();
+    lookupAffiliateUsers.mockReset();
+    updateAffiliateUserSettings.mockReset();
+    clearAffiliateUserSettings.mockReset();
+    batchSetAffiliateRate.mockReset();
+    listAffiliateInviteRecords.mockReset();
+    listAffiliateRebateRecords.mockReset();
+    listAffiliateTransferRecords.mockReset();
+    getAffiliateUserOverview.mockReset();
     fetchPublicSettings.mockReset();
     adminSettingsFetch.mockReset();
     showError.mockReset();
@@ -583,6 +618,13 @@ describe("admin SettingsView payment and Web Search controls", () => {
     updateWebSearchEmulationConfig.mockResolvedValue({
       enabled: false,
       providers: [],
+    });
+    listAffiliateUsers.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      pages: 0,
     });
     getAdminApiKey.mockResolvedValue({
       exists: false,
@@ -789,101 +831,6 @@ describe("admin SettingsView payment and Web Search controls", () => {
       expect.objectContaining({
         antigravity_user_agent_version: "1.23.2",
       }),
-    );
-  });
-
-  it("submits OpenAI image generation gateway settings", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_image_generation_main_model: "gpt-5.6-sol",
-      openai_image_generation_reasoning_effort: "max",
-    });
-
-    const wrapper = mountView();
-
-    await flushPromises();
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).toHaveBeenCalledTimes(1);
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        openai_image_generation_main_model: "gpt-5.6-sol",
-        openai_image_generation_reasoning_effort: "max",
-      }),
-    );
-  });
-
-  it("loads and normalizes Responses Lite blocked model rules", async () => {
-    const wrapper = mountView();
-
-    await flushPromises();
-    const rows = wrapper.findAll(
-      '[data-testid="responses-lite-blocked-model-row"]',
-    );
-    expect(rows).toHaveLength(3);
-    expect((rows[0].element as HTMLInputElement).value).toBe("gpt-5.4");
-
-    await rows[0].setValue(" gpt-5.4* ");
-    await rows[1].setValue("gpt-5.4*");
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        openai_responses_lite_header_blocked_models: ["gpt-5.4*", "gpt-5.5"],
-      }),
-    );
-  });
-
-  it("submits an explicit empty Responses Lite blocked model list", async () => {
-    const wrapper = mountView();
-
-    await flushPromises();
-    while (
-      wrapper.findAll('[data-testid="responses-lite-blocked-model-remove"]')
-        .length > 0
-    ) {
-      await wrapper
-        .findAll('[data-testid="responses-lite-blocked-model-remove"]')[0]
-        .trigger("click");
-    }
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        openai_responses_lite_header_blocked_models: [],
-      }),
-    );
-  });
-
-  it("rejects invalid Responses Lite blocked model rules", async () => {
-    const wrapper = mountView();
-
-    await flushPromises();
-    await wrapper
-      .find('[data-testid="responses-lite-blocked-model-add"]')
-      .trigger("click");
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).not.toHaveBeenCalled();
-    expect(showError).toHaveBeenCalledWith(
-      "Responses Lite 阻止模型规则不能为空。",
-    );
-
-    showError.mockClear();
-    const rows = wrapper.findAll(
-      '[data-testid="responses-lite-blocked-model-row"]',
-    );
-    await rows.at(-1)!.setValue("gpt-5.*-mini");
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).not.toHaveBeenCalled();
-    expect(showError).toHaveBeenCalledWith(
-      "Responses Lite 阻止模型规则仅支持一个位于末尾的 *。",
     );
   });
 
@@ -1102,48 +1049,6 @@ describe("admin SettingsView payment and Web Search controls", () => {
     // supported_types should be normalized to an empty array, not null
     expect(Array.isArray(receivedProviders[0].supported_types)).toBe(true);
     expect(receivedProviders[0].supported_types).toEqual([]);
-  });
-
-  it("保存 AnySearch provider 时允许 API Key 留空", async () => {
-    getWebSearchEmulationConfig.mockResolvedValue({
-      enabled: true,
-      providers: [
-        {
-          type: "anysearch",
-          api_key: "",
-          api_key_configured: false,
-          quota_limit: 1000,
-          subscribed_at: null,
-          proxy_id: null,
-          expires_at: null,
-        },
-      ],
-    });
-
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-
-    const providerSelect = wrapper
-      .findAll(".select-stub")
-      .find((select) => select.findAll("option").some((option) => option.text() === "AnySearch"));
-    expect(providerSelect).toBeDefined();
-    expect((providerSelect?.element as HTMLSelectElement).value).toBe("anysearch");
-
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateWebSearchEmulationConfig).toHaveBeenCalledTimes(1);
-    expect(updateWebSearchEmulationConfig).toHaveBeenCalledWith({
-      enabled: true,
-      providers: [
-        expect.objectContaining({
-          type: "anysearch",
-          api_key: "",
-          quota_limit: 1000,
-        }),
-      ],
-    });
   });
 });
 

@@ -209,16 +209,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, err
 	}
-	litePolicyModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-	if litePolicyModel == "" && originalModel != "" {
-		litePolicyModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
-	}
-	if isOpenAIResponsesLiteWebSocketPayload(payload) &&
-		s.shouldForwardOpenAIResponsesLite(ctx, account, litePolicyModel) {
-		upstreamReq.Header.Set(responsesLiteHeader, "true")
-	} else {
-		upstreamReq.Header.Del(responsesLiteHeader)
-	}
+	s.applyOpenAIResponsesLiteWSHTTPBridgePolicy(ctx, upstreamReq, account, payload, body, originalModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

@@ -112,7 +112,6 @@ const (
 	apiQueryMaxJitter   = 800 * time.Millisecond // 用量查询最大随机延迟
 	windowStatsCacheTTL = 1 * time.Minute
 	openAIProbeCacheTTL = 10 * time.Minute
-	grokProbeRetryTTL   = 1 * time.Minute
 	grokFreeQuotaWindow = 24 * time.Hour
 )
 
@@ -124,7 +123,6 @@ type UsageCache struct {
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
-	grokProbeCache    sync.Map           // accountID -> last billing probe attempt
 }
 
 // NewUsageCache 创建 UsageCache 实例
@@ -295,7 +293,6 @@ type AccountUsageService struct {
 	geminiQuotaService      *GeminiQuotaService
 	antigravityQuotaFetcher *AntigravityQuotaFetcher
 	grokQuotaFetcher        *GrokQuotaFetcher
-	grokQuotaService        *GrokQuotaService
 	openAIQuotaService      *OpenAIQuotaService
 	cache                   *UsageCache
 	identityCache           IdentityCache
@@ -311,7 +308,6 @@ type AccountUsageService struct {
 // @param geminiQuotaService Gemini 额度服务。
 // @param antigravityQuotaFetcher Antigravity 额度获取器。
 // @param grokQuotaFetcher Grok 快照额度获取器。
-// @param grokQuotaService Grok 主额度探测服务。
 // @param openAIQuotaService OpenAI 额度服务。
 // @param cache 使用量缓存。
 // @param identityCache 身份缓存。
@@ -324,7 +320,6 @@ func NewAccountUsageService(
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	grokQuotaFetcher *GrokQuotaFetcher,
-	grokQuotaService *GrokQuotaService,
 	openAIQuotaService *OpenAIQuotaService,
 	cache *UsageCache,
 	identityCache IdentityCache,
@@ -337,7 +332,6 @@ func NewAccountUsageService(
 		geminiQuotaService:      geminiQuotaService,
 		antigravityQuotaFetcher: antigravityQuotaFetcher,
 		grokQuotaFetcher:        grokQuotaFetcher,
-		grokQuotaService:        grokQuotaService,
 		openAIQuotaService:      openAIQuotaService,
 		cache:                   cache,
 		identityCache:           identityCache,
@@ -383,7 +377,7 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	}
 
 	if account.Platform == PlatformGrok {
-		usage, err := s.getGrokUsage(ctx, account, forceProbe)
+		usage, err := s.getGrokUsage(ctx, account)
 		if err == nil && usage != nil && usage.Error == "" {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -970,22 +964,10 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	return usage, nil
 }
 
-func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
+func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
 	if s.grokQuotaFetcher == nil {
 		now := time.Now()
 		return &UsageInfo{UpdatedAt: &now}, nil
-	}
-	var billingProbeResult *GrokQuotaProbeResult
-	if account != nil && account.IsGrokOAuth() && s.grokQuotaService != nil &&
-		(force || grokBillingSnapshotNeedsRefresh(account, time.Now())) &&
-		s.shouldProbeGrokBilling(account.ID, time.Now(), force) {
-		result, err := s.grokQuotaService.ProbeBilling(ctx, account.ID)
-		if err == nil && result != nil && result.Billing != nil {
-			billingProbeResult = result
-			mergeAccountExtra(account, map[string]any{grokBillingExtraKey: result.Billing})
-		} else if err != nil && force {
-			return nil, err
-		}
 	}
 	usage := s.grokQuotaFetcher.BuildUsageInfo(account)
 	if usage.GrokQuotaSnapshotState == "" {
@@ -1002,11 +984,7 @@ func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account
 				usage.GrokLocalUsage = windowStatsFromAccountStats(stats)
 			}
 		}
-		if billingProbeResult != nil {
-			usage.GrokLocalUsage24h = billingProbeResult.LocalUsage24h
-			usage.GrokLocalUsage7d = billingProbeResult.LocalUsage7d
-			usage.GrokLocalUsageMonthly = billingProbeResult.LocalUsageMonthly
-		} else if s.usageLogRepo != nil {
+		if s.usageLogRepo != nil {
 			usage.GrokLocalUsage24h, usage.GrokLocalUsage7d, usage.GrokLocalUsageMonthly = grokLocalUsageForQuota(
 				ctx, s.usageLogRepo, account.ID, usage.GrokBilling, time.Now().UTC(),
 			)
@@ -1090,35 +1068,6 @@ func currentGrokBillingWindow(billing *xai.BillingSummary, weekly bool, now time
 		return time.Time{}, false
 	}
 	return start, true
-}
-
-func grokBillingSnapshotNeedsRefresh(account *Account, now time.Time) bool {
-	if account == nil {
-		return false
-	}
-	billing, err := grokBillingSnapshotFromExtra(account.Extra)
-	if err != nil || billing == nil || billing.Partial || len(billing.FailedWindows) > 0 {
-		return true
-	}
-	stamp := strings.TrimSpace(billing.UpdatedAt)
-	if stamp == "" {
-		stamp = strings.TrimSpace(billing.FetchedAt)
-	}
-	updatedAt, err := parseTime(stamp)
-	return err != nil || now.Sub(updatedAt) >= openAIProbeCacheTTL
-}
-
-func (s *AccountUsageService) shouldProbeGrokBilling(accountID int64, now time.Time, force bool) bool {
-	if force || s == nil || s.cache == nil || accountID <= 0 {
-		return true
-	}
-	if cached, ok := s.cache.grokProbeCache.Load(accountID); ok {
-		if ts, ok := cached.(time.Time); ok && now.Sub(ts) < grokProbeRetryTTL {
-			return false
-		}
-	}
-	s.cache.grokProbeCache.Store(accountID, now)
-	return true
 }
 
 // recalcAntigravityRemainingSeconds 重新计算 Antigravity UsageInfo 中各窗口的 RemainingSeconds

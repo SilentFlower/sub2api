@@ -849,41 +849,11 @@
         </div>
       </div>
 
-      <!-- OpenAI OAuth: 自定义 Codex UA 放行规则 -->
-      <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <div class="mb-3 flex items-center justify-between">
-          <div class="flex-1 pr-4">
-            <label
-              id="bulk-edit-openai-codex-custom-ua-label"
-              class="input-label mb-0"
-              for="bulk-edit-openai-codex-custom-ua-enabled"
-            >
-              {{ t('admin.accounts.openai.codexCLIOnlyCustomUA') }}
-            </label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexCLIOnlyCustomUABulkDesc') }}
-            </p>
-          </div>
-          <input
-            v-model="enableCodexCLIOnlyCustomUA"
-            id="bulk-edit-openai-codex-custom-ua-enabled"
-            type="checkbox"
-            aria-controls="bulk-edit-openai-codex-custom-ua"
-            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-        </div>
-        <textarea
-          id="bulk-edit-openai-codex-custom-ua"
-          v-model="codexCLIOnlyCustomUserAgentInput"
-          rows="3"
-          class="input font-mono text-xs"
-          :class="!enableCodexCLIOnlyCustomUA && 'cursor-not-allowed opacity-50'"
-          :disabled="!enableCodexCLIOnlyCustomUA"
-          :placeholder="t('admin.accounts.openai.codexCLIOnlyCustomUAPlaceholder')"
-          data-testid="bulk-edit-openai-codex-custom-ua"
-        ></textarea>
-        <p class="input-hint">{{ t('admin.accounts.openai.codexCLIOnlyCustomUABulkHint') }}</p>
-      </div>
+      <BulkCodexCustomUserAgentField
+        v-if="allOpenAIOAuth"
+        v-model:enabled="enableCodexCLIOnlyCustomUA"
+        v-model:value="codexCLIOnlyCustomUserAgentInput"
+      />
 
       <!-- OpenAI API Key WS mode -->
       <div v-if="allOpenAIAPIKey" class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1244,7 +1214,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { writeCodexCustomUserAgentPatternsForBulkEdit } from './codexClientAllowlist'
+import BulkCodexCustomUserAgentField from '@/features/codexCustomClients/BulkCodexCustomUserAgentField.vue'
+import { writeCodexCustomUserAgentPatternsForBulkEdit } from '@/features/codexCustomClients/extra'
 import {
   buildModelMappingObject as buildModelMappingPayload,
   getPresetMappingsByPlatform

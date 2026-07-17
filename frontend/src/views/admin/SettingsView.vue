@@ -4673,128 +4673,14 @@
                 </p>
               </div>
 
-              <!-- OpenAI 生图主模型 -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiImageMainModel",
-                    )
-                  }}
-                </label>
-                <input
-                  v-model="form.openai_image_generation_main_model"
-                  type="text"
-                  class="input max-w-xs font-mono text-sm"
-                  :placeholder="
-                    t(
-                      'admin.settings.gatewayForwarding.openaiImageMainModelPlaceholder',
-                    )
-                  "
-                />
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiImageMainModelHint",
-                    )
-                  }}
-                </p>
-              </div>
+              <OpenAIImageGenerationSettings
+                v-model:main-model="form.openai_image_generation_main_model"
+                v-model:reasoning-effort="form.openai_image_generation_reasoning_effort"
+              />
 
-              <!-- OpenAI 生图思考预算 -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiImageReasoningEffort",
-                    )
-                  }}
-                </label>
-                <Select
-                  v-model="form.openai_image_generation_reasoning_effort"
-                  :options="openAIImageGenerationReasoningEffortOptions"
-                  class="max-w-xs"
-                />
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiImageReasoningEffortHint",
-                    )
-                  }}
-                </p>
-              </div>
-
-              <!-- Responses Lite Header 阻止模型 -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModels",
-                    )
-                  }}
-                </label>
-                <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelsHint",
-                    )
-                  }}
-                </p>
-                <div
-                  v-for="(_, index) in form.openai_responses_lite_header_blocked_models"
-                  :key="`responses-lite-blocked-model-${index}`"
-                  class="mb-2 flex items-center gap-2"
-                >
-                  <input
-                    v-model="form.openai_responses_lite_header_blocked_models[index]"
-                    type="text"
-                    class="input flex-1 font-mono text-sm"
-                    data-testid="responses-lite-blocked-model-row"
-                    :placeholder="
-                      t(
-                        'admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelPlaceholder',
-                      )
-                    "
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
-                    data-testid="responses-lite-blocked-model-remove"
-                    :aria-label="
-                      t(
-                        'admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelRemove',
-                      )
-                    "
-                    :title="
-                      t(
-                        'admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelRemove',
-                      )
-                    "
-                    @click="removeOpenAIResponsesLiteBlockedModel(index)"
-                  >
-                    <Icon name="trash" size="xs" />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  data-testid="responses-lite-blocked-model-add"
-                  @click="addOpenAIResponsesLiteBlockedModel"
-                >
-                  <Icon name="plus" size="xs" />
-                  {{
-                    t(
-                      "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelAdd",
-                    )
-                  }}
-                </button>
-              </div>
+              <ResponsesLiteBlockedModelsSettings
+                v-model="form.openai_responses_lite_header_blocked_models"
+              />
 
             </div>
           </div>
@@ -4881,7 +4767,7 @@
                         :options="[
                           { value: 'brave', label: 'Brave Search' },
                           { value: 'tavily', label: 'Tavily' },
-                          { value: 'anysearch', label: 'AnySearch' },
+                          anySearchProviderOption,
                         ]"
                         class="w-36"
                         @click.stop
@@ -4945,7 +4831,9 @@
                             provider.api_key_configured
                               ? '••••••••'
                               : t(
-                                  'admin.settings.webSearchEmulation.apiKeyPlaceholder',
+                                  webSearchProviderAPIKeyPlaceholderKey(
+                                    provider.type,
+                                  ),
                                 )
                           "
                         />
@@ -5031,6 +4919,7 @@
                           </button>
                         </div>
                       </div>
+                      <AnySearchAPIKeyHint :provider-type="provider.type" />
                     </div>
 
                     <!-- Quota + Subscription in compact row -->
@@ -7639,6 +7528,18 @@ import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
+import OpenAIImageGenerationSettings from "@/features/openAIImageGeneration/OpenAIImageGenerationSettings.vue";
+import ResponsesLiteBlockedModelsSettings from "@/features/responsesLite/ResponsesLiteBlockedModelsSettings.vue";
+import {
+  defaultResponsesLiteBlockedModels,
+  normalizeResponsesLiteBlockedModelRules,
+} from "@/features/responsesLite/modelRules";
+import AnySearchAPIKeyHint from "@/features/webSearch/AnySearchAPIKeyHint.vue";
+import {
+  anySearchProviderOption,
+  hasRequiredWebSearchProviderAPIKey,
+  webSearchProviderAPIKeyPlaceholderKey,
+} from "@/features/webSearch/anySearch";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
@@ -8153,33 +8054,6 @@ const claudeOAuthSystemPromptCacheTTLOptions = computed(() => [
   { value: "1h", label: t("admin.settings.gatewayForwarding.cacheTTL1h") },
 ]);
 
-const openAIImageGenerationReasoningEffortOptions = computed(() => [
-  {
-    value: "low",
-    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortLow"),
-  },
-  {
-    value: "medium",
-    label: t(
-      "admin.settings.gatewayForwarding.openaiImageReasoningEffortMedium",
-    ),
-  },
-  {
-    value: "high",
-    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortHigh"),
-  },
-  {
-    value: "xhigh",
-    label: t(
-      "admin.settings.gatewayForwarding.openaiImageReasoningEffortXHigh",
-    ),
-  },
-  {
-    value: "max",
-    label: t("admin.settings.gatewayForwarding.openaiImageReasoningEffortMax"),
-  },
-]);
-
 function getClaudeOAuthPresetLabel(
   preset: ClaudeOAuthSystemPromptPreset,
 ): string {
@@ -8554,11 +8428,8 @@ const form = reactive<SettingsForm>({
   openai_codex_user_agent: "",
   openai_image_generation_main_model: "",
   openai_image_generation_reasoning_effort: "medium",
-  openai_responses_lite_header_blocked_models: [
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-  ],
+  openai_responses_lite_header_blocked_models:
+    defaultResponsesLiteBlockedModels(),
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -8891,6 +8762,17 @@ async function loadWebSearchConfig() {
 async function saveWebSearchConfig(): Promise<boolean> {
   try {
     for (const p of webSearchConfig.providers) {
+      if (
+        webSearchConfig.enabled &&
+        !hasRequiredWebSearchProviderAPIKey(p)
+      ) {
+        appStore.showError(
+          t("admin.settings.webSearchEmulation.apiKeyRequired", {
+            provider: p.type,
+          }),
+        );
+        return false;
+      }
       const raw = p.quota_limit;
       if (raw != null && Number(raw) !== 0 && Number(raw) < 1) {
         appStore.showError(
@@ -9337,14 +9219,6 @@ function removeCodexWhitelistRow(i: number): void {
   codexWhitelistRows.value.splice(i, 1);
 }
 
-function addOpenAIResponsesLiteBlockedModel(): void {
-  form.openai_responses_lite_header_blocked_models.push("");
-}
-
-function removeOpenAIResponsesLiteBlockedModel(index: number): void {
-  form.openai_responses_lite_header_blocked_models.splice(index, 1);
-}
-
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -9362,7 +9236,7 @@ async function loadSettings() {
       settings.openai_responses_lite_header_blocked_models,
     )
       ? [...settings.openai_responses_lite_header_blocked_models]
-      : ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5"];
+      : defaultResponsesLiteBlockedModels();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -9718,35 +9592,26 @@ async function saveSettings() {
     form.claude_oauth_system_prompt_blocks =
       claudeOAuthSystemPromptBlocksJSON;
 
-    const normalizedOpenAIResponsesLiteBlockedModels: string[] = [];
-    const seenOpenAIResponsesLiteBlockedModels = new Set<string>();
-    for (const rawRule of form.openai_responses_lite_header_blocked_models) {
-      const rule = rawRule.trim();
-      if (!rule) {
-        appStore.showError(
-          t(
-            "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelEmpty",
-          ),
-        );
-        return;
-      }
-      const firstWildcard = rule.indexOf("*");
-      if (
-        firstWildcard >= 0 &&
-        (firstWildcard !== rule.length - 1 || rule.lastIndexOf("*") !== firstWildcard)
-      ) {
-        appStore.showError(
-          t(
-            "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelWildcardInvalid",
-          ),
-        );
-        return;
-      }
-      if (!seenOpenAIResponsesLiteBlockedModels.has(rule)) {
-        seenOpenAIResponsesLiteBlockedModels.add(rule);
-        normalizedOpenAIResponsesLiteBlockedModels.push(rule);
-      }
+    const responsesLiteRules = normalizeResponsesLiteBlockedModelRules(
+      form.openai_responses_lite_header_blocked_models,
+    );
+    if (responsesLiteRules.error === "empty") {
+      appStore.showError(
+        t(
+          "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelEmpty",
+        ),
+      );
+      return;
     }
+    if (responsesLiteRules.error === "wildcard") {
+      appStore.showError(
+        t(
+          "admin.settings.gatewayForwarding.openaiResponsesLiteBlockedModelWildcardInvalid",
+        ),
+      );
+      return;
+    }
+    const normalizedOpenAIResponsesLiteBlockedModels = responsesLiteRules.models;
     form.openai_responses_lite_header_blocked_models =
       normalizedOpenAIResponsesLiteBlockedModels;
 

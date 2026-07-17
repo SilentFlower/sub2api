@@ -1063,29 +1063,6 @@ func logCodexCLIOnlyDetection(ctx context.Context, c *gin.Context, account *Acco
 	log.Warn("OpenAI codex_cli_only 拒绝非官方客户端请求")
 }
 
-func writeCodexClientRestrictionForbidden(c *gin.Context, result CodexClientRestrictionDetectionResult) {
-	if c == nil {
-		return
-	}
-	message := CodexClientRestrictionMessage(result)
-	errorPayload := gin.H{
-		"type":    "forbidden_error",
-		"message": message,
-	}
-	if userAgent := codexCLIOnlyRejectedRequestUserAgent(c); userAgent != "" {
-		errorPayload["request_user_agent"] = userAgent
-		errorPayload["message"] = message + ". Request User-Agent: " + userAgent
-	}
-	c.JSON(http.StatusForbidden, gin.H{"error": errorPayload})
-}
-
-func codexCLIOnlyRejectedRequestUserAgent(c *gin.Context) string {
-	if c == nil || c.Request == nil {
-		return ""
-	}
-	return truncateString(strings.TrimSpace(c.Request.Header.Get("User-Agent")), codexCLIOnlyHeaderValueMaxBytes)
-}
-
 func appendCodexCLIOnlyRejectedRequestFields(fields []zap.Field, c *gin.Context, body []byte) []zap.Field {
 	if c == nil || c.Request == nil {
 		return fields

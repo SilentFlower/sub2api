@@ -1541,64 +1541,17 @@
         v-if="canConfigureResponsesMode"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.responsesMode') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.responsesModeDesc') }}
-            </p>
-          </div>
-          <div class="w-56">
-            <Select
-              v-model="openAIResponsesMode"
-              :options="openAIResponsesModeOptions"
-              :disabled="responsesModeSelectDisabled"
-              data-testid="openai-responses-mode-select"
-            />
-          </div>
-        </div>
-        <div
-          v-if="account?.platform === 'grok' || openAITextGenerationCapabilityEnabled"
-          class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
-        >
-          <span class="font-medium">{{ t(openAIResponsesStatusKey) }}</span>
-        </div>
-        <div
-          v-else-if="account?.platform === 'openai'"
-          class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-          data-testid="openai-responses-mode-not-applicable"
-        >
-          {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
-        </div>
-        <div
+        <OpenAIResponsesModeField
+          v-model="openAIResponsesMode"
+          :options="openAIResponsesModeOptions"
+          :disabled="responsesModeSelectDisabled"
+          :status-key="account?.platform === 'grok' || openAITextGenerationCapabilityEnabled ? openAIResponsesStatusKey : undefined"
+          :not-applicable="account?.platform === 'openai' && !openAITextGenerationCapabilityEnabled"
+        />
+        <OpenAIJSONSchemaField
           v-if="account?.platform === 'openai' && account?.type === 'apikey'"
-          class="flex items-center justify-between gap-4"
-        >
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.jsonSchemaDowngrade') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.jsonSchemaDowngradeDesc') }}
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            data-testid="openai-json-schema-downgrade-toggle"
-            :aria-checked="openAIJSONSchemaDowngradeEnabled"
-            @click="openAIJSONSchemaDowngradeEnabled = !openAIJSONSchemaDowngradeEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAIJSONSchemaDowngradeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openAIJSONSchemaDowngradeEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
-        </div>
+          v-model="openAIJSONSchemaDowngradeEnabled"
+        />
         <div v-if="account?.platform === 'openai' && account?.type === 'apikey'">
           <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1686,25 +1639,10 @@
         </div>
       </div>
 
-      <!-- API Key：全局未启用时隐藏 Web Search 模拟配置 -->
-      <div
+      <WebSearchEmulationField
         v-if="(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div class="flex items-center justify-between">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.webSearchEmulation') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.anthropic.webSearchEmulationDesc') }}
-            </p>
-          </div>
-          <select v-model="webSearchEmulationMode" class="input w-24 text-sm" data-testid="web-search-emulation-mode-select">
-            <option value="default">{{ t('admin.accounts.anthropic.webSearchDefault') }}</option>
-            <option value="enabled">{{ t('admin.accounts.anthropic.webSearchEnabled') }}</option>
-            <option value="disabled">{{ t('admin.accounts.anthropic.webSearchDisabled') }}</option>
-          </select>
-        </div>
-      </div>
+        v-model="webSearchEmulationMode"
+      />
 
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
@@ -1896,23 +1834,12 @@
             />
           </button>
         </div>
-        <div
+        <CodexCustomUserAgentField
           v-if="codexCLIOnlyEnabled"
-          class="mt-4 border-l-2 border-gray-200 pl-4 dark:border-dark-600"
-        >
-          <label class="input-label mb-1 block" for="edit-openai-codex-custom-ua">
-            {{ t('admin.accounts.openai.codexCLIOnlyCustomUA') }}
-          </label>
-          <textarea
-            id="edit-openai-codex-custom-ua"
-            v-model="codexCLIOnlyCustomUserAgentInput"
-            rows="3"
-            class="input font-mono text-xs"
-            :placeholder="t('admin.accounts.openai.codexCLIOnlyCustomUAPlaceholder')"
-            data-testid="edit-openai-codex-custom-ua"
-          ></textarea>
-          <p class="input-hint">{{ t('admin.accounts.openai.codexCLIOnlyCustomUADesc') }}</p>
-        </div>
+          v-model="codexCLIOnlyCustomUserAgentInput"
+          field-id="edit-openai-codex-custom-ua"
+          test-id="edit-openai-codex-custom-ua"
+        />
       </div>
 
       <!-- OpenAI 订阅档位手动覆盖（Plus/Pro/Free），仅 OAuth 非影子账号 -->
@@ -2632,6 +2559,25 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import CodexCustomUserAgentField from '@/features/codexCustomClients/CodexCustomUserAgentField.vue'
+import {
+  readCodexCustomUserAgentPatterns,
+  writeCodexCustomUserAgentPatterns
+} from '@/features/codexCustomClients/extra'
+import OpenAIJSONSchemaField from '@/features/openAICompatibility/OpenAIJSONSchemaField.vue'
+import OpenAIResponsesModeField from '@/features/openAICompatibility/OpenAIResponsesModeField.vue'
+import {
+  applyOpenAICompatibilityExtra,
+  readOpenAICompatibilityExtra
+} from '@/features/openAICompatibility/extra'
+import type { OpenAIResponsesModeOption } from '@/features/openAICompatibility/types'
+import {
+  applyGrokForceChatExtra,
+  readGrokForceChatMode,
+  supportsGrokForceChat
+} from '@/features/grokForceChat/extra'
+import WebSearchEmulationField from '@/features/webSearch/WebSearchEmulationField.vue'
+import type { WebSearchEmulationMode } from '@/features/webSearch/types'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -2647,10 +2593,6 @@ import {
   HEADER_OVERRIDES_CREDENTIAL_KEY,
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
-import {
-  formatCodexCustomUserAgentPatterns,
-  writeCodexCustomUserAgentPatterns
-} from './codexClientAllowlist'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
@@ -2866,7 +2808,7 @@ const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
-const webSearchEmulationMode = ref('default')
+const webSearchEmulationMode = ref<WebSearchEmulationMode>('default')
 const webSearchGlobalEnabled = ref(false)
 const {
   globalEnabled: quotaNotifyGlobalEnabled,
@@ -2985,7 +2927,7 @@ const openAICompactModeOptions = computed(() => [
 const planTypeOptions = computed(() =>
   buildPlanTypeOptions(editPlanType.value, t('admin.accounts.openai.planTypeClear'))
 )
-const openAIResponsesModeOptions = computed(() => [
+const openAIResponsesModeOptions = computed<OpenAIResponsesModeOption[]>(() => [
   { value: 'auto', label: t('admin.accounts.openai.responsesModeAuto') },
   { value: 'force_responses', label: t('admin.accounts.openai.responsesModeForceResponses') },
   { value: 'force_chat_completions', label: t('admin.accounts.openai.responsesModeForceChatCompletions') }
@@ -3015,7 +2957,7 @@ const openAITextGenerationCapabilityEnabled = computed(() =>
 )
 const canConfigureResponsesMode = computed(() =>
   (props.account?.platform === 'openai' && props.account?.type === 'apikey') ||
-  (props.account?.platform === 'grok' && (props.account?.type === 'oauth' || props.account?.type === 'apikey'))
+  supportsGrokForceChat(props.account?.platform, props.account?.type)
 )
 const responsesModeSelectDisabled = computed(() =>
   props.account?.platform === 'openai' &&
@@ -3077,12 +3019,6 @@ const applyOpenAIEndpointCapabilities = (credentials: Record<string, unknown>) =
     return
   }
   credentials.openai_capabilities = capabilities
-}
-const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
-  if (mode === 'force_responses' || mode === 'force_chat_completions') {
-    return mode
-  }
-  return 'auto'
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
   props.account?.platform === 'openai' && openaiPassthroughEnabled.value
@@ -3285,6 +3221,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedScheduling.value = false
   allowOverages.value = false
 	const extra = newAccount.extra as Record<string, unknown> | undefined
+	const compatibility = readOpenAICompatibilityExtra(extra)
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
@@ -3321,8 +3258,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       : ''
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
-      openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
-      openAIJSONSchemaDowngradeEnabled.value = extra?.openai_json_schema_to_json_object === true
+      openAIResponsesMode.value = compatibility.responsesMode
+      openAIJSONSchemaDowngradeEnabled.value = compatibility.jsonSchemaToJSONObject
       openAIEndpointCapabilities.value = readOpenAIEndpointCapabilities(
         newAccount.credentials as Record<string, unknown> | undefined
       )
@@ -3354,9 +3291,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     })
     if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
-      codexCLIOnlyCustomUserAgentInput.value = formatCodexCustomUserAgentPatterns(
-        extra?.codex_cli_only_custom_user_agent_prefixes
-      )
+      codexCLIOnlyCustomUserAgentInput.value = readCodexCustomUserAgentPatterns(extra)
       codexCLIOnlyAppServerEnabled.value =
         extra?.codex_cli_only_allow_app_server === true
     }
@@ -3367,18 +3302,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
   }
   if (newAccount.platform === 'grok' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
-    openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
+    openAIResponsesMode.value = readGrokForceChatMode(extra)
   }
   if ((newAccount.platform === 'anthropic' || newAccount.platform === 'openai') && newAccount.type === 'apikey') {
-    // 三态：string "default"/"enabled"/"disabled"，向后兼容旧 bool
-    const wsVal = extra?.web_search_emulation
-    if (wsVal === 'enabled' || wsVal === 'disabled') {
-      webSearchEmulationMode.value = wsVal
-    } else if (wsVal === true) {
-      webSearchEmulationMode.value = 'enabled'
-    } else {
-      webSearchEmulationMode.value = 'default'
-    }
+    webSearchEmulationMode.value = compatibility.webSearchEmulation
   }
   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
@@ -4394,7 +4321,7 @@ const handleSubmit = async () => {
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
     if (props.account.platform === 'antigravity') {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
+      let newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {
         newExtra.mixed_scheduling = true
       } else {
@@ -4411,7 +4338,7 @@ const handleSubmit = async () => {
     // For Anthropic OAuth/SetupToken accounts, handle quota control settings in extra
     if (props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
+      let newExtra: Record<string, unknown> = { ...currentExtra }
 
       // Window cost limit settings
       if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
@@ -4501,7 +4428,7 @@ const handleSubmit = async () => {
     // For Anthropic API Key accounts, handle passthrough mode + web search emulation in extra
     if (props.account.platform === 'anthropic' && props.account.type === 'apikey') {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
+      let newExtra: Record<string, unknown> = { ...currentExtra }
       if (anthropicPassthroughEnabled.value) {
         newExtra.anthropic_passthrough = true
       } else {
@@ -4512,18 +4439,16 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.anthropic_apikey_auth_scheme
       }
-      if (webSearchEmulationMode.value === 'default') {
-        delete newExtra.web_search_emulation
-      } else {
-        newExtra.web_search_emulation = webSearchEmulationMode.value
-      }
+      newExtra = applyOpenAICompatibilityExtra(newExtra, {
+        webSearchEmulation: webSearchEmulationMode.value
+      })
       updatePayload.extra = newExtra
     }
 
     // For OpenAI OAuth/SetupToken/API Key accounts, handle passthrough mode in extra
     if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
+      let newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
@@ -4550,26 +4475,18 @@ const handleSubmit = async () => {
       } else {
         newExtra.openai_compact_mode = openAICompactMode.value
       }
+      newExtra = applyOpenAICompatibilityExtra(newExtra, {
+        responsesMode:
+          props.account.type === 'apikey' && openAITextGenerationCapabilityEnabled.value
+            ? openAIResponsesMode.value
+            : null,
+        jsonSchemaToJSONObject:
+          props.account.type === 'apikey' ? openAIJSONSchemaDowngradeEnabled.value : null,
+        webSearchEmulation:
+          props.account.type === 'apikey' ? webSearchEmulationMode.value : null
+      })
       if (props.account.type === 'apikey') {
-        if (!openAITextGenerationCapabilityEnabled.value || openAIResponsesMode.value === 'auto') {
-          delete newExtra.openai_responses_mode
-        } else {
-          newExtra.openai_responses_mode = openAIResponsesMode.value
-        }
-        if (openAIJSONSchemaDowngradeEnabled.value) {
-          newExtra.openai_json_schema_to_json_object = true
-        } else {
-          delete newExtra.openai_json_schema_to_json_object
-        }
-        if (webSearchEmulationMode.value === 'default') {
-          delete newExtra.web_search_emulation
-        } else {
-          newExtra.web_search_emulation = webSearchEmulationMode.value
-        }
         newExtra.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
-      } else {
-        delete newExtra.openai_json_schema_to_json_object
-        delete newExtra.web_search_emulation
       }
       if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
         newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
@@ -4637,12 +4554,7 @@ const handleSubmit = async () => {
     // Grok 复用 OpenAI Responses 路由覆盖键，仅增删该键，避免覆盖 OAuth 额度快照等 extra 信息。
     if (props.account.platform === 'grok' && (props.account.type === 'oauth' || props.account.type === 'apikey')) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
-      if (openAIResponsesMode.value === 'auto') {
-        delete newExtra.openai_responses_mode
-      } else {
-        newExtra.openai_responses_mode = openAIResponsesMode.value
-      }
+      const newExtra = applyGrokForceChatExtra(currentExtra, openAIResponsesMode.value)
       updatePayload.extra = newExtra
     }
 

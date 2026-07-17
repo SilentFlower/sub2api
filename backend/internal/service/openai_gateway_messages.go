@@ -13,31 +13,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
-
-// ShouldForwardAnthropicMessagesViaRawChatCompletions 判断 OpenAI 兼容
-// /v1/messages 入站是否应跳过 Responses API，直接走 /v1/chat/completions。
-func ShouldForwardAnthropicMessagesViaRawChatCompletions(account *Account) bool {
-	if account == nil {
-		return false
-	}
-	switch account.Platform {
-	case PlatformOpenAI:
-		return account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)
-	case PlatformGrok:
-		if account.Type != AccountTypeOAuth && account.Type != AccountTypeAPIKey {
-			return false
-		}
-		mode, _ := account.Extra[openai_compat.ExtraKeyResponsesMode].(string)
-		return openai_compat.NormalizeResponsesSupportMode(mode) == openai_compat.ResponsesSupportModeForceChatCompletions
-	default:
-		return false
-	}
-}
 
 // ForwardAsAnthropic accepts an Anthropic Messages request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
@@ -51,8 +30,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	// 入口分流：OpenAI APIKey 能力探测或 Grok 显式覆盖要求走 Chat Completions
-	// 时，直接使用 Anthropic<->Chat 桥接，避免打到上游 /v1/responses。
 	if ShouldForwardAnthropicMessagesViaRawChatCompletions(account) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}

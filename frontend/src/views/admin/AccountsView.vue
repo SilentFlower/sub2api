@@ -508,7 +508,8 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
-import OpenAICodexResetModal from '@/components/admin/account/OpenAICodexResetModal.vue'
+import OpenAICodexResetModal from '@/features/openAICodexReset/OpenAICodexResetModal.vue'
+import { resolveGrokBillingQuotaPlanType } from '@/features/grokBillingQuota/plan'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
@@ -1244,22 +1245,10 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
-// 独立套餐 Billing 和被动 quota 快照优先；main 手动 Billing 不参与账号列表套餐展示。
 function getAccountPlanType(row: any): string | undefined {
   if (!row) return undefined
   if (row.platform === 'grok') {
-    const extra = (row.extra || {}) as Record<string, any>
-    const billing = extra.grok_billing_quota_snapshot as Record<string, any> | undefined
-    const quota = extra.grok_quota_snapshot as Record<string, any> | undefined
-    return (
-      billing?.plan_label ||
-      quota?.subscription_tier ||
-      row.credentials?.subscription_tier ||
-      extra.subscription_tier ||
-      row.credentials?.plan_type ||
-      row.parent_plan_type ||
-      undefined
-    )
+    return resolveGrokBillingQuotaPlanType(row as Account)
   }
   return row.credentials?.plan_type || row.parent_plan_type || undefined
 }

@@ -1,4 +1,4 @@
-import type { GrokBillingQuota } from '@/types'
+import type { GrokBillingQuota } from './types'
 
 type BillingQueueTask = () => void
 
@@ -22,7 +22,7 @@ const runNextBillingTask = () => {
  * 读取仍在 TTL 内的 Grok 套餐额度缓存。
  *
  * @param accountId Grok 账号 ID。
- * @returns 命中时返回缓存快照，否则返回 null。
+ * @return 命中时返回缓存快照，否则返回 null。
  */
 export function getCachedGrokBillingQuota(accountId: number): GrokBillingQuota | null {
   const cached = billingRefreshCache.get(accountId)
@@ -35,7 +35,7 @@ export function getCachedGrokBillingQuota(accountId: number): GrokBillingQuota |
  *
  * @param accountId Grok 账号 ID。
  * @param quota 最近一次成功的套餐额度快照。
- * @returns 无返回值。
+ * @return 无返回值。
  */
 export function setCachedGrokBillingQuota(accountId: number, quota: GrokBillingQuota): void {
   billingRefreshCache.set(accountId, { data: quota, ts: Date.now() })
@@ -45,7 +45,7 @@ export function setCachedGrokBillingQuota(accountId: number, quota: GrokBillingQ
  * 将 Grok 套餐额度请求加入全局并发队列。
  *
  * @param request 实际发起独立 Billing 请求的异步函数。
- * @returns 请求完成后的结果 Promise。
+ * @return 请求完成后的结果 Promise。
  */
 export function enqueueGrokBillingQuotaRequest<T>(request: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {

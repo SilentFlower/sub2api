@@ -616,14 +616,20 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'v
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult } from '@/api/admin/grok'
-import type { Account, AccountUsageInfo, GeminiCredentials, GrokBillingQuota, WindowStats } from '@/types'
+import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
+import {
+  hasGrokBillingQuotaProgress,
+  isGrokBillingQuotaFreeAccount,
+  mergeGrokBillingQuotaUsage
+} from '@/features/grokBillingQuota/usage'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
-import GrokBillingQuotaCell from './GrokBillingQuotaCell.vue'
+import GrokBillingQuotaCell from '@/features/grokBillingQuota/GrokBillingQuotaCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances
@@ -1065,38 +1071,8 @@ const makeGrokQuotaBar = (quota?: { limit?: number | null; remaining?: number | 
 const grokRequestQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_request_quota))
 const grokTokenQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_token_quota))
 const grokBillingQuota = computed(() => usageInfo.value?.grok_billing_quota || null)
-const grokHasOfficialBillingProgress = computed(() => {
-  const billing = grokBillingQuota.value
-  return billing?.weekly_used_percent != null ||
-    billing?.monthly_used_percent != null ||
-    (billing?.monthly_remaining_cents != null &&
-      billing?.monthly_limit_cents != null &&
-      billing.monthly_limit_cents > 0)
-})
-const grokPlanLabelIsFree = (value: string) => value.includes('free') || value.includes('basic')
-const grokPlanLabelIsPaid = (value: string) => {
-  return value !== '' && !grokPlanLabelIsFree(value) && !value.includes('unknown')
-}
-const grokIsFree = computed(() => {
-  if (props.account.platform !== 'grok' || props.account.type !== 'oauth') return false
-  const billing = grokBillingQuota.value
-  if (
-    billing?.weekly_used_percent != null ||
-    billing?.monthly_used_percent != null ||
-    (billing?.monthly_limit_cents != null && billing.monthly_limit_cents > 0)
-  ) return false
-
-  const plan = (billing?.plan_label || '').trim().toLowerCase()
-  const tier = (usageInfo.value?.subscription_tier || '').trim().toLowerCase()
-  const entitlement = (usageInfo.value?.grok_entitlement_status || '').toLowerCase()
-  if (grokPlanLabelIsPaid(plan) || grokPlanLabelIsPaid(tier)) return false
-  if (
-    grokPlanLabelIsFree(plan) ||
-    grokPlanLabelIsFree(tier) ||
-    grokPlanLabelIsFree(entitlement)
-  ) return true
-  return billing != null
-})
+const grokHasOfficialBillingProgress = computed(() => hasGrokBillingQuotaProgress(grokBillingQuota.value))
+const grokIsFree = computed(() => isGrokBillingQuotaFreeAccount(props.account, usageInfo.value))
 const grokFreeQuotaUsage = computed(() => usageInfo.value?.grok_local_usage_24h || null)
 const grokLocalUsage = computed(() => {
   if (grokIsFree.value) return grokFreeQuotaUsage.value
@@ -1375,7 +1351,7 @@ const handleGrokProbed = (result: GrokQuotaProbeResult) => {
 const handleGrokBillingQuotaUpdated = (quota: GrokBillingQuota) => {
   const current = usageInfo.value
   if (!current) return
-  const merged: AccountUsageInfo = { ...current, grok_billing_quota: quota }
+  const merged = mergeGrokBillingQuotaUsage(current, quota)
   usageInfo.value = merged
   _usageCache.set(props.account.id, { data: merged, ts: Date.now() })
 }

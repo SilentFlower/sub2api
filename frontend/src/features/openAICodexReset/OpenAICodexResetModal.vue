@@ -167,7 +167,7 @@ import type {
   OpenAICodexResetConsumeResult,
   OpenAICodexResetCreditStatus,
   OpenAICodexResetStatus
-} from '@/api/admin/accounts'
+} from './types'
 
 const props = defineProps<{
   show: boolean

@@ -1,0 +1,9 @@
+{"file":".trellis/tasks/07-17-build-private-feature-isolation/research/build-private-feature-inventory.md","reason":"反向核对每个 build 功能域是否按证据决定保持、抽离、中央保留或生成，避免漏项和越界。"}
+{"file":".trellis/tasks/07-17-build-private-feature-isolation/research/build-commit-classification.md","reason":"反向核对 45 个候选提交和 merge-only 增量均有处置，避免把 main 已覆盖、撤销链或维护差异误算为 build 私有功能。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"验证结构迁移没有改变 Responses Lite、Grok、Anthropic bridge、reasoning effort、生图和 Web Search 行为。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查 Go 分层、接口实现、Wire/Ent 生成、测试、lint、敏感信息和 diff 质量。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查拆出的账号/设置组件是否保持 typed emits、i18n、可访问性和现有后台交互形态。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 Vitest、typecheck、lint、build、中英文 locale 和用户可见行为覆盖。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"反向检查 API payload、extra/credentials、组件 props/emits 和共享类型没有字段漂移。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查是否引入重复规则、重复 payload 解析或无实际收益的抽象。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"从功能配置和请求入口反查到后端策略、API、前端组件、locale 与测试，防止迁移遗漏消费者。"}

@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import GrokBillingQuotaCell from '../GrokBillingQuotaCell.vue'
-import type { Account, GrokBillingQuota } from '@/types'
+import GrokBillingQuotaCell from '@/features/grokBillingQuota/GrokBillingQuotaCell.vue'
+import type { Account } from '@/types'
+import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
 
 const { queryBillingQuota } = vi.hoisted(() => ({
   queryBillingQuota: vi.fn()

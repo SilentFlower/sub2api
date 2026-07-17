@@ -115,15 +115,16 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Icon from '@/components/icons/Icon.vue'
-import type { Account, GrokBillingQuota } from '@/types'
+import type { Account } from '@/types'
+import type { GrokBillingQuota } from './types'
 import { formatRelativeTime } from '@/utils/format'
 import {
   enqueueGrokBillingQuotaRequest,
   getCachedGrokBillingQuota,
   GROK_BILLING_QUOTA_CACHE_TTL_MS,
   setCachedGrokBillingQuota
-} from '@/utils/grokBillingQuotaQueue'
-import UsageProgressBar from './UsageProgressBar.vue'
+} from './queue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 
 interface CompactRow {
   key: string

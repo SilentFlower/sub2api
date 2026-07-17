@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { GrokBillingQuota } from '@/types'
+import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
 import {
   getCachedGrokBillingQuota,
   GROK_BILLING_QUOTA_CACHE_TTL_MS,
   setCachedGrokBillingQuota
-} from '../grokBillingQuotaQueue'
+} from '@/features/grokBillingQuota/queue'
 
 describe('grokBillingQuotaQueue', () => {
   afterEach(() => {

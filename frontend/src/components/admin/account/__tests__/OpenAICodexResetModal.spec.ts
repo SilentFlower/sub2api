@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import OpenAICodexResetModal from '../OpenAICodexResetModal.vue'
+import OpenAICodexResetModal from '@/features/openAICodexReset/OpenAICodexResetModal.vue'
 import type { Account } from '@/types'
 
 const { getOpenAICodexResetStatus, consumeOpenAICodexResetCredit, sendOpenAICodexInvites } = vi.hoisted(() => ({

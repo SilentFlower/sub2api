@@ -2,6 +2,10 @@
  * Core Type Definitions for Sub2API Frontend
  */
 
+import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
+
+export type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
+
 // ==================== Common Types ====================
 
 export interface SelectOption {
@@ -1094,29 +1098,6 @@ export interface GrokBillingSummary {
   updated_at?: string
   weekly_updated_at?: string
   monthly_updated_at?: string
-  partial?: boolean
-  failed_windows?: string[]
-}
-
-/** 独立 Grok 套餐额度快照。 */
-export interface GrokBillingQuota {
-  period_type?: string
-  weekly_used_percent?: number | null
-  weekly_reset_at?: string
-  product_usage?: GrokBillingProductUsage[] | null
-  monthly_limit_cents?: number | null
-  monthly_used_cents?: number | null
-  monthly_remaining_cents?: number | null
-  monthly_used_percent?: number | null
-  billing_period_start?: string
-  billing_period_end?: string
-  on_demand_cap_cents?: number | null
-  on_demand_used_cents?: number | null
-  on_demand_remaining_cents?: number | null
-  on_demand_used_percent?: number | null
-  plan_label?: string
-  updated_at: string
-  stale?: boolean
   partial?: boolean
   failed_windows?: string[]
 }

@@ -97,6 +97,47 @@ i18n 时，必须逐个确认组件使用的 `t('...')` key 已在中英文同�
 
 不要在组件中硬编码新的用户可见中文或英文，除非该内容是外部数据或调试信息。
 
+### 可合并的 locale 扩展
+
+当 build 需要覆盖 main 已有文案，并且该 key 所在区块仍会被上游修改时，必须让
+main 原 key 相对共同基线保持零 diff。build 文案放入按功能命名的独立模块，再在
+原业务对象的稳定末尾展开；不要删除、移动或包裹 main 原 key，否则后续
+`main -> build` 会形成 delete/modify 或同区块冲突。
+
+```typescript
+import imageOverrides from './accountsOpenAIImageGenerationOverrides'
+
+export default {
+  accounts: {
+    openai: {
+      // main 拥有并继续修改的原 key 保持原样
+      codexImageToolDesc: 'main text',
+
+      // build 只在稳定末尾覆盖最终有效值
+      ...(imageOverrides as Record<string, string>)
+    }
+  }
+}
+```
+
+使用 `Record<string, string>` 收窄是为了避免 TypeScript 对“直接属性随后被已知对象
+spread 覆盖”报告 `TS2783`；最终 key path 和运行时覆盖顺序保持不变。嵌套业务域
+必须在 `accounts.ts`、`settings.ts`、`channels.ts` 内部展开，不能依赖 admin index
+的顶层浅合并。
+
+错误做法：
+
+```typescript
+// 删除 main 正在修改的 key 后只从新文件展开，会制造 delete/modify 冲突。
+const openai = {
+  ...imageOverrides
+}
+```
+
+此类迁移至少验证：中英文扩展 key 结构一致、最终有效 key path 文案正确、locale
+编译通过、无 key collision，并使用包含工作区改动的临时索引执行 `git merge-tree`
+确认上游热点不再冲突。
+
 ---
 
 ## Common Mistakes

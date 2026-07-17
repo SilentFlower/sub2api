@@ -146,7 +146,6 @@ func ProvideOpenAIQuotaService(
 // @param geminiQuotaService Gemini 额度服务。
 // @param antigravityQuotaFetcher Antigravity 额度获取器。
 // @param grokQuotaFetcher Grok 快照额度获取器。
-// @param grokQuotaService Grok 主额度探测服务。
 // @param openAIQuotaService OpenAI 额度服务。
 // @param cache 用量缓存。
 // @param identityCache 身份缓存。
@@ -160,7 +159,6 @@ func ProvideAccountUsageService(
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	grokQuotaFetcher *GrokQuotaFetcher,
-	grokQuotaService *GrokQuotaService,
 	openAIQuotaService *OpenAIQuotaService,
 	cache *UsageCache,
 	identityCache IdentityCache,
@@ -174,7 +172,6 @@ func ProvideAccountUsageService(
 		geminiQuotaService,
 		antigravityQuotaFetcher,
 		grokQuotaFetcher,
-		grokQuotaService,
 		openAIQuotaService,
 		cache,
 		identityCache,

@@ -324,35 +324,15 @@
               </div>
             </div>
 
-            <!-- Web Search Emulation (OpenAI/Anthropic, hidden when global disabled) -->
-            <div v-if="(section.platform === 'anthropic' || section.platform === 'openai') && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
-              <div class="flex items-center justify-between">
-                <div>
-                  <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('admin.channels.form.webSearchEmulation') }}
-                  </label>
-                  <p class="mt-0.5 text-[11px] text-red-500 dark:text-red-400">
-                    {{ t('admin.channels.form.webSearchEmulationHint') }}
-                  </p>
-                </div>
-                <Toggle v-model="section.web_search_emulation" />
-              </div>
-            </div>
+            <ChannelWebSearchEmulationToggle
+              v-if="supportsChannelWebSearchEmulation(section.platform) && webSearchGlobalEnabled"
+              v-model="section.web_search_emulation"
+            />
 
-            <!-- Codex Image Generation Bridge (OpenAI only) -->
-            <div v-if="section.platform === 'openai'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
-              <div class="flex items-center justify-between gap-4">
-                <div>
-                  <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('admin.channels.form.codexImageGenerationBridge') }}
-                  </label>
-                  <p class="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                    {{ t('admin.channels.form.codexImageGenerationBridgeHint') }}
-                  </p>
-                </div>
-                <Toggle v-model="section.codex_image_generation_bridge" />
-              </div>
-            </div>
+            <ChannelCodexImageGenerationBridgeToggle
+              v-if="section.platform === 'openai'"
+              v-model="section.codex_image_generation_bridge"
+            />
 
             <!-- Bedrock CC Compatibility (Anthropic only) -->
             <div v-if="section.platform === 'anthropic'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
@@ -650,6 +630,17 @@ import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
+import ChannelWebSearchEmulationToggle from '@/features/webSearch/ChannelWebSearchEmulationToggle.vue'
+import {
+  applyChannelWebSearchFeatureConfig,
+  readChannelWebSearchFeatureConfig,
+  supportsChannelWebSearchEmulation
+} from '@/features/webSearch/channelFeatures'
+import ChannelCodexImageGenerationBridgeToggle from '@/features/openAIImageGeneration/ChannelCodexImageGenerationBridgeToggle.vue'
+import {
+  applyChannelCodexImageBridgeFeatureConfig,
+  readChannelCodexImageBridgeFeatureConfig
+} from '@/features/openAIImageGeneration/channelFeatures'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1118,34 +1109,8 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     }
   }
 
-  // 收集 OpenAI/Anthropic 平台的 Web Search 模拟默认值。
-  // Always write the key so that disabling in the UI correctly sets platform to false,
-  // rather than leaving a stale true value from the cloned features_config.
-  const wsEmulation: Record<string, boolean> = {}
-  for (const section of form.platforms) {
-    if (!section.enabled) continue
-    if (section.platform === 'anthropic' || section.platform === 'openai') {
-      wsEmulation[section.platform] = !!section.web_search_emulation
-    }
-  }
-  if (Object.keys(wsEmulation).length > 0) {
-    featuresConfig.web_search_emulation = wsEmulation
-  } else {
-    delete featuresConfig.web_search_emulation
-  }
-
-  const codexImageGenerationBridge: Record<string, boolean> = {}
-  for (const section of form.platforms) {
-    if (!section.enabled) continue
-    if (section.platform === 'openai') {
-      codexImageGenerationBridge[section.platform] = !!section.codex_image_generation_bridge
-    }
-  }
-  if (Object.keys(codexImageGenerationBridge).length > 0) {
-    featuresConfig.codex_image_generation_bridge = codexImageGenerationBridge
-  } else {
-    delete featuresConfig.codex_image_generation_bridge
-  }
+  applyChannelWebSearchFeatureConfig(featuresConfig, form.platforms)
+  applyChannelCodexImageBridgeFeatureConfig(featuresConfig, form.platforms)
 
   const bedrockCCCompat: Record<string, boolean> = {}
   for (const section of form.platforms) {
@@ -1205,12 +1170,9 @@ function apiToForm(channel: Channel): PlatformSection[] {
         intervals: apiIntervalsToForm(p.intervals || [])
       } as PricingFormEntry))
 
-    // Read web_search_emulation from features_config
     const fc = channel.features_config
-    const wsEmulation = fc?.web_search_emulation as Record<string, boolean> | undefined
-    const webSearchEnabled = wsEmulation?.[platform] === true
-    const codexImageGenerationBridge = fc?.codex_image_generation_bridge as Record<string, boolean> | undefined
-    const codexImageGenerationBridgeEnabled = codexImageGenerationBridge?.[platform] === true
+    const webSearchEnabled = readChannelWebSearchFeatureConfig(fc, platform)
+    const codexImageGenerationBridgeEnabled = readChannelCodexImageBridgeFeatureConfig(fc, platform)
     const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
 
     sections.push({

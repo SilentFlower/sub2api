@@ -337,7 +337,7 @@ describe('admin AccountsView — 影子行 parent_* OR 兜底展示', () => {
         type: 'oauth',
         credentials: { subscription_tier: 'FREE' },
         extra: {
-          grok_quota_snapshot: { subscription_tier: 'SuperGrok' },
+          grok_usage_snapshot: { subscription_tier: 'SuperGrok' },
           subscription_tier: 'BASIC',
         },
       },

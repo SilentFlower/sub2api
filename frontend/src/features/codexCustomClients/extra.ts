@@ -1,3 +1,4 @@
+/** Codex 自定义客户端账号 extra 转换工具。 */
 export const CODEX_CUSTOM_UA_EXTRA_KEY = 'codex_cli_only_custom_user_agent_prefixes'
 
 /**
@@ -35,11 +36,24 @@ export function formatCodexCustomUserAgentPatterns(value: unknown): string {
 }
 
 /**
+ * 从账号 extra 读取自定义 Codex User-Agent 放行规则。
+ *
+ * @param extra 账号已有 extra。
+ * @return 可直接回显到 textarea 的多行文本。
+ */
+export function readCodexCustomUserAgentPatterns(
+  extra: Record<string, unknown> | undefined
+): string {
+  return formatCodexCustomUserAgentPatterns(extra?.[CODEX_CUSTOM_UA_EXTRA_KEY])
+}
+
+/**
  * 按单账号创建/编辑语义写入自定义 Codex User-Agent 规则。
  *
  * @param extra 待提交到后端的账号 extra 对象。
  * @param enabled 是否启用 codex_cli_only；关闭时会移除自定义放行字段。
  * @param input 多行 User-Agent pattern 输入。
+ * @return 无返回值。
  */
 export function writeCodexCustomUserAgentPatterns(
   extra: Record<string, unknown>,
@@ -63,6 +77,7 @@ export function writeCodexCustomUserAgentPatterns(
  *
  * @param extra 批量编辑 payload 中的 extra 对象。
  * @param input 多行 User-Agent pattern 输入，空文本会写入空数组以清空旧规则。
+ * @return 无返回值。
  */
 export function writeCodexCustomUserAgentPatternsForBulkEdit(
   extra: Record<string, unknown>,

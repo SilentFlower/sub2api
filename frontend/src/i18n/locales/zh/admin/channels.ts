@@ -1,3 +1,6 @@
+import openAIImageGenerationOverrides from './channelsOpenAIImageGenerationOverrides'
+import webSearchOverrides from './channelsWebSearchOverrides'
+
 export default {
     availableChannels: {
       title: '可用渠道',
@@ -153,10 +156,10 @@ export default {
         defaultImagePrice: '默认图片价格（未命中层级时使用）',
         platformConfig: '平台配置',
         webSearchEmulation: 'Web Search 模拟',
-        webSearchEmulationHint: '开启后，该平台下符合条件的 API Key 账号会跟随渠道默认值，本地接管安全的 web_search 请求。',
+        webSearchEmulationHint: '⚠️ 开启后该渠道下所有 Anthropic 分组的账号将自动拦截 web_search 请求，请谨慎操作',
         webSearchEmulationGlobalDisabled: '请先在系统设置 → 网关 → Web Search 模拟中启用全局开关',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
-        codexImageGenerationBridgeHint: '开启后，OpenAI 分组的 Codex /responses 文本请求可能会被自动注入 image_generation 工具。仅在路由账号支持图片生成时开启。',
+        codexImageGenerationBridgeHint: '开启后，OpenAI 分组仅会为非 Responses Lite 的 Codex /responses 文本请求自动注入 hosted image_generation 工具。桥接不会为 Responses Lite 注入工具；本地 image_gen 的处理由客户端和账号策略决定。仅在路由账号支持图片生成时开启。',
         bedrockCCCompat: 'Bedrock CC 兼容',
         bedrockCCCompatHint: '⚠️ 开启后，该渠道下 Bedrock 账号的请求将进行 Claude Code 兼容处理（thinking 类型转换、tool_use ID 清理）',
         basicSettings: '基础设置',
@@ -170,6 +173,8 @@ export default {
         accountStatsPricingRules: '自定义账号统计定价规则',
         addRule: '添加规则',
         noRulesConfigured: '未配置自定义规则，将使用上方的模型定价。',
+        ...(webSearchOverrides as Record<string, string>),
+        ...(openAIImageGenerationOverrides as Record<string, string>),
         ruleName: '规则名称（可选）',
         ruleGroups: '分组',
         ruleAccounts: '账号',

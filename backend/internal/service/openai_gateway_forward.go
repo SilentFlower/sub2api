@@ -55,28 +55,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if normalized {
 		body = normalizedBody
 	}
-	if isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
-		litePolicyModel := s.resolveOpenAIResponsesLitePolicyModel(
-			ctx,
-			account,
-			strings.TrimSpace(gjson.GetBytes(body, "model").String()),
-			isOpenAIResponsesCompactPath(c),
-		)
-		liteBody, _, liteErr := s.applyOpenAIResponsesLiteHTTPBodyPolicy(
-			ctx,
-			account,
-			body,
-			litePolicyModel,
-			c.GetHeader(responsesLiteHeader),
-		)
-		if liteErr != nil {
-			setOpsUpstreamError(c, http.StatusBadRequest, liteErr.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
-				"type": "invalid_request_error", "message": liteErr.Error(), "param": "tools",
-			}})
-			return nil, liteErr
-		}
-		body = liteBody
+	body, err = s.applyOpenAIResponsesLiteHTTPIngressPolicy(
+		ctx,
+		account,
+		body,
+		c.GetHeader(responsesLiteHeader),
+		isOpenAIResponsesCompactPath(c),
+	)
+	if err != nil {
+		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+			"type": "invalid_request_error", "message": err.Error(), "param": "tools",
+		}})
+		return nil, err
 	}
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
 	// 仅允许 WS 入站请求走 WS 上游，避免出现 HTTP -> WS 协议混用。

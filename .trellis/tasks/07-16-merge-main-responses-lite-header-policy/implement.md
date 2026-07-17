@@ -17,7 +17,7 @@
 
 ## 3. 补齐自动合并的跨文件依赖
 
-1. 在 `AccountUsageService` 恢复 `grokQuotaService` 字段、构造器参数和主动 billing refresh；独立 `GrokBillingQuotaService` 继续服务管理端套餐额度接口。
+1. 从 `AccountUsageService` 移除 `grokQuotaService` 字段、构造器参数和主动 `ProbeBilling`；账号列表只读既有快照，独立 `GrokBillingQuotaService` 继续服务 `/billing-quota` 管理端套餐额度接口。
 2. 搜索所有 `NewGrokQuotaService`、`NewGrokOAuthHandler`、`NewAccountUsageService` 调用和测试 stub，统一到最终签名。
 3. 核对 `OpenAIForwardResult` 所有构造点，确保新增终态字段不丢失 build 的 reasoning/Web Search/图片字段。
 

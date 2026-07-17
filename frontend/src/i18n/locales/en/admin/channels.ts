@@ -1,3 +1,6 @@
+import openAIImageGenerationOverrides from './channelsOpenAIImageGenerationOverrides'
+import webSearchOverrides from './channelsWebSearchOverrides'
+
 export default {
     availableChannels: {
       title: 'Available Channels',
@@ -153,10 +156,10 @@ export default {
         defaultImagePrice: 'Default image price (fallback when no tier matches)',
         platformConfig: 'Platform Configuration',
         webSearchEmulation: 'Web Search Emulation',
-        webSearchEmulationHint: 'When enabled, eligible API Key accounts in this platform follow the channel default and locally intercept safe web_search requests.',
+        webSearchEmulationHint: '⚠️ When enabled, all accounts in this channel\'s Anthropic groups will intercept web_search requests. Use with caution.',
         webSearchEmulationGlobalDisabled: 'Please enable the global switch first in Settings → Gateway → Web Search Emulation',
         codexImageGenerationBridge: 'Codex Image Generation Bridge',
-        codexImageGenerationBridgeHint: 'When enabled, Codex /responses text requests in OpenAI groups may be automatically given the image_generation tool. Keep off unless the routed accounts support image generation.',
+        codexImageGenerationBridgeHint: 'When enabled, only non-Responses Lite Codex /responses text requests in OpenAI groups receive the hosted image_generation tool. The bridge does not inject tools for Responses Lite; local image_gen handling follows the client and account policy. Leave this off unless routed accounts support image generation.',
         bedrockCCCompat: 'Bedrock CC Compatibility',
         bedrockCCCompatHint: '⚠️ When enabled, requests to Bedrock accounts in this channel will be transformed for Claude Code compatibility (thinking type conversion, tool_use ID sanitization).',
         basicSettings: 'Basic Settings',
@@ -170,6 +173,8 @@ export default {
         accountStatsPricingRules: 'Custom Account Stats Pricing Rules',
         addRule: 'Add Rule',
         noRulesConfigured: 'No custom rules configured. Channel model pricing above will be used.',
+        ...(webSearchOverrides as Record<string, string>),
+        ...(openAIImageGenerationOverrides as Record<string, string>),
         ruleName: 'Rule name (optional)',
         ruleGroups: 'Groups',
         ruleAccounts: 'Accounts',
