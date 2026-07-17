@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.6
+// @version      0.2.7
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -65,7 +65,9 @@
     minPollMs: 1000,
     maxPollMs: 30000,
     loginToVerificationDelayMs: 1500,
-    challengePassedGraceMs: 1200,
+    challengePassedGraceMs: 5000,
+    challengeRecheckMs: 1000,
+    actionReadyRetryMs: 800,
     controllerLockName: 'grok-bulk-login:controller-v1',
     controllerLeaseClaimDelayMs: 180,
     controllerLeaseHeartbeatMs: 10000,
@@ -1447,14 +1449,24 @@
   }
 
   /**
+   * 判断按钮类元素是否处于不可点击状态。
+   * @param {Element|null} element 候选按钮。
+   * @return {boolean} 是否不可点击。
+   */
+  function isDisabledActionElement(element) {
+    return Boolean(element && (element.disabled || element.getAttribute('aria-disabled') === 'true'))
+  }
+
+  /**
    * 查找高置信度动作按钮。
    * @param {'login'|'consent'|'email_method'} kind 动作类型。
+   * @param {{includeDisabled?: boolean}} [options] 是否包含 disabled 按钮用于等待可用。
    * @return {HTMLElement|null} 按钮元素。
    */
-  function findActionButton(kind) {
+  function findActionButton(kind, options = {}) {
     const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], [role="button"]'))
       .filter(isVisible)
-      .filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true')
+      .filter(element => options.includeDisabled || !isDisabledActionElement(element))
     const patterns = {
       login: /^(continue|next|sign in|log in|login|submit|继续|下一步|登录|登入)$/i,
       consent: /^(allow|approve|authorize|grant access|同意|允许|授权|批准)$/i,
@@ -1735,30 +1747,50 @@
         const challengeSnapshot = getChallengeSnapshot()
         if (isChallengePassedSnapshot(challengeSnapshot)) {
           if (!challengePassedAt) challengePassedAt = Date.now()
-          if (Date.now() - challengePassedAt < CONFIG.challengePassedGraceMs) return false
+          if (Date.now() - challengePassedAt < CONFIG.challengePassedGraceMs) {
+            scheduleScanAfter(CONFIG.challengePassedGraceMs - (Date.now() - challengePassedAt))
+            return false
+          }
         }
         if (!activeTaskMatches(current, expectedTask)
           || getCurrentDriverMarker() !== expectedTask.tabMarker
           || location.href !== expectedUrl
           || isChallengeSnapshot(challengeSnapshot)) return false
+        const latestButton = buttonKind ? findActionButton(buttonKind, { includeDisabled: true }) : button
+        if (buttonKind === 'login' && isDisabledActionElement(latestButton)) {
+          scheduleScanAfter(CONFIG.actionReadyRetryMs)
+          return false
+        }
         // 守卫拒绝时不消耗动作次数，人工 challenge 结束后同一 URL 才能自动继续。
-        return actionGate.tryAcquire(key)
+        return true
       }, () => {
         let submitted = false
         let targetButton = button
-        if (targetButton && (targetButton.disabled || targetButton.getAttribute('aria-disabled') === 'true')) targetButton = null
+        let blockedByDisabledButton = false
+        if (targetButton && isDisabledActionElement(targetButton)) {
+          blockedByDisabledButton = true
+          targetButton = null
+        }
         // React 页面可能在 input/change 事件后才启用按钮，因此执行时再按语义重查一次。
         if ((!targetButton || !targetButton.isConnected || !isVisible(targetButton)) && buttonKind) {
-          targetButton = findActionButton(buttonKind)
+          targetButton = findActionButton(buttonKind, { includeDisabled: true })
+          if (isDisabledActionElement(targetButton)) {
+            blockedByDisabledButton = true
+            targetButton = null
+          }
         }
         if (targetButton && targetButton.isConnected && isVisible(targetButton)) {
+          if (!actionGate.tryAcquire(key)) return
           targetButton.focus()
           targetButton.click()
           submitted = true
-        } else if (element && element.isConnected) {
+        } else if (element && element.isConnected && !blockedByDisabledButton) {
+          if (!actionGate.tryAcquire(key)) return
           element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }))
           element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }))
           submitted = true
+        } else if (blockedByDisabledButton) {
+          scheduleScanAfter(CONFIG.actionReadyRetryMs)
         }
         if (submitted && typeof afterSubmit === 'function') afterSubmit()
       })
@@ -1782,6 +1814,7 @@
       }
       if (isChallengeSnapshot(challengeSnapshot)) {
         reportOnce('waiting_human', 'CLOUDFLARE_OR_CAPTCHA')
+        scheduleScanAfter(CONFIG.challengeRecheckMs)
         return
       }
       if (hasLoginFailureMessage()) {

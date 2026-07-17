@@ -422,6 +422,31 @@ test('Cloudflare 成功后等待稳定时间再提交登录', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
 })
 
+test('Cloudflare 成功后登录按钮未就绪时不派发 Enter 且可恢复点击', () => {
+  const harness = createDriverHarness({
+    values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
+    bodyText: '成功! CLOUDFLARE 隐私 · 条款',
+    iframeSrcs: ['https://challenges.cloudflare.com/turnstile/v0/fake'],
+    input: { type: 'password', name: 'password', autocomplete: 'current-password' },
+    button: { textContent: '登录', disabled: true }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  harness.advanceTime(core.CONFIG.challengePassedGraceMs)
+  assert.equal(harness.timers.runDelay(core.CONFIG.challengePassedGraceMs), true)
+  assert.equal(harness.input.value, 'fake-password')
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.input.events.some(event => event.type === 'keydown' || event.type === 'keyup'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), true)
+
+  harness.button.disabled = false
+  assert.equal(harness.timers.runDelay(core.CONFIG.actionReadyRetryMs), true)
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
+})
+
 test('登录入口优先点击邮箱登录方式', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',

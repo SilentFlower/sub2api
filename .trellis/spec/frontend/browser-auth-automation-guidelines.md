@@ -140,7 +140,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 ### 5. Good/Base/Bad Cases
 
 - Good：密码页填入后短暂出现 Cloudflare 文案，旧定时器被守卫拒绝；用户完成验证后，同一 URL 重新扫描并只提交一次。
-- Good：Cloudflare 小组件显示“成功!”且页面仍保留 `challenges.cloudflare.com` iframe 时，驱动先等待稳定窗口；窗口结束后再点击“登录”，并且旧延迟动作不提前消耗提交次数。
+- Good：Cloudflare 小组件显示“成功!”且页面仍保留 `challenges.cloudflare.com` iframe 时，驱动先等待约 5 秒稳定窗口；窗口结束且“登录”按钮可用后再点击，并且旧延迟动作不提前消耗提交次数。
 - Good：用户点击停止时，共享任务先投影为不含密码的取消状态，登录驱动随后取消定时器，控制台再中止 Token 请求并清理 Session。
 - Good：清理 ACK 同时匹配批次、账号、`cleanup_id` 和 host，Cookie 删除后二次 domain 枚举为空才进入下一账号。
 - Good：HTTPS 控制台持有 Web Lock 和共享租约时，HTTP 控制台读取同一租约并拒绝启动；反向顺序同样成立。

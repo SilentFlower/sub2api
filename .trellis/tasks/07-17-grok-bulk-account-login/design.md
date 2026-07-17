@@ -141,9 +141,9 @@ pending
 - 每次 DOM 变化后按有限频率重新分类页面，避免高频 MutationObserver 回调。
 - 输入框选择优先级：明确 `autocomplete`/`type`/`name`/label，其次使用可见 placeholder 和输入框附近短文本；多个候选或低置信度时暂停。附近文本只用于提高语义置信度，不能绕过 challenge 或 OTP 判断。
 - 写值时使用原生 setter，再派发 `input` 和 `change`；必要时派发 Enter，但不对未知按钮模拟点击。
-- Cloudflare 检测参考 challenge iframe、`challenges.cloudflare.com`、页面标题和已知提示文本。验证未完成时只上报 `waiting_human`；看到 Cloudflare / Turnstile “成功 / Success / Verified”后先等待短暂稳定窗口，避免验证结果尚未写入时过早点击登录。
+- Cloudflare 检测参考 challenge iframe、`challenges.cloudflare.com`、页面标题和已知提示文本。验证未完成时只上报 `waiting_human` 并按有限间隔复扫；看到 Cloudflare / Turnstile “成功 / Success / Verified”后先等待约 5 秒稳定窗口，避免验证结果尚未写入时过早点击登录。
 - 登录/授权按钮点击必须满足高置信度语义匹配。动作门禁按“动作阶段 + 当前 URL”建立键，每个键最多执行一次；DOM observer 和定时扫描只能重复识别，不能重复提交同一阶段。
-- 填表后的短延迟提交由单实例可取消控制器管理。共享任务变化、过期、停止、跳过或页面卸载时必须取消定时器；回调执行前再次读取共享任务并校验完整归属、调度时 URL 未变化、当前页面不是未完成 challenge，且 Cloudflare 成功状态已过稳定窗口，禁止在取消、导航或人工验证页面切换后补交。动作次数只在上述守卫全部通过后占用，守卫拒绝不得消耗次数，确保同 URL 的人工 challenge 完成后可以自动继续且最多提交一次。
+- 填表后的短延迟提交由单实例可取消控制器管理。共享任务变化、过期、停止、跳过或页面卸载时必须取消定时器；回调执行前再次读取共享任务并校验完整归属、调度时 URL 未变化、当前页面不是未完成 challenge，且 Cloudflare 成功状态已过稳定窗口。登录按钮仍 disabled 时不得派发 Enter，也不得消耗动作次数，应继续等待按钮可用，禁止在取消、导航或人工验证页面切换后补交。动作次数只在实际点击或 Enter 前占用，守卫拒绝不得消耗次数，确保同 URL 的人工 challenge 完成后可以自动继续且最多提交一次。
 
 ## Session 清理
 
