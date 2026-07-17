@@ -501,9 +501,7 @@ func validateLocalOpenAIResponsesWebSearchTool(tool *apicompat.ResponsesTool) er
 	if tool.UserLocation != nil {
 		return errors.New("local web_search emulation does not support user_location")
 	}
-	if tool.ExternalWebAccess != nil {
-		return errors.New("local web_search emulation does not support external_web_access")
-	}
+	// external_web_access 仅作为兼容输入忽略；本地 provider 始终执行实时搜索。
 	if tool.ReturnTokenBudget != nil {
 		return errors.New("local web_search emulation does not support return_token_budget")
 	}

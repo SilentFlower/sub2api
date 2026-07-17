@@ -88,6 +88,8 @@ Responses Lite 已由 `openai_responses_lite_policy.go` 持有决策，生图桥
 
 同样方式审查 reasoning effort、JSON Schema/Web Search、Grok force-chat 等 build 接入。已有领域 helper 时直接复用；没有且共享入口仍定义规则时，迁入按协议域命名的文件。不得创建统一的 `build` 总开关或万能 helper。
 
+Responses typed Web Search 的 `external_web_access` 是实时访问控制，但本地 provider 只有实时搜索能力。为优先保持请求可执行，本地模拟对缺省、`true` 和 `false` 都继续执行，并把 `false` 明确视为兼容降级而非缓存模式实现；该策略对齐 CPA xAI executor 的“删除不支持字段后继续”方向。原生 Responses 仍原样透传该字段，Anthropic 原生转换保持独立策略，不复用本地模拟的放宽规则。
+
 ### 4.4 Raw Chat 调试快照
 
 Raw Chat debug 的环境变量解析、文件打开/生命周期、快照格式和写入逻辑由明确命名的 debug snapshot 文件拥有。`GatewayService` 与 `OpenAIGatewayService` 只保留必要的文件引用、构造时初始化和转发前后一次记录调用。

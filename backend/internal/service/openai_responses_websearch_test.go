@@ -148,12 +148,14 @@ func TestHandleOpenAIResponsesWebSearchRejectsMixedServerOnlyTools(t *testing.T)
 
 func TestResolveOpenAIResponsesTypedWebSearchToolConfig(t *testing.T) {
 	maxUses := 1
+	externalWebAccess := true
 	tools := []apicompat.ResponsesTool{
 		{
 			Type:              "web_search",
 			SearchContextSize: "low",
 			MaxUses:           &maxUses,
 			Filters:           &apicompat.ResponsesWebSearchFilters{AllowedDomains: []string{"example.com"}},
+			ExternalWebAccess: &externalWebAccess,
 		},
 		{Type: "function", Name: "wait"},
 	}
@@ -180,6 +182,14 @@ func TestResolveOpenAIResponsesTypedWebSearchToolConfig(t *testing.T) {
 		{Type: "function", Name: "wait"},
 	}, json.RawMessage(`"auto"`))
 	require.ErrorContains(t, err, "user_location")
+
+	externalWebAccess = false
+	config, err = resolveOpenAIResponsesTypedWebSearchToolConfig([]apicompat.ResponsesTool{
+		{Type: "web_search", ExternalWebAccess: &externalWebAccess},
+		{Type: "function", Name: "wait"},
+	}, json.RawMessage(`"auto"`))
+	require.NoError(t, err)
+	require.NotNil(t, config)
 }
 
 func TestHandleOpenAIResponsesWebSearchHonorsToolChoiceNone(t *testing.T) {
@@ -283,7 +293,7 @@ func TestHandleOpenAIResponsesWebSearchWritesResponseAndBillsOnce(t *testing.T) 
 			}}, "anysearch", nil
 		},
 	}
-	body := []byte(`{"model":"deepseek-v4-pro","input":[{"role":"user","content":[{"type":"input_text","text":"latest"}]}],"tools":[{"type":"web_search","search_context_size":"low","filters":{"allowed_domains":["example.com"]}}]}`)
+	body := []byte(`{"model":"deepseek-v4-pro","input":[{"role":"user","content":[{"type":"input_text","text":"latest"}]}],"tools":[{"type":"web_search","external_web_access":false,"search_context_size":"low","filters":{"allowed_domains":["example.com"]}}]}`)
 
 	result, handled, err := service.handleOpenAIResponsesWebSearch(context.Background(), c, account, body)
 	require.True(t, handled)
@@ -314,7 +324,7 @@ func TestHandleOpenAIResponsesWebSearchStreamLifecycle(t *testing.T) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{URL: "https://example.com", Title: "Example", Snippet: "Result"}}}, "anysearch", nil
 		},
 	}
-	body := []byte(`{"model":"deepseek-v4-pro","input":"latest","stream":true,"tools":[{"type":"web_search"}]}`)
+	body := []byte(`{"model":"deepseek-v4-pro","input":"latest","stream":true,"tools":[{"type":"web_search_preview","external_web_access":false}]}`)
 
 	result, handled, err := service.handleOpenAIResponsesWebSearch(context.Background(), c, account, body)
 	require.True(t, handled)
@@ -395,6 +405,29 @@ func TestHandleOpenAIResponsesWebSearchReturnsFailoverForProxyFailure(t *testing
 	require.Nil(t, result)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
+}
+
+func TestHandleOpenAIResponsesWebSearchExternalAccessStillRequiresProvider(t *testing.T) {
+	SetWebSearchManager(nil)
+	setGlobalWebSearchConfig(&WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: "brave", APIKey: "sk-test"}},
+	})
+	t.Cleanup(func() {
+		SetWebSearchManager(nil)
+		webSearchEmulationCache.Store(&cachedWebSearchEmulationConfig{})
+	})
+	c, recorder := newOpenAIResponsesWebSearchTestContext()
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{featureKeyWebSearchEmulation: WebSearchModeEnabled}}
+	body := []byte(`{"model":"m","input":"latest","tools":[{"type":"web_search","external_web_access":false}]}`)
+
+	result, handled, err := (&OpenAIGatewayService{settingService: newSettingServiceForWebSearchTest(true)}).handleOpenAIResponsesWebSearch(context.Background(), c, account, body)
+
+	require.True(t, handled)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Equal(t, "web_search_unavailable", gjson.Get(recorder.Body.String(), "error.code").String())
 }
 
 func TestHandleOpenAIResponsesWebSearchRejectsEmptyQueryAndUnsupportedFields(t *testing.T) {

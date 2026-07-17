@@ -23,6 +23,7 @@ These guides help you **ask the right questions before coding**.
 |-------|---------|-------------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
+| [Build 私有功能隔离指南](./build-private-feature-isolation-guide.md) | 让 build 业务主体独立、上游共享入口保持薄接入 | 修改 build 私有能力或同步 main 时 |
 
 ---
 
@@ -50,6 +51,16 @@ These guides help you **ask the right questions before coding**.
 - [ ] Multiple branches update the same derived state from `kind` / `action`
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
+
+### 修改 Build 私有功能时
+
+- [ ] 该规则、UI、文案或测试是否只属于 `build`？
+- [ ] 当前文件是否也是 `origin/main` 的活跃共享热点？
+- [ ] 是否能迁入明确领域文件/目录，只留下稳定薄调用？
+- [ ] 是否涉及中央 DTO、ProviderSet 或生成文件例外？
+- [ ] 修改后是否重新检查双方修改文件和 `git merge-tree`？
+
+→ 必须阅读 [Build 私有功能隔离指南](./build-private-feature-isolation-guide.md)
 
 ### When Verifying AI Cross-Review Results
 

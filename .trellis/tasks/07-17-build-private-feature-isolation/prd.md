@@ -32,6 +32,7 @@
 ### R2. 后端隔离原则
 
 - build 私有业务逻辑优先放入按功能域命名的同 package 文件，例如现有 `openai_responses_lite_policy.go`；禁止创建含义模糊的 `build_helpers.go`。
+- 上述“领域主体独立、上游共享文件薄接入”必须固化为项目级强制 guide，并从后端、前端目录规范建立入口，供后续 build 开发和 main 同步任务复用。
 - main 共享 handler/service/repository 方法只保留必要的数据准备、一次薄调用和错误传播，不继续内嵌大段 build 分支逻辑。
 - Go 类型的方法可以迁移到同 package 的功能文件，但不得改变公开签名、依赖方向或序列化契约。
 - Codex reset handler、Grok 独立 Billing handler 和 Raw Chat debug snapshot 必须从共享大文件迁入各自功能文件；route、构造器字段和 ProviderSet 只保留最小注册。
@@ -69,6 +70,7 @@
 ### R7. 行为兼容
 
 - 隔离重构不得改变 build 现有功能、配置默认值、错误 reason、API 字段、模型策略或前端交互语义。
+- Responses typed Web Search 的 `external_web_access` 缺省、为 `true` 或为 `false` 时都必须让本地模拟继续执行实时搜索；`false` 是明确接受的兼容降级，不得描述为已经支持缓存/索引模式。原生 Responses 透传仍保留该字段，由上游决定真实语义。
 - GPT-5.6 `max` 主算法、main Grok `/quota` 和其它已被 main 覆盖的共享能力继续复用 main 实现，不恢复 build 的重复旧算法或双数据流。
 - 合并 main 0.1.158 时必须同时保留 main 的 Grok 端点/WS、生图终态、Codex 模型发现、用户批量限额和分组复制能力。
 - 自动合并但双方都修改的 27 个文件必须做语义复核，不能只依赖 Git 无冲突结论。
@@ -89,6 +91,8 @@
 - [ ] Create/Edit/Bulk、SettingsView、ChannelsView、功能 API/DTO 和 locale 的 build 私有部分按功能模块隔离，行为与提交 payload 不变。
 - [ ] 三个预演硬冲突按 R5 解决，真实 merge 后 `git ls-files -u` 为空且无 conflict marker。
 - [ ] 27 个双边修改文件完成语义复核，main 与 build 的能力均有对应测试证据。
+- [ ] Responses typed Web Search 在非流式、流式和 Chat fallback 路径均接受 `external_web_access=true|false`；本地 provider 实际执行实时搜索，未配置 provider 时仍返回 `503 web_search_unavailable`。
+- [ ] build 私有功能隔离强准则已写入共享 guide，并由 guides 索引、后端目录规范和前端目录规范引用。
 - [ ] Wire/Ent 等生成文件由源定义重新生成，生成 diff 可解释且无手工残留。
 - [ ] 后端定向与完整 unit、lint，前端定向 Vitest、完整测试、typecheck、lint、build 以及 `git diff --check` 全部通过；无法运行项有明确记录。
 - [ ] 隔离提交完成后重新运行 `git merge-tree HEAD origin/main`；三个原始硬冲突应被消除或显著缩小，剩余冲突必须回到父任务记录和处理。

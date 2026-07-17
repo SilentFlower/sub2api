@@ -65,6 +65,8 @@ backend/
 
 分层依赖方向按现有 lint 约束执行：
 
+- 只属于 `build` 的后端业务逻辑必须遵循 [Build 私有功能隔离指南](../guides/build-private-feature-isolation-guide.md)：优先进入按领域命名的同 package 文件，上游共享 handler/service/gateway 只保留不可拆分字段、一次薄调用和错误传播。
+
 - `handler` 可以依赖 `service`、`pkg/response`、`pkg/errors` 等，但不能直接依赖 `repository`、`gorm` 或 Redis。
 - `service` 定义业务接口并调用接口，不应直接依赖 `repository`。`backend/.golangci.yml` 对 `internal/service/**` 配置了 depguard 例外列表，新增代码不要扩大例外。
 - `repository` 实现 service 层接口，负责 Ent 查询、SQL、Redis、外部基础设施调用和持久化错误翻译。

@@ -43,6 +43,7 @@
 1. 保持现有 downgrade、websearch、web.run 和 Grok chat bridge 主体文件。
 2. 审计 gateway forward/fallback/messages/cc pipeline，只迁出 build 专属路由决定和 payload 变换；不拆碎工具循环或协议聚合主体。
 3. 共享入口继续负责通用调度、计费、failover 和响应写入。
+4. 修正 typed Web Search 实时访问控制：本地模拟接受并忽略缺省、`external_web_access=true|false`，始终执行实时搜索；分别覆盖直接非流式、preview 流式、Chat fallback 和 provider 未配置路径，原生 Responses 透传与 Anthropic 转换契约保持不变。
 
 ### 3.4 Raw Chat 调试快照
 
@@ -118,6 +119,7 @@
 3. 对实际修改 Go 文件运行 `gofmt`，前端只格式化实际修改文件。
 4. 如果 service/repository 构造器或 ProviderSet 变化，执行仓库既有 Wire 生成命令并核对 `wire_gen.go`。
 5. 不手工编辑生成代码来匹配期望 diff。
+6. 将“build 业务主体使用独立领域文件、上游共享文件只保留薄接入”固化到共享 guide，并从后端/前端目录规范建立强制入口。
 
 ## 9. 定向验证
 

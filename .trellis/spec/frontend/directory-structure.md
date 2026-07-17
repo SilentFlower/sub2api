@@ -48,6 +48,8 @@ frontend/
 
 按现有模式放置新代码：
 
+- 只属于 `build` 的前端业务能力必须遵循 [Build 私有功能隔离指南](../guides/build-private-feature-isolation-guide.md)：优先进入 `src/features/<domain>/` 或明确业务模块，main 共享页面、API index 和 locale 主文件只保留组件装配、稳定 re-export 或深层展开。
+
 - 页面级路由组件放 `src/views/<domain>/`，例如 `src/views/admin/UsersView.vue`、`src/views/user/PaymentView.vue`。
 - 复用 UI 或业务组件放 `src/components/<domain>/`，例如 `src/components/payment/PaymentMethodSelector.vue`。
 - API 请求封装放 `src/api/` 或 `src/api/admin/`。组件不直接 import axios，统一 import API 函数。

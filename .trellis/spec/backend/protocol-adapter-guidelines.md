@@ -1359,7 +1359,7 @@ channel.features_config.web_search_emulation.anthropic: boolean
 - typed Web Search 使用固定内部 function 名 `sub2api_web_search`，只声明 `search_query[].q`，并设置 `parallel_tool_calls=false`。注入前必须扫描转换后的 Chat tools；与 function、custom、namespace 摊平名或 `tool_search` 代理冲突时返回 `400 invalid_request_error`，`param=tools`，不得动态改名。
 - 混合 typed Web Search 的其它 function、custom、namespace 和 `tool_search` Schema 必须原样保留。模型选择客户端工具时直接按既有 Responses 类型回传；模型选择内部搜索代理时由网关消费调用、按同一 call ID 回灌 tool result，再使用同一账号和模型续跑。
 - `tool_choice=none` 或可保留的明确其它客户端工具选择不注入 typed Web Search 代理；明确强制 Web Search 继续走直接模拟。明确选择转换后不存在的服务端工具时必须返回 `400 invalid_request_error`、`param=tool_choice`，不能静默删除选择项。
-- typed Web Search 复用原始工具的 `search_context_size`、`filters.allowed_domains`、`filters.blocked_domains` 和 `max_uses` 约束。`user_location`、`external_web_access`、`return_token_budget` 等无本地等价物的字段返回 `400 invalid_request_error`、`param=tools`。
+- typed Web Search 复用原始工具的 `search_context_size`、`filters.allowed_domains`、`filters.blocked_domains` 和 `max_uses` 约束。为优先保持请求可执行，本地模拟接受并忽略 `external_web_access` 的缺失、`true` 和 `false`，始终调用实时搜索 provider；`false` 只是兼容降级，不代表实现了缓存/索引模式。`user_location`、`return_token_budget` 等其它无本地等价物的字段仍返回 `400 invalid_request_error`、`param=tools`。
 - Chat fallback 必须用 namespace 映射精确识别 `namespace=web,name=run`；只有最终账号策略允许模拟时才进入服务端循环。全局 provider 开关不能把关闭或未配置的账号隐式改为开启。
 - 服务端接管后只向 Chat 上游声明 `search_query` 与可选 `response_length`，并设置 `parallel_tool_calls=false`。不能声明或执行 `weather/open/click/find/screenshot/image_query/finance/sports`；天气问题由模型生成普通搜索词。
 - `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
@@ -1392,7 +1392,8 @@ channel.features_config.web_search_emulation.anthropic: boolean
 | Chat fallback + typed Web Search + 仅其它服务端工具 + 空 choice/`required` | `400 invalid_request_error`，`param=tools`，不得注入只剩搜索代理的 Chat 请求 |
 | Chat fallback + typed Web Search + 明确选择转换后不存在的服务端工具 | `400 invalid_request_error`，`param=tool_choice` |
 | typed Web Search 内部代理名与转换后的 Chat tool 冲突 | `400 invalid_request_error`，`param=tools` |
-| typed Web Search 含无本地等价字段 | `400 invalid_request_error`，`param=tools`，不调用上游或 provider |
+| typed Web Search 含 `user_location` 或 `return_token_budget` | `400 invalid_request_error`，`param=tools`，不调用上游或 provider |
+| typed Web Search 的 `external_web_access` 缺失、为 `true` 或为 `false` | 按本地实时 Web Search 正常执行；`false` 明确按兼容策略降级，不承诺缓存模式 |
 | `tool_choice=none` | 不执行本地搜索，继续正常能力决策 |
 | 强制 Web Search 但未声明 Web Search 工具 | `400 invalid_request_error`，参数指向 `tool_choice` |
 | Chat fallback 无法执行请求要求的 Web Search | `400 invalid_request_error`，参数指向 `tools` |
