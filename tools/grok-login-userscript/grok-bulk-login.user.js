@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.7
+// @version      0.2.9
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -66,6 +66,7 @@
     maxPollMs: 30000,
     loginToVerificationDelayMs: 1500,
     challengePassedGraceMs: 5000,
+    postChallengeUnknownGraceMs: 60000,
     challengeRecheckMs: 1000,
     actionReadyRetryMs: 800,
     controllerLockName: 'grok-bulk-login:controller-v1',
@@ -1642,6 +1643,7 @@
     let lastReported = ''
     let activeCleanupId = ''
     let challengePassedAt = 0
+    let lastChallengeSeenAt = 0
     const actionGate = createActionGate(CONFIG.maxActionAttemptsPerStage)
     const deferredSubmit = createDeferredActionController()
 
@@ -1699,9 +1701,18 @@
     discardExpiredTask()
 
     const taskListener = GM_addValueChangeListener(CONFIG.sharedKeys.task, (_key, _oldValue, newValue) => {
+      const previousTask = task
       deferredSubmit.cancel()
       task = newValue || null
       discardExpiredTask()
+      if (!previousTask
+        || !task
+        || !taskMatches(task, previousTask.run_id, previousTask.account_id)
+        || task.tab_marker !== previousTask.tab_marker) {
+        // challenge 记忆只属于当前登录标签；切到下一号时不能沿用上一号的后置等待窗口。
+        challengePassedAt = 0
+        lastChallengeSeenAt = 0
+      }
       firstSeenAt = Date.now()
       scheduleScan()
     })
@@ -1802,6 +1813,7 @@
       if (!task || !task.run_id || !task.account_id || !ownsCurrentTask()) return
       const challengeSnapshot = getChallengeSnapshot()
       if (isChallengePassedSnapshot(challengeSnapshot)) {
+        lastChallengeSeenAt = Date.now()
         if (!challengePassedAt) challengePassedAt = Date.now()
         const remainingMs = CONFIG.challengePassedGraceMs - (Date.now() - challengePassedAt)
         if (remainingMs > 0) {
@@ -1813,6 +1825,7 @@
         challengePassedAt = 0
       }
       if (isChallengeSnapshot(challengeSnapshot)) {
+        lastChallengeSeenAt = Date.now()
         reportOnce('waiting_human', 'CLOUDFLARE_OR_CAPTCHA')
         scheduleScanAfter(CONFIG.challengeRecheckMs)
         return
@@ -1836,6 +1849,14 @@
           task = removeSharedPassword(task) || stripTaskPassword(task)
         }, 'login')
         return
+      }
+      if (password && hasPasswordBeenSubmitted(task) && String(password.element.value || '')) {
+        const button = findActionButton('login', { includeDisabled: true })
+        if (button) {
+          reportOnce('password_filled', 'PASSWORD_RESUBMIT')
+          submitFilledInput(password.element, button, `password-resubmit:${location.href}`, undefined, 'login')
+          return
+        }
       }
 
       const email = chooseBestDescriptor(descriptors, 'email')
@@ -1879,6 +1900,12 @@
       }
 
       if (Date.now() - firstSeenAt >= CONFIG.pageUnknownTimeoutMs) {
+        const challengePendingMs = Date.now() - lastChallengeSeenAt
+        if (lastChallengeSeenAt && challengePendingMs < CONFIG.postChallengeUnknownGraceMs) {
+          reportOnce('waiting_human', 'CLOUDFLARE_RESULT_PENDING')
+          scheduleScanAfter(Math.min(CONFIG.challengeRecheckMs, CONFIG.postChallengeUnknownGraceMs - challengePendingMs))
+          return
+        }
         reportOnce('page_unknown', 'PAGE_UNKNOWN')
       }
     }

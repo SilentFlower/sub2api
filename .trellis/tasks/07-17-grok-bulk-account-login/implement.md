@@ -27,6 +27,8 @@
 - [x] 控制台 UI 改为默认右下角悬浮球，点击展开完整面板，标题栏可收起，避免长期遮挡 `www.havefun.eu.cc` 页面。
 - [x] 修复 Cloudflare 成功后的等待竞态：看到 Turnstile/Cloudflare “成功”后先等待稳定窗口，再点击登录，避免验证结果尚未写入时卡住或过早提交。
 - [x] 修复 Cloudflare 成功后登录按钮延迟就绪问题：稳定窗口扩大为约 5 秒，按钮仍 disabled 时不派发 Enter、不消耗动作次数，并按有限间隔复扫直到按钮可用后点击。
+- [x] 修复密码已消费后页面仍停在登录表单的问题：如果 DOM 密码框仍有值且存在高置信度“登录”按钮，驱动会重按登录而不是进入未知页。
+- [x] 修复 Cloudflare 消失后的页面恢复延迟问题：最近检测到 challenge 后，登录/授权控件尚未恢复时保留约 60 秒后置等待窗口，避免 12 秒普通未知页超时误报。
 
 ## 重点风险
 
@@ -53,7 +55,7 @@ git diff --check
 - 分别打开 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 与证书有效的 `https://www.havefun.eu.cc/`，都应先显示右下角 “Grok” 悬浮球；点击后展开控制台，HTTP 页面必须显示额外风险提示并要求确认。
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
-- 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 1 秒后自动点击“登录”。
+- 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 5 秒后自动点击“登录”；如果 Cloudflare 消失后页面短暂空白或登录控件尚未恢复，脚本应继续等待约 60 秒并复扫，不应立刻显示“无法识别当前 xAI 页面”；如果第一次点击后仍停在已填写密码的登录表单，脚本应重按“登录”。
 - 确认登录标签首先进入 `https://accounts.x.ai/sign-in` 并选择 `Login with email`；若未提交密码前误入 `accounts.x.ai/oauth2/device`，脚本应回到邮箱登录入口，不应填写设备码。
 - 密码提交后若进入 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，脚本才应通过附近文案识别设备码输入框并点击“继续”。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。

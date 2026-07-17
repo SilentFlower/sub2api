@@ -101,10 +101,11 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：优先使用标准 `verification_uri`，缺失时回退 `verification_uri_complete`。当前任务必须保存 `verification_url`，登录标签首次进入 `https://accounts.x.ai/sign-in` 并完成邮箱密码登录后，再按该 URL 跳转；不要把清理标签、根路径页面或未登录 Device 页当作登录页证据。
 - xAI 未登录状态若先展示 Device Sign-in 设备码输入页，登录驱动必须回到 `https://accounts.x.ai/sign-in` 并优先选择邮箱登录；只有共享任务已删除密码并写入 `password_consumed_at` 后，才允许通过 input 自身属性、label、placeholder 或输入框附近短文本识别中文/英文设备码输入框，填入当前任务的 `user_code` 并提交。不得把通用 OTP/验证码页误识别为设备码页。
 - xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
-- Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。Cloudflare / Turnstile 显示“成功 / Success / Verified”后仍可能需要短暂写入验证结果，驱动必须等待稳定窗口再恢复提交；人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
+- Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。Cloudflare / Turnstile 显示“成功 / Success / Verified”后仍可能需要短暂写入验证结果，驱动必须等待稳定窗口再恢复提交；如果曾经检测到 challenge，但 challenge DOM 消失后登录/授权控件尚未恢复，必须在有限后置窗口内继续等待并复扫，不得立刻按普通未知页停机；人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
 - 填表后的延迟动作必须按以下顺序执行：记录任务归属和调度 URL -> 等待有限延迟 -> 重新校验共享任务、标签、URL 和非 challenge 状态 -> 占用动作门禁次数 -> 点击高置信度按钮或派发 Enter。
 - 守卫拒绝不得消耗动作门禁次数。否则同一 URL 临时进入 challenge 后，即使用户完成验证，也会因为旧定时器占用次数而永久无法恢复。
 - 密码提交后立即从共享任务删除并写入 `password_consumed_at`。停止或跳过写入 `cancelled_at` 并删除密码；两个字段可以共存，表示提交后任务又被取消。
+- 密码已消费但当前页面仍停留在同一密码表单时，只要 DOM 密码框仍有值且存在高置信度登录按钮，驱动可以重按登录按钮；不得重新写回或持久化密码，也不得在密码框为空时猜测重填。
 - 每个账号结束后必须关闭脚本打开的登录标签，清除目标域 localStorage、sessionStorage、IndexedDB、Cache Storage、Service Worker 和 Cookie，并二次验证 Cookie。任一清理失败必须阻断队列。
 - 测试、日志、文档和导出内容不得包含真实账号密码、access token、ID token、完整 refresh token 或上游错误正文。
 
@@ -126,7 +127,9 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | 延迟期间 URL 变化 | 旧动作不执行，且不标记密码已提交 |
 | 延迟期间出现 challenge | 旧动作不执行，门禁次数保持可用 |
 | Cloudflare / Turnstile 显示成功但验证结果仍在写入 | 等待稳定窗口，不提交、不消耗动作门禁 |
+| Cloudflare / Turnstile 消失但登录控件尚未恢复 | 在有限后置窗口内保持等待人工验证并复扫，不触发普通 unknown 超时 |
 | 同 URL challenge 完成 | 重新扫描后允许提交一次，后续重复扫描不得再次提交 |
+| 密码已消费但页面仍停在已填写密码表单 | 使用当前 DOM 已有密码值重按高置信度登录按钮，不重新保存密码 |
 | `authorization_pending` | 保持当前轮询间隔 |
 | `slow_down` | 在上限内增加轮询间隔 |
 | Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
@@ -141,6 +144,8 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 
 - Good：密码页填入后短暂出现 Cloudflare 文案，旧定时器被守卫拒绝；用户完成验证后，同一 URL 重新扫描并只提交一次。
 - Good：Cloudflare 小组件显示“成功!”且页面仍保留 `challenges.cloudflare.com` iframe 时，驱动先等待约 5 秒稳定窗口；窗口结束且“登录”按钮可用后再点击，并且旧延迟动作不提前消耗提交次数。
+- Good：Cloudflare DOM 消失但 xAI 登录页面还在恢复或短暂无控件时，驱动在约 60 秒后置窗口内继续等待并复扫，避免按 12 秒普通未知页超时误报。
+- Good：首次登录点击后页面未跳转且共享密码已经删除时，密码框里的浏览器 DOM 值仍存在；驱动重按高置信度“登录”按钮，避免 12 秒后误报未知页。
 - Good：用户点击停止时，共享任务先投影为不含密码的取消状态，登录驱动随后取消定时器，控制台再中止 Token 请求并清理 Session。
 - Good：清理 ACK 同时匹配批次、账号、`cleanup_id` 和 host，Cookie 删除后二次 domain 枚举为空才进入下一账号。
 - Good：HTTPS 控制台持有 Web Lock 和共享租约时，HTTP 控制台读取同一租约并拒绝启动；反向顺序同样成立。
@@ -177,6 +182,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
   - 共享任务取消后待执行动作被取消。
   - URL 变化或 challenge 出现后，按钮和 Enter 都不触发，密码不标记为已提交。
   - Cloudflare / Turnstile 显示成功后等待稳定窗口，再恢复密码提交。
+  - Cloudflare / Turnstile 消失但页面暂未恢复登录控件时，在后置窗口内继续等待，窗口耗尽后才进入未知页。
   - 同 URL challenge 消失后重新扫描、提交一次，后续扫描不重复提交。
   - Cloudflare 页面只上报人工等待。
   - 站点存储清理成功和失败 ACK。

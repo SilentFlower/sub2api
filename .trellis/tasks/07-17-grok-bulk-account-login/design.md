@@ -141,9 +141,10 @@ pending
 - 每次 DOM 变化后按有限频率重新分类页面，避免高频 MutationObserver 回调。
 - 输入框选择优先级：明确 `autocomplete`/`type`/`name`/label，其次使用可见 placeholder 和输入框附近短文本；多个候选或低置信度时暂停。附近文本只用于提高语义置信度，不能绕过 challenge 或 OTP 判断。
 - 写值时使用原生 setter，再派发 `input` 和 `change`；必要时派发 Enter，但不对未知按钮模拟点击。
-- Cloudflare 检测参考 challenge iframe、`challenges.cloudflare.com`、页面标题和已知提示文本。验证未完成时只上报 `waiting_human` 并按有限间隔复扫；看到 Cloudflare / Turnstile “成功 / Success / Verified”后先等待约 5 秒稳定窗口，避免验证结果尚未写入时过早点击登录。
+- Cloudflare 检测参考 challenge iframe、`challenges.cloudflare.com`、页面标题和已知提示文本。验证未完成时只上报 `waiting_human` 并按有限间隔复扫；看到 Cloudflare / Turnstile “成功 / Success / Verified”后先等待约 5 秒稳定窗口，避免验证结果尚未写入时过早点击登录。曾经检测到 challenge 后，如果 challenge DOM 消失但登录/授权控件尚未恢复，驱动继续保留约 60 秒后置恢复窗口，期间复扫并维持人工等待状态，不按普通 12 秒未知页超时停机。
 - 登录/授权按钮点击必须满足高置信度语义匹配。动作门禁按“动作阶段 + 当前 URL”建立键，每个键最多执行一次；DOM observer 和定时扫描只能重复识别，不能重复提交同一阶段。
 - 填表后的短延迟提交由单实例可取消控制器管理。共享任务变化、过期、停止、跳过或页面卸载时必须取消定时器；回调执行前再次读取共享任务并校验完整归属、调度时 URL 未变化、当前页面不是未完成 challenge，且 Cloudflare 成功状态已过稳定窗口。登录按钮仍 disabled 时不得派发 Enter，也不得消耗动作次数，应继续等待按钮可用，禁止在取消、导航或人工验证页面切换后补交。动作次数只在实际点击或 Enter 前占用，守卫拒绝不得消耗次数，确保同 URL 的人工 challenge 完成后可以自动继续且最多提交一次。
+- 密码提交并从共享任务删除后，如果页面仍停在同一密码表单且密码框 DOM 值仍存在，驱动允许重按高置信度“登录”按钮作为恢复动作；该动作不得重新写回密码，密码框为空时仍按未知页停机。
 
 ## Session 清理
 
@@ -177,6 +178,6 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 ## 验证策略
 
 - Node 纯逻辑测试覆盖解析、状态迁移、Token 错误分类、选择器候选评分、脱敏、动作门禁、可取消延迟动作和异常收尾投影。
-- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、站点存储清理成功与失败 ACK。
+- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
 - GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占、共享租约竞争/过期/释放、按 `run_id` 卸载清理和 HTTP/HTTPS/closed Shadow DOM 静态约束。
 - 真实 xAI 页面、Cloudflare 和 Violentmonkey HttpOnly 权限只能在用户浏览器中手工验收；测试使用虚构账号和假 Token，不使用用户真实凭据。

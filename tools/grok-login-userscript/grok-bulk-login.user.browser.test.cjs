@@ -400,6 +400,44 @@ test('Cloudflare 页面只上报等待人工验证且不自动点击', () => {
   assert.equal(harness.button.clickCalls, 0)
 })
 
+test('Cloudflare 消失但登录页未恢复时继续等待避免过早 unknown', () => {
+  const harness = createDriverHarness({
+    values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
+    bodyText: 'Checking your browser. Verify you are human.'
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'CLOUDFLARE_OR_CAPTCHA')
+
+  harness.body.innerText = ''
+  harness.advanceTime(core.CONFIG.pageUnknownTimeoutMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.challengeRecheckMs), true)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'waiting_human')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'CLOUDFLARE_RESULT_PENDING')
+
+  harness.advanceTime(core.CONFIG.postChallengeUnknownGraceMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.challengeRecheckMs), true)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'page_unknown')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'PAGE_UNKNOWN')
+})
+
+test('切换账号后不会沿用上一账号的 Cloudflare 后置等待窗口', () => {
+  const harness = createDriverHarness({
+    values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
+    bodyText: 'Checking your browser. Verify you are human.'
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  harness.body.innerText = ''
+  harness.setValue(core.CONFIG.sharedKeys.task, createActiveTask({ account_id: 'account-2' }))
+  harness.advanceTime(core.CONFIG.pageUnknownTimeoutMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).account_id, 'account-2')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'page_unknown')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'PAGE_UNKNOWN')
+})
+
 test('Cloudflare 成功后等待稳定时间再提交登录', () => {
   const harness = createDriverHarness({
     values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
@@ -442,6 +480,22 @@ test('Cloudflare 成功后登录按钮未就绪时不派发 Enter 且可恢复�
 
   harness.button.disabled = false
   assert.equal(harness.timers.runDelay(core.CONFIG.actionReadyRetryMs), true)
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
+})
+
+test('密码已消费但页面仍停在密码表单时重按登录避免未知页', () => {
+  const harness = createDriverHarness({
+    values: { [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask() },
+    input: { type: 'password', name: 'password', autocomplete: 'current-password' },
+    button: { textContent: '登录' }
+  })
+  harness.input.value = 'fake-password'
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'password_filled')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'PASSWORD_RESUBMIT')
   assert.equal(harness.timers.runDelay(150), true)
   assert.equal(harness.button.clickCalls, 1)
   assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
