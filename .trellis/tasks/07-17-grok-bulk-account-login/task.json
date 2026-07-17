@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T16:02:18Z",
+    "updatedAt": "2026-07-17T16:16:11Z",
     "completedSteps": [
       "Phase 2.1：完成 Violentmonkey 批量登录脚本、README、纯逻辑/GM API/Node VM 浏览器测试与桌面/移动端视觉检查",
       "Phase 2.1 修复迭代：关闭 CHK-001 至 CHK-004 的 HTTPS、凭据隔离、Cookie 清理、动作门禁与并发锁问题",
@@ -43,10 +43,13 @@
       "Phase 3.4 8080 与 xAI Device Flow 修复已提交并推送到 origin/build",
       "Phase 2.1 清理标签 marker 修复：清理标签改用 #grok-bulk-cleanup，登录/授权标签保留 #grok-bulk-login，避免 auth.x.ai 根路径清理页被误认为授权页",
       "Phase 2.2 清理标签 marker 检查：node --check、Node 测试 53/53、git diff --check 全部通过",
-      "Phase 3.4 清理标签 marker 修复已提交并推送到 origin/build"
+      "Phase 3.4 清理标签 marker 修复已提交并推送到 origin/build",
+      "Phase 2.1 auth.x.ai 清理承载页修复：不再使用 https://auth.x.ai/ 根路径，改为 https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...",
+      "Phase 2.2 auth.x.ai 清理承载页检查：node --check、Node 测试 54/54、git diff --check 全部通过",
+      "Phase 3.4 auth.x.ai 清理承载页修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "更新 Violentmonkey 中的 0.2.2 脚本后，在真实 Chrome Profile 中重跑 http://www.havefun.eu.cc:8080/admin/accounts 验收；清理标签应显示 #grok-bulk-cleanup=...，登录/授权标签才显示 #grok-bulk-login=...。",
-    "notes": "本轮修复已推送。若仍看到 auth.x.ai/#grok-bulk-login=...，说明浏览器里运行的仍是旧版脚本，需要刷新 Violentmonkey 脚本内容或确认脚本版本为 0.2.2。"
+    "nextStep": "更新或确认 Violentmonkey 中的 0.2.3 脚本后，在真实 Chrome Profile 中重跑 http://www.havefun.eu.cc:8080/admin/accounts 验收；auth.x.ai 清理标签应显示 https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...，不应再是 https://auth.x.ai/#grok-bulk-cleanup=...。",
+    "notes": "本轮修复已提交并推送到 origin/build。若仍看到 https://auth.x.ai/#grok-bulk-cleanup=...，说明浏览器里运行的仍是旧版脚本，需要刷新 Violentmonkey 脚本内容或确认脚本版本为 0.2.3。"
   }
 }
