@@ -139,11 +139,15 @@ function createDriverHarness(options = {}) {
     placeholder: options.input.placeholder || '',
     labels: [],
     value: '',
-    attributes: options.input.attributes || {}
+    attributes: options.input.attributes || {},
+    parentElement: options.input.nearbyText
+      ? { textContent: options.input.nearbyText, parentElement: null }
+      : null
   }) : null
   const button = options.button ? new FakeButton({
     textContent: options.button.textContent || 'Continue',
-    attributes: options.button.attributes || {}
+    attributes: options.button.attributes || {},
+    disabled: Boolean(options.button.disabled)
   }) : null
   const body = { innerText: options.bodyText || '' }
   const documentElement = {}
@@ -171,7 +175,7 @@ function createDriverHarness(options = {}) {
     href: options.href || `https://${options.hostname || 'auth.x.ai'}${options.pathname || '/sign-in'}${options.hash || '#grok-bulk-login=tab-1'}`
   }
   const window = {
-    name: '',
+    name: options.windowName || '',
     addEventListener() {}
   }
   const localStorage = createStorage(Boolean(options.failStorageCleanup))
@@ -406,6 +410,58 @@ test('登录入口无表单时导航到官方 Device Flow 验证页', () => {
 
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device')
   assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
+})
+
+test('中文 Device Flow 页面通过附近文案填入设备码并提交', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device',
+    title: 'Device Sign-in | SpaceXAI Accounts',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    bodyText: '登录 Grok Build 输入终端中显示的代码。仅当您刚刚从设备发起登录时才输入此代码。',
+    input: {
+      type: 'text',
+      nearbyText: '登录 Grok Build 输入终端中显示的代码。输入设备代码 仅当您刚刚从设备发起登录时才输入此代码。'
+    },
+    button: { textContent: '继续' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.input.value, 'FAKE-CODE')
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+})
+
+test('填入设备码后延迟提交会重新查找刚启用的继续按钮', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    input: {
+      type: 'text',
+      nearbyText: '输入设备代码'
+    },
+    button: { textContent: '继续', disabled: true }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.input.value, 'FAKE-CODE')
+  harness.button.disabled = false
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.input.events.some(event => event.type === 'keydown' || event.type === 'keyup'), false)
 })
 
 test('清理标签返回包含 cleanup_id 和 host 的成功 ACK', async () => {

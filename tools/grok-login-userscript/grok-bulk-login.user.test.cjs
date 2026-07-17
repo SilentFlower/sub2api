@@ -84,6 +84,19 @@ test('Device user code 不会误填到通用 OTP 验证码输入框', () => {
   assert.equal(core.scoreInputDescriptor(descriptors[1], 'user_code') < 8, true)
 })
 
+test('Device user code 可通过中文附近文案识别', () => {
+  const descriptors = [
+    {
+      type: 'text',
+      name: '',
+      placeholder: '',
+      nearbyText: '登录 Grok Build 输入终端中显示的代码。输入设备代码 继续'
+    }
+  ]
+
+  assert.equal(core.chooseBestDescriptor(descriptors, 'user_code'), descriptors[0])
+})
+
 test('isChallengeSnapshot 识别 Cloudflare 且不误判普通登录页', () => {
   assert.equal(core.isChallengeSnapshot({ iframeSrcs: ['https://challenges.cloudflare.com/turnstile'] }), true)
   assert.equal(core.isChallengeSnapshot({ title: 'Sign in to xAI', text: 'Email Password' }), false)
@@ -719,7 +732,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.3'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.4'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)

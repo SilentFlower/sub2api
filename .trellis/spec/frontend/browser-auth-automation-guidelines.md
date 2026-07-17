@@ -99,6 +99,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
 - Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：优先使用标准 `verification_uri`，缺失时回退 `verification_uri_complete`。当前任务必须保存 `verification_url`，登录标签首次进入登录入口后再按该 URL 跳转；不要把清理标签或根路径页面当作登录页证据。
+- xAI 在未登录状态可能先展示 Device Sign-in 设备码输入页，再进入邮箱/密码登录页。登录驱动必须能通过 input 自身属性、label、placeholder 或输入框附近短文本识别中文/英文设备码输入框，填入当前任务的 `user_code` 并提交；不得把通用 OTP/验证码页误识别为设备码页。
 - xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
 - Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
 - 填表后的延迟动作必须按以下顺序执行：记录任务归属和调度 URL -> 等待有限延迟 -> 重新校验共享任务、标签、URL 和非 challenge 状态 -> 占用动作门禁次数 -> 点击高置信度按钮或派发 Enter。
@@ -128,6 +129,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | `authorization_pending` | 保持当前轮询间隔 |
 | `slow_down` | 在上限内增加轮询间隔 |
 | Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
+| Device Sign-in 中文页只在输入框附近显示“输入设备代码” | 通过近邻文本识别设备码输入框，填入 `user_code` 并提交 |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
 | 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败；`auth.x.ai` 不得使用根路径承载 |
 | Cookie、站点存储或清理 ACK 失败 | 保持清理失败状态并停止后续账号 |
@@ -142,6 +144,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
 - Good：实际入口是 `http://www.havefun.eu.cc:8080/admin/accounts` 时，元数据包含精确 `:8080` 规则，运行时仍用 host/protocol 校验限制控制台。
 - Good：xAI Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，任务保存基础验证页，登录标签先进入 `accounts.x.ai` 登录入口，登录完成后再跳转验证页。
+- Good：`accounts.x.ai/oauth2/device` 中文页的 input 没有稳定 `name`/`placeholder`，但附近容器显示“输入设备代码”；驱动仍能填入 `user_code` 并点击“继续”，随后再处理邮箱/密码页。
 - Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
@@ -164,6 +167,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
   - 页面卸载只删除当前 `run_id` 的共享值，保留其它批次。
 - Node VM 浏览器状态机测试至少覆盖：
   - 登录入口无表单但任务含可信 `verification_url` 时，会在有限延迟后跳转官方设备验证页，并保留标签归属。
+  - 中文 Device Sign-in 页通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
   - URL 变化或 challenge 出现后，按钮和 Enter 都不触发，密码不标记为已提交。

@@ -32,7 +32,7 @@ second@example.com|ExamplePassword2
 
 1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
-3. 脚本会串行打开 xAI 登录入口并自动填写邮箱、密码；登录完成后进入 xAI 官方返回的 Device Flow 验证页。
+3. 脚本会串行打开 xAI 登录入口；如果 xAI 先展示 Device Sign-in，脚本会先填写设备代码并点击继续，然后在后续登录页自动填写邮箱、密码。
 4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成。
 5. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
 6. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
@@ -75,14 +75,15 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.3` 已内置精确 include。
-- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.3` 以后应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.4` 已内置精确 include。
+- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.4` 以后应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
 
 - 页面可能处于 Cloudflare 或未知安全验证，请手工完成。
 - xAI 页面结构可能变化。脚本会选择暂停，不会对低置信度按钮进行猜测性点击。
+- 若页面停在 `accounts.x.ai/oauth2/device` 且显示“输入设备代码”，脚本 `0.2.4` 会通过页面附近中文文案识别输入框并自动填入设备码；如果没有填入，先确认 Violentmonkey 中脚本版本确实是 `0.2.4`。
 - 返回控制台查看当前状态，必要时使用“跳过当前”或停止后重试失败项。
 
 ### 清理 Session 失败

@@ -22,6 +22,7 @@
 - [x] 修复 xAI 登录入口与 Device Flow 验证页混用问题：先打开 `accounts.x.ai` 登录入口，登录完成后再跳转官方 `verification_uri`；授权路径兼容当前 `/oauth2/device` 基础路径。
 - [x] 修复清理标签与登录标签 marker 混用问题：清理标签改用 `#grok-bulk-cleanup=...`，登录/授权标签保留 `#grok-bulk-login=...`，并补清理请求拒绝登录 marker 的回归测试。
 - [x] 修复 `auth.x.ai` 根路径清理承载页 404 问题：改用 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，并补禁止 `https://auth.x.ai/` 进入 `storageUrls` 的回归测试。
+- [x] 修复中文 Device Sign-in 页停住问题：输入框自身属性不足时读取附近短文本识别“输入设备代码”，填入 `user_code` 并点击“继续”，再进入后续邮箱/密码登录页。
 
 ## 重点风险
 
@@ -48,6 +49,7 @@ git diff --check
 - 分别打开 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 与证书有效的 `https://www.havefun.eu.cc/`，都应显示控制台；HTTP 页面必须显示额外风险提示并要求确认。
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
+- 若 xAI 先显示 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，确认脚本会自动填入设备码并点击“继续”；后续出现邮箱/密码页时再自动填写账号密码。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
 - 使用两个测试账号串行运行，确认第二号不会继承第一号登录态。

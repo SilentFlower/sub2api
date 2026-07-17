@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.3
+// @version      0.2.4
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -283,7 +283,8 @@
       descriptor.autocomplete,
       descriptor.placeholder,
       descriptor.ariaLabel,
-      descriptor.label
+      descriptor.label,
+      descriptor.nearbyText
     ].map(value => String(value || '').toLowerCase()).join(' ')
     let score = 0
 
@@ -1291,6 +1292,30 @@
   }
 
   /**
+   * 读取输入框周围的短文本。xAI Device 页会把“输入设备代码”渲染在自定义容器中，
+   * 不一定写入 input.placeholder 或 label，因此需要有限读取近邻文本。
+   * @param {HTMLInputElement} element 输入元素。
+   * @return {string} 附近文本。
+   */
+  function getNearbyInputText(element) {
+    const texts = []
+    const describedBy = String(element.getAttribute('aria-describedby') || '').trim()
+    if (describedBy && typeof document.getElementById === 'function') {
+      for (const id of describedBy.split(/\s+/)) {
+        const described = document.getElementById(id)
+        if (described && described.textContent) texts.push(described.textContent)
+      }
+    }
+    let current = element.parentElement
+    for (let depth = 0; current && depth < 3; depth++) {
+      if (current === document.body || current === document.documentElement) break
+      if (current.textContent) texts.push(current.textContent)
+      current = current.parentElement
+    }
+    return texts.join(' ').replace(/\s+/g, ' ').slice(0, 600)
+  }
+
+  /**
    * 判断元素是否可见且可交互。
    * @param {Element} element DOM 元素。
    * @return {boolean} 是否可见。
@@ -1320,6 +1345,7 @@
       placeholder: element.placeholder || '',
       ariaLabel: element.getAttribute('aria-label') || '',
       label: getLabelText(element),
+      nearbyText: getNearbyInputText(element),
       disabled: element.disabled,
       readOnly: element.readOnly,
       hidden: !isVisible(element)
@@ -1622,7 +1648,7 @@
       return true
     }
 
-    function submitFilledInput(element, button, key, afterSubmit) {
+    function submitFilledInput(element, button, key, afterSubmit, buttonKind) {
       if (!task || !task.run_id || !task.account_id || !task.tab_marker) return false
       if (actionGate.attempts(key) >= CONFIG.maxActionAttemptsPerStage) return false
       const expectedTask = {
@@ -1641,9 +1667,15 @@
         return actionGate.tryAcquire(key)
       }, () => {
         let submitted = false
-        if (button && button.isConnected && isVisible(button)) {
-          button.focus()
-          button.click()
+        let targetButton = button
+        if (targetButton && (targetButton.disabled || targetButton.getAttribute('aria-disabled') === 'true')) targetButton = null
+        // React 页面可能在 input/change 事件后才启用按钮，因此执行时再按语义重查一次。
+        if ((!targetButton || !targetButton.isConnected || !isVisible(targetButton)) && buttonKind) {
+          targetButton = findActionButton(buttonKind)
+        }
+        if (targetButton && targetButton.isConnected && isVisible(targetButton)) {
+          targetButton.focus()
+          targetButton.click()
           submitted = true
         } else if (element && element.isConnected) {
           element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }))
@@ -1679,7 +1711,7 @@
             task = { ...task }
             delete task.password
           }
-        })
+        }, 'login')
         return
       }
 
@@ -1688,7 +1720,7 @@
         setInputValue(email.element, task.email)
         reportOnce('email_filled', 'EMAIL_FILLED')
         const button = findActionButton('login')
-        submitFilledInput(email.element, button, `email:${location.href}`)
+        submitFilledInput(email.element, button, `email:${location.href}`, undefined, 'login')
         return
       }
 
@@ -1697,7 +1729,7 @@
         setInputValue(userCode.element, task.user_code)
         reportOnce('user_code_filled', 'USER_CODE_FILLED')
         const button = findActionButton('login')
-        submitFilledInput(userCode.element, button, `user-code:${location.href}`)
+        submitFilledInput(userCode.element, button, `user-code:${location.href}`, undefined, 'login')
         return
       }
 

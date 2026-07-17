@@ -122,7 +122,7 @@ pending
 ## Device Flow
 
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
-- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供登录完成后跳转。
+- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供登录完成后跳转。若 xAI 在未登录状态先展示 Device Sign-in 设备码输入页，登录驱动必须先填入 `user_code` 并提交，再继续处理后续邮箱/密码页。
 - 登录标签首次打开 `accounts.x.ai` 登录入口，避免把后台清理标签或旧授权路径误判为登录页；无可识别登录/授权控件且等待短暂延迟后，再导航到任务中的官方验证页。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
 - `authorization_pending` 保持当前间隔；`slow_down` 增加 5 秒；`access_denied` 和 `expired_token` 结束当前账号。
@@ -132,7 +132,7 @@ pending
 ## 登录驱动
 
 - 每次 DOM 变化后按有限频率重新分类页面，避免高频 MutationObserver 回调。
-- 输入框选择优先级：明确 `autocomplete`/`type`/`name`/label，其次使用可见 placeholder；多个候选或低置信度时暂停。
+- 输入框选择优先级：明确 `autocomplete`/`type`/`name`/label，其次使用可见 placeholder 和输入框附近短文本；多个候选或低置信度时暂停。附近文本只用于提高语义置信度，不能绕过 challenge 或 OTP 判断。
 - 写值时使用原生 setter，再派发 `input` 和 `change`；必要时派发 Enter，但不对未知按钮模拟点击。
 - Cloudflare 检测参考 challenge iframe、`challenges.cloudflare.com`、页面标题和已知提示文本。检测后只上报 `waiting_human`。
 - 登录/授权按钮点击必须满足高置信度语义匹配。动作门禁按“动作阶段 + 当前 URL”建立键，每个键最多执行一次；DOM observer 和定时扫描只能重复识别，不能重复提交同一阶段。
