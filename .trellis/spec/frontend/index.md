@@ -20,6 +20,7 @@
 | [State Management](./state-management.md) | Pinia、局部状态、服务端数据缓存 | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | pnpm、lint、typecheck、Vitest | Filled |
 | [Type Safety](./type-safety.md) | TS strict、API 类型、runtime 收窄 | Filled |
+| [Browser Auth Automation](./browser-auth-automation-guidelines.md) | 用户脚本认证、人工 challenge、凭据生命周期与 Session 清理 | Filled |
 
 ---
 
@@ -33,6 +34,7 @@
 4. 涉及 Pinia 或持久化：读 `state-management.md`
 5. 涉及 API 字段和 TS 类型：读 `type-safety.md`
 6. 提交前或大改动后：读 `quality-guidelines.md`
+7. 涉及独立浏览器认证用户脚本：读 `browser-auth-automation-guidelines.md`
 
 这些规范描述当前代码实际模式，不是理想化重构目标。
 

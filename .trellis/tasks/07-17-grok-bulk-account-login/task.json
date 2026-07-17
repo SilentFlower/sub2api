@@ -1,0 +1,40 @@
+{
+  "id": "grok-bulk-account-login",
+  "name": "grok-bulk-account-login",
+  "title": "Grok 批量账号接入与自动登录",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-17",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-07-17T13:59:19Z",
+    "completedSteps": [
+      "Phase 2.1：完成 Violentmonkey 批量登录脚本、README、纯逻辑/GM API/Node VM 浏览器测试与桌面/移动端视觉检查",
+      "Phase 2.1 修复迭代：关闭 CHK-001 至 CHK-004 的 HTTPS、凭据隔离、Cookie 清理、动作门禁与并发锁问题",
+      "Phase 2.1 第二轮修复：关闭 CHK-005、CHK-006、CHK-007，增加可取消延迟提交、停止/跳过共享任务取消投影、登录驱动/Cloudflare/清理 ACK 状态机测试并同步设计契约",
+      "Phase 2.1 第三轮修复：关闭 CHK-008，将动作次数占用延后到守卫通过后，并覆盖同 URL challenge 完成后的单次恢复提交",
+      "Phase 2.2：最终 Check-All 通过，CHK-001 至 CHK-008 全部关闭",
+      "Phase 3.3：新增浏览器认证自动化 code-spec，并注册到前端规范索引"
+    ],
+    "partialStep": "Phase 3.4：准备通过 trellis-push 展示精确提交与推送计划",
+    "nextStep": "进入 trellis-push，确认精确文件范围和提交信息后执行提交与推送",
+    "notes": "node --check、36 项 Node 测试、git diff --check、任务进度 schema、尾随空白、调试代码和真实凭据扫描均通过；新增 code-spec 七段结构与索引链接已校验。真实 xAI/Cloudflare/HttpOnly Cookie 流程仍需用户浏览器手工验收。"
+  }
+}

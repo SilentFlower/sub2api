@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查交付物是否保持独立领域边界且未污染 Sub2API 共享文件。"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"检查事件监听、轮询、Abort/停止和标签生命周期是否完整清理。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"核对 refresh token 输出与现有 Grok OAuth 导入契约兼容，且不泄露凭据。"}
+{"file":".trellis/tasks/07-17-grok-bulk-account-login/research/violentmonkey-xai-evidence.md","reason":"复核实现没有使用 Violentmonkey 不支持的 API，也没有偏离官方 Device Flow。"}

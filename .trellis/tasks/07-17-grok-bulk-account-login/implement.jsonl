@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"独立 build 私有工具应放入明确领域目录，不修改上游共享前后端文件。"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"用户脚本包含跨页监听、定时器、轮询和取消控制，需要遵守资源清理与错误传播约定。"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"确认现有 Grok OAuth、SSO、refresh token 与配额探测契约，避免生成不兼容凭据。"}
+{"file":".trellis/tasks/07-17-grok-bulk-account-login/research/violentmonkey-xai-evidence.md","reason":"提供 xAI 官方 grant、Cloudflare 现状和 Violentmonkey API/HttpOnly Cookie 能力证据。"}
