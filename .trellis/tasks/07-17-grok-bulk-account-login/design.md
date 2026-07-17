@@ -40,6 +40,7 @@ HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协
   "email": "账号邮箱",
   "password": "当前账号密码",
   "user_code": "Device Flow 用户代码",
+  "verification_url": "xAI 官方 Device Flow 验证页",
   "created_at": 0,
   "expires_at": 0,
   "password_consumed_at": "密码提交后出现，任务不再包含 password",
@@ -121,6 +122,8 @@ pending
 ## Device Flow
 
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
+- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供登录完成后跳转。
+- 登录标签首次打开 `accounts.x.ai` 登录入口，避免把后台清理标签或旧授权路径误判为登录页；无可识别登录/授权控件且等待短暂延迟后，再导航到任务中的官方验证页。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
 - `authorization_pending` 保持当前间隔；`slow_down` 增加 5 秒；`access_denied` 和 `expired_token` 结束当前账号。
 - 控制台停止或切换账号时调用请求控制对象的 `abort()` 并使旧回调因 `run_id` 不匹配而失效。

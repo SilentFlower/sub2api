@@ -70,6 +70,17 @@ function createDriverHarness(options = {}) {
   let nextListenerId = 1
   let randomId = 1
   let mutationCallback = null
+  let now = Number(options.now || 1000)
+
+  class FakeDate extends Date {
+    constructor(...args) {
+      super(...(args.length ? args : [now]))
+    }
+
+    static now() {
+      return now
+    }
+  }
 
   class FakeElement {
     constructor(properties = {}) {
@@ -188,7 +199,7 @@ function createDriverHarness(options = {}) {
     URL,
     URLSearchParams,
     AbortController,
-    Date,
+    Date: FakeDate,
     console,
     crypto: { randomUUID: () => `fake-${randomId++}` },
     window,
@@ -238,8 +249,12 @@ function createDriverHarness(options = {}) {
     button,
     body,
     location,
+    window,
     localStorage,
     sessionStorage,
+    advanceTime(ms) {
+      now += Number(ms || 0)
+    },
     setValue,
     deleteValue,
     triggerMutation() {
@@ -371,6 +386,26 @@ test('Cloudflare 页面只上报等待人工验证且不自动点击', () => {
   assert.equal(event.type, 'waiting_human')
   assert.equal(event.detail, 'CLOUDFLARE_OR_CAPTCHA')
   assert.equal(harness.button.clickCalls, 0)
+})
+
+test('登录入口无表单时导航到官方 Device Flow 验证页', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/',
+    href: 'https://accounts.x.ai/#grok-bulk-login=tab-1',
+    title: 'xAI Accounts',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    }
+  })
+
+  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device')
+  assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
 })
 
 test('清理标签返回包含 cleanup_id 和 host 的成功 ACK', async () => {

@@ -30,6 +30,7 @@ output: refresh_token\nrefresh_token\n...
   "email": "当前邮箱",
   "password": "仅提交前存在",
   "user_code": "Device Flow 用户代码",
+  "verification_url": "可信 xAI Device Flow 验证页",
   "created_at": 0,
   "expires_at": 0,
   "password_consumed_at": "密码提交后可选",
@@ -88,12 +89,15 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 ### 3. Contracts
 
 - 控制台只能在显式允许的 host 和 HTTP/HTTPS 协议渲染，并使用 `closed` Shadow DOM 隔离账号输入和 Token 结果；认证站点只允许 HTTPS 并只运行隐藏驱动。
+- Violentmonkey 元数据必须覆盖用户实际打开的控制台 URL。非默认端口不能只依赖 `// @match http://host/*` 静态检查；已知实际入口如 `http://www.havefun.eu.cc:8080/*` 必须显式声明 `@include` 或等价规则，并用测试断言精确端口规则存在。
 - HTTP 控制台必须醒目提示网络中间人、代理、页面篡改和全局输入监听风险，并把风险确认纳入开始和重试门禁。Shadow DOM 和用户脚本隔离不能被描述为 TLS 替代品。
 - HTTP/HTTPS 控制台必须持有同一个 Violentmonkey 共享租约，提供跨协议互斥；HTTPS 还必须先获得 Web Lock，再在其回调内获得共享租约。只使用 Web Lock 会因锁按 origin 隔离而无法阻止 HTTP 与 HTTPS 标签同时运行。
 - GM 共享值没有 compare-and-swap。租约必须使用随机 owner、有限竞争确认延迟、心跳续租和过期回收；结束时只能删除 owner 仍匹配的租约。锁 API 或共享存储异常时必须显示稳定错误，并保持批次未启动。
 - 清空敏感数据必须先获得同一控制台锁。页面卸载只能删除与自身 `run_id` 匹配的任务、事件和清理消息，空闲或旧控制台不得清除其它活动批次。
 - 登录驱动只有在 `run_id`、`account_id`、`tab_marker` 全部匹配且任务未取消、未过期时才能自动动作。标签标识只能放在 URL fragment 或标签私有状态中，禁止携带密码。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
+- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：优先使用标准 `verification_uri`，缺失时回退 `verification_uri_complete`。当前任务必须保存 `verification_url`，登录标签首次进入登录入口后再按该 URL 跳转；不要把清理标签或根路径页面当作登录页证据。
+- xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
 - Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
 - 填表后的延迟动作必须按以下顺序执行：记录任务归属和调度 URL -> 等待有限延迟 -> 重新校验共享任务、标签、URL 和非 challenge 状态 -> 占用动作门禁次数 -> 点击高置信度按钮或派发 Enter。
 - 守卫拒绝不得消耗动作门禁次数。否则同一 URL 临时进入 challenge 后，即使用户完成验证，也会因为旧定时器占用次数而永久无法恢复。
@@ -106,6 +110,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | 条件 | 必须行为 |
 | --- | --- |
 | 当前页面不是明确允许的控制台 host，或协议不是 HTTP/HTTPS | 不渲染控制台 |
+| 用户实际控制台 URL 使用非默认端口，但脚本元数据没有显式匹配该端口 | 不宣称脚本已支持该入口；补元数据规则和回归测试 |
 | HTTP 控制台未确认明文传输风险 | 不启动或重试批次 |
 | HTTP/HTTPS 任一协议已持有未过期共享租约 | 第二个控制台不处理账号，也不清空共享值 |
 | HTTPS 未获得 Web Lock，或任一协议未获得共享租约 | 不进入批次准备、旧 Session 清理或账号处理 |
@@ -119,7 +124,9 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | 同 URL challenge 完成 | 重新扫描后允许提交一次，后续重复扫描不得再次提交 |
 | `authorization_pending` | 保持当前轮询间隔 |
 | `slow_down` | 在上限内增加轮询间隔 |
+| Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
+| 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败 |
 | Cookie、站点存储或清理 ACK 失败 | 保持清理失败状态并停止后续账号 |
 | Violentmonkey 或 HttpOnly 权限不足 | 批次开始前失败，不处理任何账号 |
 
@@ -130,8 +137,12 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：清理 ACK 同时匹配批次、账号、`cleanup_id` 和 host，Cookie 删除后二次 domain 枚举为空才进入下一账号。
 - Good：HTTPS 控制台持有 Web Lock 和共享租约时，HTTP 控制台读取同一租约并拒绝启动；反向顺序同样成立。
 - Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
+- Good：实际入口是 `http://www.havefun.eu.cc:8080/admin/accounts` 时，元数据包含精确 `:8080` 规则，运行时仍用 host/protocol 校验限制控制台。
+- Good：xAI Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，任务保存基础验证页，登录标签先进入 `accounts.x.ai` 登录入口，登录完成后再跳转验证页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
+- Bad：测试只检查源码包含 `http://www.havefun.eu.cc/*`，却没有覆盖用户实际使用的 `:8080` URL。
+- Bad：只接受 `verification_uri_complete` 或只匹配 `/oauth2/device/complete`，导致当前官方 `/oauth2/device` 基础路径被误判为未知/验证页面。
 - Bad：创建延迟定时器时立即占用动作次数，导致守卫拒绝后无法恢复。
 - Bad：只删除当前 URL 可见 Cookie，遗漏其它 path、子域、HttpOnly 或分区 Cookie。
 - Bad：把整批账号密码写入 localStorage、GM 共享值、页面 DOM 属性、URL 或日志。
@@ -141,12 +152,13 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 
 - 纯逻辑测试至少覆盖：输入解析、邮箱去重、Token 响应分类、轮询退避、挑战页识别、动作门禁、任务归属、密码消费/取消投影、Cookie domain 枚举与二次校验。
 - 控制台与锁测试至少覆盖：
-  - 只允许精确控制台 host 的 HTTP/HTTPS 地址，xAI 验证地址仍只接受 HTTPS。
+  - 只允许精确控制台 host 的 HTTP/HTTPS 地址，实际使用的非默认端口元数据规则存在，xAI 验证地址仍只接受 HTTPS。
   - 未过期租约拒绝、过期租约接管、心跳续租、竞争确认失败和 owner 限定释放。
   - HTTPS 活动时 HTTP 获取锁失败，HTTP 活动时 HTTPS 获取锁失败。
   - Web Lock 或共享存储抛错时批次回调不执行，控制台使用稳定锁失败提示。
   - 页面卸载只删除当前 `run_id` 的共享值，保留其它批次。
 - Node VM 浏览器状态机测试至少覆盖：
+  - 登录入口无表单但任务含可信 `verification_url` 时，会在有限延迟后跳转官方设备验证页，并保留标签归属。
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
   - URL 变化或 challenge 出现后，按钮和 Enter 都不触发，密码不标记为已提交。
@@ -212,3 +224,28 @@ return runWithSharedLeaseLock(leaseStore, lockName, ownerId, callback)
 ```
 
 共享租约承担跨协议互斥，HTTPS Web Lock 只增加同源原子互斥；两者不是互相替代关系。
+
+#### Wrong
+
+```javascript
+// @match        http://www.havefun.eu.cc/*
+
+if (/\/oauth2\/device\//.test(location.pathname)) {
+  clickConsent()
+}
+```
+
+问题：Violentmonkey 对非默认端口的匹配不能靠通用 host 规则臆测；同时当前 xAI 官方验证页可能是 `/oauth2/device` 基础路径。
+
+#### Correct
+
+```javascript
+// @match        http://www.havefun.eu.cc/*
+// @include      http://www.havefun.eu.cc:8080/*
+
+if (isDeviceVerificationPath(location.pathname)) {
+  clickConsent()
+}
+```
+
+用元数据覆盖真实入口，用共享 helper 同时匹配 `/oauth2/device` 和其子路径；测试必须覆盖这两个契约。

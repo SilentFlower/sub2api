@@ -88,7 +88,7 @@ test('isChallengeSnapshot 识别 Cloudflare 且不误判普通登录页', () => 
   assert.equal(core.isChallengeSnapshot({ iframeSrcs: ['https://challenges.cloudflare.com/turnstile'] }), true)
   assert.equal(core.isChallengeSnapshot({ title: 'Sign in to xAI', text: 'Email Password' }), false)
   assert.equal(core.isChallengeSnapshot({ url: 'https://accounts.x.ai/sign-in', text: 'Enter the verification code from your authenticator app' }), true)
-  assert.equal(core.isChallengeSnapshot({ url: 'https://auth.x.ai/oauth2/device/complete', text: 'Enter verification code' }), false)
+  assert.equal(core.isChallengeSnapshot({ url: 'https://accounts.x.ai/oauth2/device', text: 'Enter verification code' }), false)
 })
 
 test('canTransition 拒绝跳过强制清理门禁', () => {
@@ -150,9 +150,40 @@ test('cookieIdentity 区分 First-Party 与 PartitionKey Cookie', () => {
 
 test('Device Flow 验证地址只接受 xAI HTTPS 域', () => {
   assert.equal(core.isTrustedVerificationUrl('https://auth.x.ai/oauth2/device/complete'), true)
-  assert.equal(core.isTrustedVerificationUrl('https://accounts.x.ai/oauth2/device/complete'), true)
+  assert.equal(core.isTrustedVerificationUrl('https://accounts.x.ai/oauth2/device'), true)
   assert.equal(core.isTrustedVerificationUrl('http://auth.x.ai/oauth2/device/complete'), false)
   assert.equal(core.isTrustedVerificationUrl('https://x.ai.example.com/oauth2/device/complete'), false)
+})
+
+test('Device Flow 优先使用 verification_uri 并回退 verification_uri_complete', () => {
+  assert.equal(core.selectTrustedVerificationUrl({
+    verification_uri: 'https://accounts.x.ai/oauth2/device',
+    verification_uri_complete: 'https://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), 'https://accounts.x.ai/oauth2/device')
+  assert.equal(core.selectTrustedVerificationUrl({
+    verification_uri_complete: 'https://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), 'https://accounts.x.ai/oauth2/device?user_code=FAKE')
+  assert.equal(core.selectTrustedVerificationUrl({
+    verification_uri: 'http://accounts.x.ai/oauth2/device',
+    verification_uri_complete: 'https://x.ai.example.com/oauth2/device'
+  }), '')
+})
+
+test('Device Flow 授权路径兼容基础路径和子路径', () => {
+  assert.equal(core.isDeviceVerificationPath('/oauth2/device'), true)
+  assert.equal(core.isDeviceVerificationPath('/oauth2/device/consent'), true)
+  assert.equal(core.isDeviceVerificationPath('/oauth2/device/complete'), true)
+  assert.equal(core.isDeviceVerificationPath('/oauth2/devices'), false)
+})
+
+test('登录入口无可识别控件时才跳转官方 Device Flow 验证页', () => {
+  const task = { verification_url: 'https://accounts.x.ai/oauth2/device' }
+
+  assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, false), true)
+  assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, true), false)
+  assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 1000, 0, false), false)
+  assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/oauth2/device', 2000, 0, false), false)
+  assert.equal(core.shouldNavigateToVerification({ verification_url: 'http://accounts.x.ai/oauth2/device' }, 'https://accounts.x.ai/', 2000, 0, false), false)
 })
 
 test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
@@ -672,8 +703,10 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
+  assert.equal(scriptSource.includes('// @version      0.2.1'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
+  assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
   assert.equal(scriptSource.includes("attachShadow({ mode: 'closed' })"), true)

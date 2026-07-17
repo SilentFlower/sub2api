@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.0
+// @version      0.2.1
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
 // @match        http://www.havefun.eu.cc/*
 // @match        https://www.havefun.eu.cc/*
+// @include      http://www.havefun.eu.cc:8080/*
 // @match        https://x.ai/*
 // @match        https://*.x.ai/*
 // @match        https://grok.com/*
@@ -37,6 +38,7 @@
     scope: 'openid profile email offline_access grok-cli:access api:access conversations:read conversations:write',
     deviceCodeUrl: 'https://auth.x.ai/oauth2/device/code',
     tokenUrl: 'https://auth.x.ai/oauth2/token',
+    loginStartUrl: 'https://accounts.x.ai/',
     storageUrls: [
       'https://x.ai/',
       'https://auth.x.ai/',
@@ -61,6 +63,7 @@
     maxDeviceFlowMs: 30 * 60 * 1000,
     minPollMs: 1000,
     maxPollMs: 30000,
+    loginToVerificationDelayMs: 1500,
     controllerLockName: 'grok-bulk-login:controller-v1',
     controllerLeaseClaimDelayMs: 180,
     controllerLeaseHeartbeatMs: 10000,
@@ -345,7 +348,7 @@
 
     let isDeviceFlowPage = false
     try {
-      isDeviceFlowPage = /\/oauth2\/device\//.test(new URL(String(snapshot.url || '')).pathname)
+      isDeviceFlowPage = isDeviceVerificationPath(new URL(String(snapshot.url || '')).pathname)
     } catch {
       // URL 不完整时按普通登录页处理，宁可暂停也不猜测安全验证流程。
     }
@@ -422,6 +425,57 @@
     try {
       const url = new URL(String(value || ''))
       return url.protocol === 'https:' && (url.hostname === 'x.ai' || url.hostname.endsWith('.x.ai'))
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 从 Device Flow 响应中选择官方验证页，优先使用标准 verification_uri。
+   * @param {object} payload Device Flow 响应体。
+   * @return {string} 可信验证页；缺失时为空字符串。
+   */
+  function selectTrustedVerificationUrl(payload) {
+    if (!payload || typeof payload !== 'object') return ''
+    const candidates = [payload.verification_uri, payload.verification_uri_complete]
+    for (const candidate of candidates) {
+      if (isTrustedVerificationUrl(candidate)) return String(candidate)
+    }
+    return ''
+  }
+
+  /**
+   * 判断路径是否为 xAI Device Flow 验证页或其子路径。
+   * @param {string} pathname 当前路径。
+   * @return {boolean} 是否为设备授权路径。
+   */
+  function isDeviceVerificationPath(pathname) {
+    return /^\/oauth2\/device(?:\/|$)/.test(String(pathname || ''))
+  }
+
+  /**
+   * 判断登录入口在无可识别控件时是否应进入官方 Device Flow 验证页。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {number} now 当前时间。
+   * @param {number} firstSeenAt 当前页面首次扫描时间。
+   * @param {boolean} hasRecognizedControls 页面是否已有可处理的登录/授权控件。
+   * @return {boolean} 是否应跳转。
+   */
+  function shouldNavigateToVerification(task, currentHref, now, firstSeenAt, hasRecognizedControls) {
+    if (!task || hasRecognizedControls || !isTrustedVerificationUrl(task.verification_url)) return false
+    if (Number(now) - Number(firstSeenAt) < CONFIG.loginToVerificationDelayMs) return false
+
+    try {
+      const current = new URL(String(currentHref || ''))
+      const target = new URL(String(task.verification_url))
+      const currentHostAllowed = current.hostname === 'x.ai'
+        || current.hostname.endsWith('.x.ai')
+        || current.hostname === 'grok.com'
+        || current.hostname.endsWith('.grok.com')
+      if (current.protocol !== 'https:' || !currentHostAllowed) return false
+      if (current.origin === target.origin && isDeviceVerificationPath(current.pathname)) return false
+      return true
     } catch {
       return false
     }
@@ -849,6 +903,9 @@
     buildCookieDeleteDetails,
     sanitizeDetail,
     isTrustedVerificationUrl,
+    selectTrustedVerificationUrl,
+    isDeviceVerificationPath,
+    shouldNavigateToVerification,
     appendDriverMarker,
     extractDriverMarker,
     isExpiredSharedTask,
@@ -1131,13 +1188,14 @@
       throw createCodedError('DEVICE_CODE_REQUEST_FAILED')
     }
     const payload = response.payload || {}
-    if (!payload.device_code || !payload.user_code || !isTrustedVerificationUrl(payload.verification_uri_complete)) {
+    const verificationUrl = selectTrustedVerificationUrl(payload)
+    if (!payload.device_code || !payload.user_code || !verificationUrl) {
       throw createCodedError('DEVICE_CODE_INVALID')
     }
     return {
       deviceCode: String(payload.device_code),
       userCode: String(payload.user_code),
-      verificationUrl: String(payload.verification_uri_complete),
+      verificationUrl,
       intervalMs: Math.max(CONFIG.minPollMs, Number(payload.interval || 5) * 1000),
       expiresInMs: Math.min(CONFIG.maxDeviceFlowMs, Math.max(60000, Number(payload.expires_in || 1800) * 1000))
     }
@@ -1581,7 +1639,7 @@
       }
 
       const consentButton = findActionButton('consent')
-      if (consentButton && /\/oauth2\/device\//.test(location.pathname)) {
+      if (consentButton && isDeviceVerificationPath(location.pathname)) {
         if (clickOnce(consentButton, `consent:${location.href}`)) {
           reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
         }
@@ -1589,8 +1647,16 @@
       }
 
       const emailMethod = findActionButton('email_method')
-      if (emailMethod && clickOnce(emailMethod, `email-method:${location.href}`)) {
-        reportOnce('email_method_selected', 'EMAIL_METHOD_SELECTED')
+      if (emailMethod) {
+        if (clickOnce(emailMethod, `email-method:${location.href}`)) {
+          reportOnce('email_method_selected', 'EMAIL_METHOD_SELECTED')
+        }
+        return
+      }
+
+      const hasRecognizedControls = Boolean(password || email || userCode || consentButton || emailMethod)
+      if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
+        location.href = task.verification_url
         return
       }
 
@@ -2083,6 +2149,7 @@
           email: account.email,
           password: account.password,
           user_code: device.userCode,
+          verification_url: device.verificationUrl,
           created_at: Date.now(),
           expires_at: Date.now() + Math.min(CONFIG.taskTtlMs, device.expiresInMs)
         }
@@ -2090,7 +2157,7 @@
         updateAccount(account, 'opening_login')
         render()
 
-        runtime.currentTab = GM_openInTab(appendDriverMarker(device.verificationUrl, tabMarker), { active: true, insert: true })
+        runtime.currentTab = GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker), { active: true, insert: true })
         if (!runtime.currentTab || typeof runtime.currentTab.close !== 'function') {
           throw createCodedError('LOGIN_TAB_CLOSED')
         }
@@ -2141,7 +2208,7 @@
       render()
       try {
         await verifyHttpOnlyPermission()
-        setGlobalStatus('正在清理旧的 xAI/Grok Session')
+        setGlobalStatus('正在清理旧的 xAI/Grok Session；后台清理标签可能显示 403/404，这不是登录页')
         await clearTargetOriginStorage({ id: `initial-${runtime.runId}` })
         await clearTargetCookies()
         while (!runtime.stopRequested && !runtime.cleanupBlocked) {

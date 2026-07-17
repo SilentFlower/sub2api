@@ -18,6 +18,8 @@
 - [x] 为 HTTP/HTTPS 增加跨协议 Violentmonkey 共享租约锁，HTTPS 叠加 Web Locks，并覆盖竞争失败、过期接管、续租、跨协议互斥和 owner 限定释放测试。
 - [x] 在 HTTP 控制台、README 和手工验收中增加不可消除的网络注入与凭据泄露风险确认。
 - [x] 将清空操作纳入控制台锁，页面卸载只清理自身 `run_id`，避免空闲标签破坏其它活动批次。
+- [x] 修复 Violentmonkey 对 `http://www.havefun.eu.cc:8080/*` 的匹配问题，增加精确 `@include` 并补回归测试。
+- [x] 修复 xAI 登录入口与 Device Flow 验证页混用问题：先打开 `accounts.x.ai` 登录入口，登录完成后再跳转官方 `verification_uri`；授权路径兼容当前 `/oauth2/device` 基础路径。
 
 ## 重点风险
 
@@ -41,7 +43,7 @@ git diff --check
 ## 手工验收
 
 - 在 Violentmonkey 开启全局和脚本级 HttpOnly Cookie 权限。
-- 分别打开 `http://www.havefun.eu.cc/` 与证书有效的 `https://www.havefun.eu.cc/`，两者都应显示控制台；HTTP 页面必须显示额外风险提示并要求确认。
+- 分别打开 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 与证书有效的 `https://www.havefun.eu.cc/`，都应显示控制台；HTTP 页面必须显示额外风险提示并要求确认。
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。

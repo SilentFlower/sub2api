@@ -5,7 +5,7 @@
 ## 安装前提
 
 1. 使用最新版 Violentmonkey。
-2. 浏览器能够通过 `http://www.havefun.eu.cc/` 或 `https://www.havefun.eu.cc/` 打开控制台页面。
+2. 浏览器能够通过 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/` 或 `https://www.havefun.eu.cc/` 打开控制台页面。
 3. HTTP 模式不能防止网络中间人、代理或被篡改页面窃取账号密码和 refresh token，只应在可信网络和服务器上使用；具备有效证书时仍建议改用 HTTPS。
 4. 运行会清除当前 Chrome Profile 的 xAI/Grok Cookie，并退出已有 Grok/xAI 登录。
 
@@ -15,7 +15,7 @@
 2. 将 `grok-bulk-login.user.js` 的完整内容粘贴并保存。
 3. 在 Violentmonkey 全局设置中开启 GM Cookie 的 HttpOnly Cookie 访问能力。
 4. 打开该脚本的设置页，开启脚本级“允许访问 HTTP-only Cookie”。
-5. 刷新 `http://www.havefun.eu.cc/` 或 `https://www.havefun.eu.cc/`，页面右侧应出现“Grok 批量授权”控制台。
+5. 刷新 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 或 `https://www.havefun.eu.cc/`，页面右侧应出现“Grok 批量授权”控制台。
 
 脚本会在开始批次前写入并删除一个短期 HttpOnly 探针 Cookie。探针失败时不会处理任何账号。
 
@@ -32,7 +32,7 @@ second@example.com|ExamplePassword2
 
 1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
-3. 脚本会串行打开 xAI 登录标签并自动填写邮箱、密码和授权页面。
+3. 脚本会串行打开 xAI 登录入口并自动填写邮箱、密码；登录完成后进入 xAI 官方返回的 Device Flow 验证页。
 4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成。
 5. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
 6. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
@@ -64,7 +64,7 @@ second@example.com|ExamplePassword2
 
 1. 关闭脚本打开的登录标签并删除当前账号共享任务。
 2. 依次在后台打开带随机标记的 `x.ai`、`auth.x.ai`、`accounts.x.ai` 和 `grok.com` 清理标签。
-3. 每个清理标签删除当前 origin 可访问的 localStorage、sessionStorage、IndexedDB、Cache Storage 和 Service Worker，并返回带域名的 ACK；后台标签可能短暂出现在标签栏。
+3. 每个清理标签删除当前 origin 可访问的 localStorage、sessionStorage、IndexedDB、Cache Storage 和 Service Worker，并返回带域名的 ACK；后台标签可能短暂出现在标签栏，也可能显示 403/404，这不是登录页失败。
 4. 使用 `GM_cookie` 删除上述目标域 Cookie。
 5. 再次枚举 Cookie；任一目标域存储未确认、Cookie 仍有残留或权限报错时停止队列，不处理下一个账号。
 
@@ -75,7 +75,7 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.1` 起已内置精确 include。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
