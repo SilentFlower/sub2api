@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.4
+// @version      0.2.5
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -38,7 +38,7 @@
     scope: 'openid profile email offline_access grok-cli:access api:access conversations:read conversations:write',
     deviceCodeUrl: 'https://auth.x.ai/oauth2/device/code',
     tokenUrl: 'https://auth.x.ai/oauth2/token',
-    loginStartUrl: 'https://accounts.x.ai/',
+    loginStartUrl: 'https://accounts.x.ai/sign-in',
     storageUrls: [
       'https://x.ai/',
       // auth.x.ai 根路径在真实 Chrome 中可能直接显示 404，清理页改用同源授权端点承载。
@@ -458,6 +458,35 @@
   }
 
   /**
+   * 判断密码是否已经提交并从共享任务删除。
+   * @param {object|null} task 当前共享任务。
+   * @return {boolean} 密码是否已提交。
+   */
+  function hasPasswordBeenSubmitted(task) {
+    return Boolean(task
+      && !Object.prototype.hasOwnProperty.call(task, 'password')
+      && Object.prototype.hasOwnProperty.call(task, 'password_consumed_at'))
+  }
+
+  /**
+   * 判断未完成邮箱密码登录时是否应从 Device 页返回邮箱登录入口。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @return {boolean} 是否应回到邮箱登录入口。
+   */
+  function shouldReturnToLoginBeforePassword(task, currentHref) {
+    if (!task || hasPasswordBeenSubmitted(task) || !Object.prototype.hasOwnProperty.call(task, 'password')) return false
+    try {
+      const current = new URL(String(currentHref || ''))
+      return current.protocol === 'https:'
+        && (current.hostname === 'x.ai' || current.hostname.endsWith('.x.ai'))
+        && isDeviceVerificationPath(current.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * 判断登录入口在无可识别控件时是否应进入官方 Device Flow 验证页。
    * @param {object|null} task 当前共享任务。
    * @param {string} currentHref 当前页面地址。
@@ -468,6 +497,7 @@
    */
   function shouldNavigateToVerification(task, currentHref, now, firstSeenAt, hasRecognizedControls) {
     if (!task || hasRecognizedControls || !isTrustedVerificationUrl(task.verification_url)) return false
+    if (!hasPasswordBeenSubmitted(task)) return false
     if (Number(now) - Number(firstSeenAt) < CONFIG.loginToVerificationDelayMs) return false
 
     try {
@@ -949,6 +979,8 @@
     isTrustedVerificationUrl,
     selectTrustedVerificationUrl,
     isDeviceVerificationPath,
+    hasPasswordBeenSubmitted,
+    shouldReturnToLoginBeforePassword,
     shouldNavigateToVerification,
     appendDriverMarker,
     appendCleanupMarker,
@@ -1393,7 +1425,7 @@
     const patterns = {
       login: /^(continue|next|sign in|log in|login|submit|继续|下一步|登录|登入)$/i,
       consent: /^(allow|approve|authorize|grant access|同意|允许|授权|批准)$/i,
-      email_method: /^(email|continue with email|sign in with email|使用邮箱|邮箱登录)$/i
+      email_method: /^(email|login with email|continue with email|sign in with email|log in with email|使用邮箱|使用邮箱登录|使用电子邮件登录|邮箱登录|电子邮件登录)$/i
     }
     const pattern = patterns[kind]
     const exact = candidates.filter(element => pattern.test(getButtonText(element)))
@@ -1454,12 +1486,14 @@
   /**
    * 从共享任务中删除密码，避免密码在提交后继续持久化。
    * @param {object} task 当前任务。
-   * @return {void} 无返回值。
+   * @return {object|null} 不含密码的新任务；任务不匹配时返回 null。
    */
   function removeSharedPassword(task) {
     const current = GM_getValue(CONFIG.sharedKeys.task, null)
-    if (!taskMatches(current, task.run_id, task.account_id) || !Object.prototype.hasOwnProperty.call(current, 'password')) return
-    GM_setValue(CONFIG.sharedKeys.task, stripTaskPassword(current))
+    if (!taskMatches(current, task.run_id, task.account_id) || !Object.prototype.hasOwnProperty.call(current, 'password')) return null
+    const sanitized = stripTaskPassword(current)
+    GM_setValue(CONFIG.sharedKeys.task, sanitized)
+    return sanitized
   }
 
   /**
@@ -1698,6 +1732,10 @@
         reportOnce('login_failed', 'LOGIN_FAILED')
         return
       }
+      if (shouldReturnToLoginBeforePassword(task, location.href)) {
+        location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
+        return
+      }
 
       const descriptors = collectInputDescriptors()
       const password = chooseBestDescriptor(descriptors, 'password')
@@ -1706,11 +1744,7 @@
         reportOnce('password_filled', 'PASSWORD_FILLED')
         const button = findActionButton('login')
         submitFilledInput(password.element, button, `password:${location.href}`, () => {
-          removeSharedPassword(task)
-          if (task) {
-            task = { ...task }
-            delete task.password
-          }
+          task = removeSharedPassword(task) || stripTaskPassword(task)
         }, 'login')
         return
       }
@@ -1812,9 +1846,11 @@
           font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           overflow: hidden;
         }
+        .shell.is-collapsed { display: none; }
         header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: #182026; color: #fff; }
         h1 { margin: 0; font-size: 16px; font-weight: 700; }
         .subtitle { color: #c8d0d8; font-size: 12px; }
+        .header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
         .section { padding: 11px 14px; border-bottom: 1px solid #d9dee3; }
         textarea { width: 100%; resize: vertical; min-height: 94px; max-height: 210px; border: 1px solid #aab4be; border-radius: 4px; padding: 9px; color: #182026; background: #fff; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
         textarea:focus, button:focus-visible, input:focus-visible { outline: 2px solid #137cbd; outline-offset: 1px; }
@@ -1826,6 +1862,17 @@
         button.primary { border-color: #0e6ba8; color: #fff; background: #137cbd; }
         button.danger { border-color: #b23a2b; color: #9c2b1e; background: #fff; }
         button:disabled { cursor: not-allowed; opacity: .48; }
+        button.header-action { min-height: 28px; border-color: rgba(255,255,255,.34); color: #fff; background: rgba(255,255,255,.12); }
+        button.fab {
+          position: fixed; z-index: 2147483647; right: 18px; bottom: 18px;
+          display: grid; place-items: center; gap: 1px; min-width: 76px; min-height: 76px;
+          border: 1px solid #0e6ba8; border-radius: 999px; padding: 10px;
+          color: #fff; background: #137cbd; box-shadow: 0 14px 34px rgba(19, 124, 189, .34);
+          font: 12px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        button.fab[hidden] { display: none; }
+        .fab-title { font-size: 15px; font-weight: 800; }
+        .fab-status { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .9; }
         .statusbar { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #d9dee3; background: #fff; }
         .status { font-weight: 700; color: #25313c; }
         .progress { color: #5c7080; font-variant-numeric: tabular-nums; }
@@ -1845,16 +1892,17 @@
         .empty { padding: 26px 14px; color: #738694; text-align: center; }
         @media (max-width: 640px) {
           .shell { top: 0; right: 0; width: 100vw; height: 100vh; border: 0; border-radius: 0; }
+          button.fab { right: 14px; bottom: 14px; min-width: 68px; min-height: 68px; }
           .subtitle { display: none; }
           th:nth-child(1), td:nth-child(1) { width: 42px; }
           th:nth-child(3), td:nth-child(3) { width: 96px; }
           th:nth-child(4), td:nth-child(4) { width: 130px; }
         }
       </style>
-      <main class="shell">
+      <main id="shell" class="shell is-collapsed">
         <header>
           <div><h1>Grok 批量授权</h1><div class="subtitle">Violentmonkey · 官方 Device Flow · 串行 Session 清理</div></div>
-          <span id="runner">检测中</span>
+          <div class="header-actions"><span id="runner">检测中</span><button id="toggle" class="header-action" type="button">收起</button></div>
         </header>
         <section class="section">
           <textarea id="accounts" spellcheck="false" autocomplete="off" placeholder="一行一个账号：邮箱|密码"></textarea>
@@ -1876,9 +1924,14 @@
         <div class="content"><div id="empty" class="empty">尚未创建批次</div><table id="table" hidden><thead><tr><th>#</th><th>账号</th><th>状态</th><th>结果</th></tr></thead><tbody></tbody></table></div>
         <div class="footer"><textarea id="results" class="results" readonly placeholder="成功后将在这里生成一行一个 refresh token"></textarea></div>
       </main>
+      <button id="fab" class="fab" type="button" title="展开 Grok 批量授权"><span class="fab-title">Grok</span><span id="fab-status" class="fab-status">待输入</span></button>
     `
     return {
       shadow,
+      shell: shadow.getElementById('shell'),
+      toggleButton: shadow.getElementById('toggle'),
+      fabButton: shadow.getElementById('fab'),
+      fabStatus: shadow.getElementById('fab-status'),
       accountsInput: shadow.getElementById('accounts'),
       ackInput: shadow.getElementById('ack'),
       parseErrors: shadow.getElementById('parse-errors'),
@@ -1920,7 +1973,8 @@
       closingTab: false,
       currentCleanupTab: null,
       apiAvailable: true,
-      lockPending: false
+      lockPending: false,
+      collapsed: true
     }
     const sharedValueStore = Object.freeze({
       get: key => GM_getValue(key, null),
@@ -2008,6 +2062,9 @@
       }))
       const done = accounts.filter(account => ['success', 'failed', 'skipped'].includes(account.status)).length
       ui.progress.textContent = `${done} / ${accounts.length}`
+      ui.fabStatus.textContent = runtime.running && runtime.currentAccount
+        ? `${done}/${accounts.length} ${statusText(runtime.currentAccount)}`
+        : (accounts.length ? `${done}/${accounts.length}` : '待输入')
       ui.results.value = formatRefreshTokens(accounts)
       ui.copyButton.disabled = !ui.results.value
       ui.retryButton.disabled = runtime.running
@@ -2023,6 +2080,18 @@
 
     function setGlobalStatus(text) {
       ui.status.textContent = text
+    }
+
+    /**
+     * 切换控制台展开状态。默认只保留悬浮球，避免长期遮挡业务页面。
+     * @param {boolean} collapsed 是否收起为悬浮球。
+     * @return {void} 无返回值。
+     */
+    function setControllerCollapsed(collapsed) {
+      runtime.collapsed = Boolean(collapsed)
+      ui.shell.classList.toggle('is-collapsed', runtime.collapsed)
+      ui.fabButton.hidden = !runtime.collapsed
+      ui.toggleButton.textContent = runtime.collapsed ? '展开' : '收起'
     }
 
     /**
@@ -2363,6 +2432,16 @@
       })
     })
 
+    ui.toggleButton.addEventListener('click', () => {
+      setControllerCollapsed(true)
+      render()
+    })
+
+    ui.fabButton.addEventListener('click', () => {
+      setControllerCollapsed(false)
+      render()
+    })
+
     ui.pauseButton.addEventListener('click', () => {
       runtime.paused = !runtime.paused
       setGlobalStatus(runtime.paused ? '已暂停；当前登录页仍可人工处理' : '已继续')
@@ -2443,6 +2522,7 @@
       clearRunScopedSharedValues(sharedValueStore, CONFIG.sharedKeys, runtime.runId)
       if (eventListener !== null) GM_removeValueChangeListener(eventListener)
     }, { once: true })
+    setControllerCollapsed(true)
     render()
   }
 

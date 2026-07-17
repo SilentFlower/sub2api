@@ -8,7 +8,7 @@
 
 - 在 `tools/grok-login-userscript/` 提供可直接安装的 `grok-bulk-login.user.js`、无真实凭据的自动化测试和中文 README。
 - 解析多行 `邮箱|密码`，校验、去重并串行处理账号。
-- 控制台仅在 `www.havefun.eu.cc` 的 HTTP/HTTPS 页面显示；xAI/Grok 页面只在 HTTPS 下运行隐藏的自动填表、人工验证检测、授权推进和站点存储清理逻辑。
+- 控制台仅在 `www.havefun.eu.cc` 的 HTTP/HTTPS 页面以可展开悬浮球显示；xAI/Grok 页面只在 HTTPS 下运行隐藏的自动填表、人工验证检测、授权推进和站点存储清理逻辑。
 - 使用 xAI 官方 Device Flow 创建 device code、打开验证页、有限轮询 Token，并输出一行一个 refresh token。
 - 提供开始、暂停、继续、跳过、停止、失败重试、状态列表、复制结果和清空敏感数据。
 - 每号结束后使用 Violentmonkey `GM_cookie` 清除目标域 Cookie（含授权后的 HttpOnly Cookie）并二次校验；清理失败时阻断后续账号。
@@ -47,4 +47,4 @@
 
 ## Next Step
 
-- Phase 2.2 Check-All 和 Phase 3.3 浏览器认证规范更新已完成；下一步进入 `trellis-push`。
+- 继续验证 0.2.5 邮箱登录优先、未登录 Device 页回退和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。

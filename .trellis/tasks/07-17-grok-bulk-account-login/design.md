@@ -119,11 +119,18 @@ pending
 
 `cleaning` 是强制门禁。只有 Cookie 二次检查通过、当前账号共享值已删除、登录标签已关闭后，控制台才能推进下一账号。
 
+## 控制台 UI
+
+- 控制台在 `www.havefun.eu.cc` 默认以右下角悬浮球显示，避免长期遮挡业务页面。
+- 点击悬浮球展开完整控制台；展开后标题栏提供“收起”按钮，运行状态仍在悬浮球中保留简短进度。
+- 悬浮球与完整控制台同属 closed Shadow DOM，不向页面 DOM 暴露明文账号密码或 refresh token。
+
 ## Device Flow
 
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
-- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供登录完成后跳转。若 xAI 在未登录状态先展示 Device Sign-in 设备码输入页，登录驱动必须先填入 `user_code` 并提交，再继续处理后续邮箱/密码页。
-- 登录标签首次打开 `accounts.x.ai` 登录入口，避免把后台清理标签或旧授权路径误判为登录页；无可识别登录/授权控件且等待短暂延迟后，再导航到任务中的官方验证页。
+- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供邮箱密码登录完成后跳转。
+- 登录标签首次打开 `https://accounts.x.ai/sign-in`，优先点击 `Login with email` / 邮箱登录入口，避免把后台清理标签、根路径或 Device 页误判为登录页。
+- 未提交密码前若误入 `/oauth2/device`，登录驱动必须回到 `https://accounts.x.ai/sign-in`，不得填写 `user_code`；只有密码提交并写入 `password_consumed_at` 后，才允许跳转官方验证页、填写设备码或点击授权。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
 - `authorization_pending` 保持当前间隔；`slow_down` 增加 5 秒；`access_denied` 和 `expired_token` 结束当前账号。
 - 控制台停止或切换账号时调用请求控制对象的 `abort()` 并使旧回调因 `run_id` 不匹配而失效。

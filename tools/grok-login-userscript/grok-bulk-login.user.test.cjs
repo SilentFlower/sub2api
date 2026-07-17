@@ -190,13 +190,26 @@ test('Device Flow 授权路径兼容基础路径和子路径', () => {
 })
 
 test('登录入口无可识别控件时才跳转官方 Device Flow 验证页', () => {
-  const task = { verification_url: 'https://accounts.x.ai/oauth2/device' }
+  const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
 
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, false), true)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, true), false)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 1000, 0, false), false)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/oauth2/device', 2000, 0, false), false)
+  assert.equal(core.shouldNavigateToVerification({ ...task, password: 'fake-password' }, 'https://accounts.x.ai/', 2000, 0, false), false)
   assert.equal(core.shouldNavigateToVerification({ verification_url: 'http://accounts.x.ai/oauth2/device' }, 'https://accounts.x.ai/', 2000, 0, false), false)
+})
+
+test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
+  const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password: 'fake-password' }
+  const submittedTask = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
+
+  assert.equal(core.hasPasswordBeenSubmitted(task), false)
+  assert.equal(core.hasPasswordBeenSubmitted(submittedTask), true)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/oauth2/device'), true)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/sign-in'), false)
+  assert.equal(core.shouldReturnToLoginBeforePassword(submittedTask, 'https://accounts.x.ai/oauth2/device'), false)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'http://accounts.x.ai/oauth2/device'), false)
 })
 
 test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
@@ -732,13 +745,16 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.4'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.5'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
+  assert.equal(scriptSource.includes("loginStartUrl: 'https://accounts.x.ai/sign-in'"), true)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
   assert.equal(scriptSource.includes("attachShadow({ mode: 'closed' })"), true)
+  assert.equal(scriptSource.includes('class="shell is-collapsed"'), true)
+  assert.equal(scriptSource.includes('id="fab" class="fab"'), true)
   assert.equal(scriptSource.includes('当前使用 HTTP：账号密码和 refresh token 可能被网络中间人'), true)
   assert.equal(scriptSource.includes('ui.parseErrors.textContent = ERROR_MESSAGES.CONTROLLER_LOCK_FAILED'), true)
 })

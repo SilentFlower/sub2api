@@ -284,6 +284,13 @@ function createActiveTask(overrides = {}) {
   }
 }
 
+function createPasswordSubmittedTask(overrides = {}) {
+  const task = createActiveTask(overrides)
+  delete task.password
+  task.password_consumed_at = overrides.password_consumed_at || Date.now()
+  return task
+}
+
 test('登录驱动在模拟密码页填入并只提交一次', () => {
   const harness = createDriverHarness({
     values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
@@ -392,14 +399,53 @@ test('Cloudflare 页面只上报等待人工验证且不自动点击', () => {
   assert.equal(harness.button.clickCalls, 0)
 })
 
-test('登录入口无表单时导航到官方 Device Flow 验证页', () => {
+test('登录入口优先点击邮箱登录方式', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
-    pathname: '/',
-    href: 'https://accounts.x.ai/#grok-bulk-login=tab-1',
-    title: 'xAI Accounts',
+    pathname: '/sign-in',
+    href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
+    title: 'Sign In to Your SpaceXAI API Account',
     values: {
       [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    button: { textContent: 'Login with email' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'email_method_selected')
+})
+
+test('未提交密码的登录入口无表单时不会跳转 Device Flow', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/sign-in',
+    href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
+    title: 'Sign In to Your SpaceXAI API Account',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    }
+  })
+
+  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.location.href, 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1')
+})
+
+test('密码提交后登录入口无表单时导航到官方 Device Flow 验证页', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/sign-in',
+    href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
+    title: 'xAI Accounts',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
         verification_url: 'https://accounts.x.ai/oauth2/device'
       })
     }
@@ -412,7 +458,7 @@ test('登录入口无表单时导航到官方 Device Flow 验证页', () => {
   assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
 })
 
-test('中文 Device Flow 页面通过附近文案填入设备码并提交', () => {
+test('未提交密码前误入 Device Flow 页面会回到邮箱登录入口', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
     pathname: '/oauth2/device',
@@ -433,19 +479,45 @@ test('中文 Device Flow 页面通过附近文案填入设备码并提交', () =
   })
 
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1')
+  assert.equal(harness.input.value, '')
+  assert.equal(harness.button.clickCalls, 0)
+})
+
+test('密码提交后中文 Device Flow 页面通过附近文案填入设备码并提交', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device',
+    title: 'Device Sign-in | SpaceXAI Accounts',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device'
+      })
+    },
+    bodyText: '登录 Grok Build 输入终端中显示的代码。仅当您刚刚从设备发起登录时才输入此代码。',
+    input: {
+      type: 'text',
+      nearbyText: '登录 Grok Build 输入终端中显示的代码。输入设备代码 仅当您刚刚从设备发起登录时才输入此代码。'
+    },
+    button: { textContent: '继续' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
   assert.equal(harness.input.value, 'FAKE-CODE')
   assert.equal(harness.timers.runDelay(150), true)
   assert.equal(harness.button.clickCalls, 1)
 })
 
-test('填入设备码后延迟提交会重新查找刚启用的继续按钮', () => {
+test('密码提交后填入设备码的延迟提交会重新查找刚启用的继续按钮', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
     pathname: '/oauth2/device',
     href: 'https://accounts.x.ai/oauth2/device',
     windowName: 'grok-bulk-login:tab-1',
     values: {
-      [core.CONFIG.sharedKeys.task]: createActiveTask({
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
         verification_url: 'https://accounts.x.ai/oauth2/device'
       })
     },

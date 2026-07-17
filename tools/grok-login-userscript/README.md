@@ -15,7 +15,7 @@
 2. 将 `grok-bulk-login.user.js` 的完整内容粘贴并保存。
 3. 在 Violentmonkey 全局设置中开启 GM Cookie 的 HttpOnly Cookie 访问能力。
 4. 打开该脚本的设置页，开启脚本级“允许访问 HTTP-only Cookie”。
-5. 刷新 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 或 `https://www.havefun.eu.cc/`，页面右侧应出现“Grok 批量授权”控制台。
+5. 刷新 `http://www.havefun.eu.cc/`、`http://www.havefun.eu.cc:8080/admin/accounts` 或 `https://www.havefun.eu.cc/`，页面右下角应出现 “Grok” 悬浮球；点击后展开“Grok 批量授权”控制台。
 
 脚本会在开始批次前写入并删除一个短期 HttpOnly 探针 Cookie。探针失败时不会处理任何账号。
 
@@ -32,7 +32,7 @@ second@example.com|ExamplePassword2
 
 1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
-3. 脚本会串行打开 xAI 登录入口；如果 xAI 先展示 Device Sign-in，脚本会先填写设备代码并点击继续，然后在后续登录页自动填写邮箱、密码。
+3. 脚本会串行打开 `https://accounts.x.ai/sign-in`，优先点击 `Login with email`，然后自动填写邮箱、密码；如果未提交密码前误入 Device Sign-in 页，脚本会先回到邮箱登录入口。
 4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成。
 5. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
 6. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
@@ -50,6 +50,7 @@ second@example.com|ExamplePassword2
 - Cloudflare、验证码、2FA 和异常登录验证不会被自动绕过。
 - HTTP 控制台下，closed Shadow DOM 和 Violentmonkey 隔离不能替代 TLS，也不能阻止网络层注入或全局键盘事件监听。
 - xAI 登录页、Device Flow 和 Token 请求始终使用受信任的 HTTPS 地址，不接受 HTTP xAI 验证地址。
+- 控制台默认收起为右下角悬浮球，展开后可用标题栏“收起”按钮恢复，避免长期遮挡 `www.havefun.eu.cc` 页面。
 
 ## 控制台独占锁
 
@@ -75,15 +76,15 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.4` 已内置精确 include。
-- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.4` 以后应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.5` 已内置精确 include。
+- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.5` 应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
 
 - 页面可能处于 Cloudflare 或未知安全验证，请手工完成。
 - xAI 页面结构可能变化。脚本会选择暂停，不会对低置信度按钮进行猜测性点击。
-- 若页面停在 `accounts.x.ai/oauth2/device` 且显示“输入设备代码”，脚本 `0.2.4` 会通过页面附近中文文案识别输入框并自动填入设备码；如果没有填入，先确认 Violentmonkey 中脚本版本确实是 `0.2.4`。
+- 若未提交密码前页面停在 `accounts.x.ai/oauth2/device`，脚本 `0.2.5` 会回到 `accounts.x.ai/sign-in` 并优先选择邮箱登录；只有密码提交后，才会在 Device Flow 页面填写设备码或点击授权。
 - 返回控制台查看当前状态，必要时使用“跳过当前”或停止后重试失败项。
 
 ### 清理 Session 失败
