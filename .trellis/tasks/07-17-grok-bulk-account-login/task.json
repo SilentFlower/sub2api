@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-17T15:05:00Z",
+    "updatedAt": "2026-07-17T16:02:18Z",
     "completedSteps": [
       "Phase 2.1：完成 Violentmonkey 批量登录脚本、README、纯逻辑/GM API/Node VM 浏览器测试与桌面/移动端视觉检查",
       "Phase 2.1 修复迭代：关闭 CHK-001 至 CHK-004 的 HTTPS、凭据隔离、Cookie 清理、动作门禁与并发锁问题",
@@ -40,10 +40,13 @@
       "Phase 2.1 8080 与 xAI Device Flow 修复：增加 http://www.havefun.eu.cc:8080 精确匹配，登录入口与官方 /oauth2/device 验证页分阶段处理",
       "Phase 2.2 8080 与 xAI Device Flow Check-All：node --check、Node 测试 51/51、git diff --check 全部通过",
       "Phase 3.3 8080 与 xAI Device Flow 规范：更新浏览器认证自动化 code-spec",
-      "Phase 3.4 8080 与 xAI Device Flow 修复已提交并推送到 origin/build"
+      "Phase 3.4 8080 与 xAI Device Flow 修复已提交并推送到 origin/build",
+      "Phase 2.1 清理标签 marker 修复：清理标签改用 #grok-bulk-cleanup，登录/授权标签保留 #grok-bulk-login，避免 auth.x.ai 根路径清理页被误认为授权页",
+      "Phase 2.2 清理标签 marker 检查：node --check、Node 测试 53/53、git diff --check 全部通过",
+      "Phase 3.4 清理标签 marker 修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "在安装 Violentmonkey 的真实 Chrome Profile 中打开 http://www.havefun.eu.cc:8080/admin/accounts 验收控制台显示、xAI 登录入口、Cloudflare 人工接管、/oauth2/device 授权跳转、HttpOnly Cookie 清理和跨协议互斥；完成后按需执行 trellis-finish-work",
-    "notes": "本轮修复已通过 node --check、node --test tools/grok-login-userscript/*.test.cjs 和 git diff --check。真实 xAI、Cloudflare 和 Violentmonkey HttpOnly Cookie 权限仍需在用户浏览器中手工验收；运行会清除当前 Profile 的 Grok/xAI Session。"
+    "nextStep": "更新 Violentmonkey 中的 0.2.2 脚本后，在真实 Chrome Profile 中重跑 http://www.havefun.eu.cc:8080/admin/accounts 验收；清理标签应显示 #grok-bulk-cleanup=...，登录/授权标签才显示 #grok-bulk-login=...。",
+    "notes": "本轮修复已推送。若仍看到 auth.x.ai/#grok-bulk-login=...，说明浏览器里运行的仍是旧版脚本，需要刷新 Violentmonkey 脚本内容或确认脚本版本为 0.2.2。"
   }
 }
