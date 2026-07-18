@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.14
+// @version      0.2.15
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -112,6 +112,7 @@
     INVALID_TOKEN_RESPONSE: 'xAI Token 响应格式无效',
     LOGIN_FAILED: 'xAI 登录失败',
     LOGIN_TAB_CLOSED: '登录标签被关闭',
+    LOGIN_TIMEOUT: '等待 xAI 登录完成超时',
     NETWORK_ERROR: '网络请求失败',
     PAGE_UNKNOWN: '无法识别当前 xAI 页面',
     SCRIPT_STOPPED: '批次已停止',
@@ -122,12 +123,12 @@
   })
 
   const TRANSITIONS = Object.freeze({
-    pending: new Set(['requesting_device', 'skipped']),
-    requesting_device: new Set(['opening_login', 'failed', 'skipped', 'cleaning']),
+    pending: new Set(['opening_login', 'requesting_device', 'skipped']),
+    requesting_device: new Set(['opening_login', 'authorizing', 'polling_token', 'failed', 'skipped', 'cleaning']),
     opening_login: new Set(['filling_email', 'filling_password', 'authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
     filling_email: new Set(['filling_password', 'authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
     filling_password: new Set(['authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
-    authorizing: new Set(['filling_email', 'filling_password', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    authorizing: new Set(['requesting_device', 'filling_email', 'filling_password', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
     waiting_human: new Set(['filling_email', 'filling_password', 'authorizing', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
     polling_token: new Set(['waiting_human', 'success', 'failed', 'skipped', 'cleaning']),
     success: new Set(['cleaning']),
@@ -512,6 +513,25 @@
   }
 
   /**
+   * 将登录后的 Device Flow 响应合并到当前共享任务。
+   * @param {object} task 已完成密码提交的共享任务。
+   * @param {object} device Device Flow 数据。
+   * @param {number} [now] 当前时间戳。
+   * @return {object} 带设备码和授权页的新共享任务。
+   */
+  function attachDeviceFlowToTask(task, device, now = Date.now()) {
+    const expiresInMs = Math.min(CONFIG.taskTtlMs, Number(device && device.expiresInMs || CONFIG.taskTtlMs))
+    return {
+      ...task,
+      user_code: String(device && device.userCode || ''),
+      verification_url: String(device && device.verificationUrl || ''),
+      verification_launch_url: String(device && device.verificationLaunchUrl || ''),
+      device_ready_at: Number(now),
+      expires_at: Number(now) + expiresInMs
+    }
+  }
+
+  /**
    * 判断路径是否为 xAI Device Flow 验证页或其子路径。
    * @param {string} pathname 当前路径。
    * @return {boolean} 是否为设备授权路径。
@@ -529,6 +549,29 @@
     return Boolean(task
       && !Object.prototype.hasOwnProperty.call(task, 'password')
       && Object.prototype.hasOwnProperty.call(task, 'password_consumed_at'))
+  }
+
+  /**
+   * 判断登录驱动是否已经确认当前账号具备 xAI 登录态。
+   * @param {object|null} task 当前共享任务。
+   * @return {boolean} 是否确认已登录。
+   */
+  function hasAuthenticatedLogin(task) {
+    return Boolean(hasPasswordBeenSubmitted(task) && task.authenticated_at)
+  }
+
+  /**
+   * 判断控制台是否可以在当前共享任务上申请 Device Flow。
+   * @param {object|null} task 当前共享任务。
+   * @return {boolean} 是否已经登录且尚未绑定设备授权。
+   */
+  function shouldRequestDeviceFlowAfterLogin(task) {
+    return Boolean(hasAuthenticatedLogin(task)
+      && !Object.prototype.hasOwnProperty.call(task, 'cancelled_at')
+      && !isExpiredSharedTask(task)
+      && !task.user_code
+      && !task.verification_url
+      && !task.verification_launch_url)
   }
 
   /**
@@ -628,7 +671,8 @@
     const verificationUrl = taskVerificationUrl(task)
     if (!task || hasRecognizedControls || !verificationUrl) return false
     if (!hasPasswordBeenSubmitted(task)) return false
-    if (Number(now) - Number(firstSeenAt) < CONFIG.loginToVerificationDelayMs) return false
+    const minimumDelayMs = task.device_ready_at ? 0 : CONFIG.loginToVerificationDelayMs
+    if (Number(now) - Number(firstSeenAt) < minimumDelayMs) return false
 
     try {
       const current = new URL(String(currentHref || ''))
@@ -671,8 +715,35 @@
    */
   function shouldNavigateFromAuthenticatedLanding(task, currentHref, now, firstSeenAt) {
     if (!isAuthenticatedAccountLanding(currentHref)) return false
-    if (Number(now) - Number(firstSeenAt) < CONFIG.authenticatedLandingGraceMs) return false
+    const minimumDelayMs = task && task.device_ready_at ? 0 : CONFIG.authenticatedLandingGraceMs
+    if (Number(now) - Number(firstSeenAt) < minimumDelayMs) return false
     return shouldNavigateToVerification(task, currentHref, now, firstSeenAt, false)
+  }
+
+  /**
+   * 判断当前页面是否为本任务可信的 OAuth 授权确认页。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {string} pageText 页面可见文本。
+   * @return {boolean} 是否允许点击 OAuth 授权确认按钮。
+   */
+  function isTrustedDeviceConsentPage(task, currentHref, pageText = '') {
+    if (!hasPasswordBeenSubmitted(task) || !task.user_code) return false
+    try {
+      const current = new URL(String(currentHref || ''))
+      const hostAllowed = current.protocol === 'https:'
+        && (current.hostname === 'x.ai'
+          || current.hostname.endsWith('.x.ai')
+          || current.hostname === 'grok.com'
+          || current.hostname.endsWith('.grok.com'))
+      if (!hostAllowed) return false
+      if (isDeviceVerificationPath(current.pathname)) return true
+      const text = String(pageText || '').toLowerCase()
+      return /^\/oauth2\/(?:authorize|consent|device)(?:\/|$)/.test(current.pathname)
+        && (text.includes('授权 grok build') || text.includes('authorize grok build'))
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -1091,6 +1162,23 @@
   }
 
   /**
+   * 将共享任务投影为已确认 xAI 登录态，并确保密码已删除。
+   * @param {object} task 当前共享任务。
+   * @param {number} [authenticatedAt] 登录态确认时间。
+   * @return {object} 不含密码且带登录态确认时间的新任务对象。
+   */
+  function markTaskAuthenticated(task, authenticatedAt = Date.now()) {
+    const authenticated = Object.prototype.hasOwnProperty.call(task, 'password')
+      ? stripTaskPassword(task, authenticatedAt)
+      : { ...task }
+    if (!Object.prototype.hasOwnProperty.call(authenticated, 'password_consumed_at')) {
+      authenticated.password_consumed_at = authenticatedAt
+    }
+    authenticated.authenticated_at = authenticatedAt
+    return authenticated
+  }
+
+  /**
    * 将共享任务投影为不含密码的已取消状态。
    * @param {object} task 当前共享任务。
    * @param {number} [cancelledAt] 取消时间。
@@ -1141,8 +1229,11 @@
     selectTrustedVerificationUrl,
     selectTrustedVerificationLaunchUrl,
     taskVerificationUrl,
+    attachDeviceFlowToTask,
     isDeviceVerificationPath,
     hasPasswordBeenSubmitted,
+    hasAuthenticatedLogin,
+    shouldRequestDeviceFlowAfterLogin,
     shouldReturnToLoginBeforePassword,
     normalizeDeviceUserCode,
     pageContainsDeviceUserCode,
@@ -1151,6 +1242,7 @@
     shouldNavigateToVerification,
     isAuthenticatedAccountLanding,
     shouldNavigateFromAuthenticatedLanding,
+    isTrustedDeviceConsentPage,
     appendDriverMarker,
     appendCleanupMarker,
     extractDriverMarker,
@@ -1170,6 +1262,7 @@
     activeTaskMatches,
     cleanupAckMatches,
     stripTaskPassword,
+    markTaskAuthenticated,
     cancelSharedTask,
     resolveAccountFailure
   })
@@ -1679,6 +1772,19 @@
   }
 
   /**
+   * 标记共享任务已经确认 xAI 登录态，并顺带删除可能残留的密码。
+   * @param {object} task 当前任务。
+   * @return {object|null} 已确认登录态的新任务；任务不匹配时返回 null。
+   */
+  function markSharedTaskAuthenticated(task) {
+    const current = GM_getValue(CONFIG.sharedKeys.task, null)
+    if (!taskMatches(current, task.run_id, task.account_id)) return null
+    const authenticated = markTaskAuthenticated(current)
+    GM_setValue(CONFIG.sharedKeys.task, authenticated)
+    return authenticated
+  }
+
+  /**
    * 清理当前 origin 可访问的浏览器站点数据。
    * @return {Promise<void>} 清理完成 Promise。
    */
@@ -1989,8 +2095,8 @@
         return
       }
       if (isAuthenticatedAccountLanding(location.href)) {
-        if (task.password) {
-          task = removeSharedPassword(task) || stripTaskPassword(task)
+        if (task.password || !task.authenticated_at) {
+          task = markSharedTaskAuthenticated(task) || markTaskAuthenticated(task)
           reportOnce('password_submitted', 'AUTHENTICATED_LANDING')
           // 刚删除共享密码时停止本轮账户页识别，避免把账户设置里的 Email 按钮当成登录入口点击。
           return
@@ -1998,6 +2104,7 @@
         const authenticatedLandingRemainingMs = CONFIG.authenticatedLandingGraceMs - (Date.now() - firstSeenAt)
         if (hasPasswordBeenSubmitted(task)
           && taskVerificationUrl(task)
+          && !task.device_ready_at
           && authenticatedLandingRemainingMs > 0) {
           reportOnce('password_submitted', 'AUTHENTICATED_LANDING')
           scheduleScanAfter(authenticatedLandingRemainingMs)
@@ -2051,8 +2158,8 @@
       }
 
       if (canActOnUserCode) {
-        if (task.password && hasAuthenticatedSessionText(pageText)) {
-          task = removeSharedPassword(task) || stripTaskPassword(task)
+        if ((task.password || !task.authenticated_at) && hasAuthenticatedSessionText(pageText)) {
+          task = markSharedTaskAuthenticated(task) || markTaskAuthenticated(task)
           reportOnce('password_submitted', 'AUTHENTICATED_DEVICE')
         }
         if (userCode) setInputValue(userCode.element, task.user_code)
@@ -2062,7 +2169,7 @@
         return
       }
 
-      if (consentButton && isDeviceVerificationPath(location.pathname) && hasPasswordBeenSubmitted(task)) {
+      if (consentButton && isTrustedDeviceConsentPage(task, location.href, pageText)) {
         if (clickOnce(consentButton, `consent:${location.href}`)) {
           reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
         }
@@ -2078,7 +2185,7 @@
 
       const hasRecognizedControls = Boolean(password || email || emailMethod
         || canActOnUserCode
-        || (hasPasswordBeenSubmitted(task) && consentButton))
+        || (consentButton && isTrustedDeviceConsentPage(task, location.href, pageText)))
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
         location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)
         return
@@ -2599,6 +2706,25 @@
       render()
     }
 
+    /**
+     * 等待隐藏登录驱动确认当前账号已完成邮箱密码登录。
+     * @param {object} account 当前账号。
+     * @param {AbortSignal} signal 取消信号。
+     * @return {Promise<object>} 已删除密码并确认登录态的共享任务。
+     */
+    async function waitForAuthenticatedLogin(account, signal) {
+      const deadline = Date.now() + CONFIG.maxDeviceFlowMs
+      while (Date.now() < deadline) {
+        if (runtime.currentDriverError) throw createCodedError(runtime.currentDriverError)
+        const current = GM_getValue(CONFIG.sharedKeys.task, null)
+        if (taskMatches(current, runtime.runId, account.id) && shouldRequestDeviceFlowAfterLogin(current)) {
+          return current
+        }
+        await wait(250, signal)
+      }
+      throw createCodedError('LOGIN_TIMEOUT')
+    }
+
     async function processAccount(account) {
       runtime.currentAccount = account
       runtime.currentDriverError = ''
@@ -2608,10 +2734,7 @@
       let finalStatus = 'failed'
 
       try {
-        updateAccount(account, 'requesting_device')
         setGlobalStatus(`正在处理 ${maskEmail(account.email)}`)
-        render()
-        const device = await createDeviceFlow(signal)
         const tabMarker = createId('tab')
         const task = {
           run_id: runtime.runId,
@@ -2619,17 +2742,14 @@
           tab_marker: tabMarker,
           email: account.email,
           password: account.password,
-          user_code: device.userCode,
-          verification_url: device.verificationUrl,
-          verification_launch_url: device.verificationLaunchUrl,
           created_at: Date.now(),
-          expires_at: Date.now() + Math.min(CONFIG.taskTtlMs, device.expiresInMs)
+          expires_at: Date.now() + CONFIG.taskTtlMs
         }
         GM_setValue(CONFIG.sharedKeys.task, task)
         updateAccount(account, 'opening_login')
         render()
 
-        runtime.currentTab = GM_openInTab(appendDriverMarker(task.verification_launch_url, tabMarker), { active: true, insert: true })
+        runtime.currentTab = GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker), { active: true, insert: true })
         if (!runtime.currentTab || typeof runtime.currentTab.close !== 'function') {
           throw createCodedError('LOGIN_TAB_CLOSED')
         }
@@ -2638,6 +2758,21 @@
           runtime.currentDriverError = 'LOGIN_TAB_CLOSED'
           if (runtime.currentAbort) runtime.currentAbort.abort()
         }
+
+        await waitForAuthenticatedLogin(account, signal)
+        updateAccount(account, 'authorizing')
+        setGlobalStatus(`正在创建 ${maskEmail(account.email)} 的 xAI 授权任务`)
+        render()
+        const device = await createDeviceFlow(signal)
+        const currentTask = GM_getValue(CONFIG.sharedKeys.task, null)
+        if (!taskMatches(currentTask, runtime.runId, account.id) || !shouldRequestDeviceFlowAfterLogin(currentTask)) {
+          if (runtime.currentDriverError) throw createCodedError(runtime.currentDriverError)
+          throw createCodedError('SCRIPT_STOPPED')
+        }
+        GM_setValue(CONFIG.sharedKeys.task, attachDeviceFlowToTask(currentTask, device))
+        updateAccount(account, 'authorizing')
+        setGlobalStatus(`正在打开 ${maskEmail(account.email)} 的 xAI 授权页`)
+        render()
 
         const refreshToken = await pollDeviceToken(device, signal)
         if (runtime.currentDriverError) throw createCodedError(runtime.currentDriverError)

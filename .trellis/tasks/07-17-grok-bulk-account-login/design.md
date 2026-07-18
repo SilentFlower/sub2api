@@ -39,17 +39,19 @@ HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协
   "tab_marker": "脚本打开标签的随机归属标记",
   "email": "账号邮箱",
   "password": "当前账号密码",
-  "user_code": "Device Flow 用户代码",
-  "verification_url": "xAI 官方 Device Flow 验证页",
-  "verification_launch_url": "优先带 user_code 的 xAI 官方 Device Flow 浏览器启动页",
+  "user_code": "登录完成并创建 Device Flow 后写入的用户代码",
+  "verification_url": "登录完成并创建 Device Flow 后写入的 xAI 官方 Device Flow 验证页",
+  "verification_launch_url": "登录完成并创建 Device Flow 后写入的 xAI 官方 Device Flow 浏览器启动页",
   "created_at": 0,
   "expires_at": 0,
   "password_consumed_at": "密码提交后出现，任务不再包含 password",
+  "authenticated_at": "登录驱动确认真实 xAI 登录态后出现",
+  "device_ready_at": "控制台创建并写回 Device Flow 后出现",
   "cancelled_at": "停止或跳过后出现，任务不再包含 password"
 }
 ```
 
-`password_consumed_at` 表示密码已提交并从共享任务删除，`cancelled_at` 表示任务被停止或跳过。两个字段可以共存，例如密码提交后用户再停止任务；若密码提交前取消，则只出现 `cancelled_at`。登录驱动只有在 `run_id`、`account_id`、`tab_marker` 均匹配，任务未取消且未过期时才允许执行自动动作。
+`password_consumed_at` 表示密码已提交并从共享任务删除，不等于真实登录完成；`authenticated_at` 才表示登录驱动已经在 `/account` 或授权页登录态文案中确认当前 xAI session 可用。控制台只有在任务同时具备 `password_consumed_at` 和 `authenticated_at`，且未取消、未过期、尚未写入 `user_code` 时，才允许调用 Device Flow。`cancelled_at` 表示任务被停止或跳过；若密码提交后用户再停止，`password_consumed_at`、`authenticated_at` 和 `cancelled_at` 可以共存，但不得继续创建设备授权。登录驱动只有在 `run_id`、`account_id`、`tab_marker` 均匹配，任务未取消且未过期时才允许执行自动动作。
 
 跨页事件：
 
@@ -130,10 +132,10 @@ pending
 
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
 - Device Flow 响应保存两类可信 HTTPS 验证页：`verification_url` 优先使用标准 `verification_uri`、缺失时回退 `verification_uri_complete`；`verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。
-- 登录标签首次打开 `verification_launch_url`，保留官方 Device Flow 上下文；未登录时如果该页展示设备码输入框，先填入当前 `user_code` 并点击继续；如果 `verification_uri_complete` 已经让页面预填设备码，则直接点击“继续”；如果该页直接展示 `Login with email` / 邮箱登录入口则点击入口。上述路径让 xAI 把设备授权上下文带入后续登录；若短时间内没有设备码、继续按钮或登录控件再兜底回 `https://accounts.x.ai/sign-in`。
-- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，确认共享密码已删除后先等待 xAI 自然后续跳转；等待窗口耗尽后才兜底跳转 `verification_url`；账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。
+- 控制台主流程先打开 `https://accounts.x.ai/sign-in`，让登录驱动完成邮箱密码登录和人工 challenge 等待。只有登录驱动写入 `authenticated_at` 后，控制台才调用 Device Flow，并将 `user_code`、`verification_url`、`verification_launch_url` 和 `device_ready_at` 合并回当前共享任务。
+- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，确认共享密码已删除并写入 `authenticated_at`；账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。控制台写入 `device_ready_at` 后，登录标签再立即跳转 `verification_launch_url` 或 `verification_url`。
 - 页面停留时间必须按当前 URL 计算。xAI 自己从密码页跳到 `/account` 再跳到 `/oauth2/device` 时，驱动要在每次 URL 变化时重置页面计时，不能沿用上一页时间提前触发兜底跳转。
-- 未提交密码前若进入 `/oauth2/device`，登录驱动必须先识别设备码输入框、URL `user_code` 参数或页面已渲染的当前设备码，并提交当前 `user_code` 或直接点击“继续”，但保留共享密码；若页面只有邮箱登录入口则点击入口。只有没有设备码、继续按钮或登录控件且等待窗口耗尽时才回到 `https://accounts.x.ai/sign-in`。密码提交并写入 `password_consumed_at` 后，仍允许跳转官方验证页、填写设备码或点击授权；若 Device 页显示“退出登录”等登录态提示但共享密码仍未删除，应先删除共享密码并上报授权阶段。
+- 当任务已有 `user_code` 后进入 `/oauth2/device`，登录驱动必须识别设备码输入框、URL `user_code` 参数或页面已渲染的当前设备码，并提交当前 `user_code` 或直接点击“继续”。授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径可信时，才点击“允许”/“Allow”。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
 - `authorization_pending` 保持当前间隔；`slow_down` 增加 5 秒；`access_denied` 和 `expired_token` 结束当前账号。
 - 控制台停止或切换账号时调用请求控制对象的 `abort()` 并使旧回调因 `run_id` 不匹配而失效。
@@ -181,6 +183,6 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 ## 验证策略
 
 - Node 纯逻辑测试覆盖解析、状态迁移、Token 错误分类、选择器候选评分、脱敏、动作门禁、可取消延迟动作和异常收尾投影。
-- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、首次打开带 `user_code` 的 Device Flow 验证页、未登录 Device 页先提交或点击已预填设备码并保留密码、邮箱入口优先和必要时兜底 sign-in、登录态 Device 页补删共享密码并点击继续、密码提交后落到 `/account` 账户页时等待自然跳转并在超时后兜底跳转 Device Flow、密码页 -> `/account` -> `/oauth2/device` 完整自然跳转链路、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
+- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、登录后落到 `/account` 时只写入 `authenticated_at` 且不点击账户设置、控制台写入 `device_ready_at` 后立即跳转 Device Flow、设备码页提交当前 `user_code`、Grok Build 授权页点击“允许”、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
 - GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占、共享租约竞争/过期/释放、按 `run_id` 卸载清理和 HTTP/HTTPS/closed Shadow DOM 静态约束。
 - 真实 xAI 页面、Cloudflare 和 Violentmonkey HttpOnly 权限只能在用户浏览器中手工验收；测试使用虚构账号和假 Token，不使用用户真实凭据。

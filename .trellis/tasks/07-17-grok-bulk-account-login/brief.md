@@ -47,4 +47,4 @@
 
 ## Next Step
 
-- 继续验证 0.2.14 Cloudflare 成功后 5 秒稳定等待、challenge 消失但页面未恢复时 60 秒后置等待、按钮可用后再提交、密码已消费但页面仍停在密码表单时重按登录、首次打开 `verification_uri_complete`、未登录 Device 页先提交/点击已预填当前 `user_code` 并保留密码、登录态 Device 页补删共享密码并点击“继续”、xAI 自然 `/account` -> `/oauth2/device` 跳转链路、授权中状态推进和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。
+- 继续验证 0.2.15 主流程：登录标签先打开 `accounts.x.ai/sign-in`，Cloudflare 成功后等待约 5 秒且按钮可用再提交；进入 `/account` 或登录态后写入 `authenticated_at`，控制台再创建 Device Flow 并写入 `device_ready_at`；登录标签随后进入设备码页点击“继续”，再在 “授权 Grok Build” / “Authorize Grok Build” 页面点击“允许”/“Allow”。同时回归 challenge 消失后的 60 秒后置等待、密码已消费但仍停留密码表单时重按登录、悬浮球 UI 和每号 Session 清理；检查通过后再进入 Phase 3.3/3.4。

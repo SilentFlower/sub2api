@@ -29,12 +29,14 @@ output: refresh_token\nrefresh_token\n...
   "tab_marker": "脚本标签标识",
   "email": "当前邮箱",
   "password": "仅提交前存在",
-  "user_code": "Device Flow 用户代码",
-  "verification_url": "可信 xAI Device Flow 验证页",
-  "verification_launch_url": "优先带 user_code 的可信 xAI Device Flow 浏览器启动页",
+  "user_code": "登录完成并创建 Device Flow 后写入的用户代码",
+  "verification_url": "登录完成并创建 Device Flow 后写入的可信 xAI Device Flow 验证页",
+  "verification_launch_url": "登录完成并创建 Device Flow 后写入的可信 xAI Device Flow 浏览器启动页",
   "created_at": 0,
   "expires_at": 0,
   "password_consumed_at": "密码提交后可选",
+  "authenticated_at": "登录驱动确认真实 xAI 登录态后可选",
+  "device_ready_at": "控制台创建并写回 Device Flow 后可选",
   "cancelled_at": "停止或跳过后可选"
 }
 ```
@@ -99,10 +101,11 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - 登录/授权标签和站点存储清理标签必须使用不同的 URL fragment / `window.name` marker key。登录标签使用 `grok-bulk-login`，清理标签使用 `grok-bulk-cleanup`；清理 ACK 只接受 cleanup marker，不能接受 login marker，即使 `tab_marker` 值相同。
 - 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
-- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。登录标签首次必须打开 `verification_launch_url`，保留官方 Device Flow 上下文；未登录时如果该页展示设备码输入框，或 URL / 页面文本已经包含当前 `user_code`，必须提交当前任务的 `user_code` / 点击“继续”以建立设备授权上下文，再跟随 xAI 进入邮箱登录；如果该页直接展示 `Login with email` / 邮箱登录入口则点击入口，只有没有设备码、继续按钮和登录控件且等待窗口耗尽时才兜底回 `https://accounts.x.ai/sign-in`。如果 xAI 登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，先给 xAI 自然跳转窗口，超时后才兜底跳转 Device Flow，不得点击账户页里的 Email 等设置控件；不要把清理标签、根路径页面或未登录 Device 页当作登录页证据。
+- 控制台主流程必须先打开 `https://accounts.x.ai/sign-in` 并完成邮箱密码登录；仅当登录驱动确认真实 xAI 登录态并写入 `authenticated_at` 后，控制台才允许调用 Device Flow。`password_consumed_at` 只表示密码已提交，不等于登录完成；已取消、过期或缺少 `authenticated_at` 的任务不得创建或合并 Device Flow。
+- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。控制台创建 Device Flow 后把 `user_code`、`verification_url`、`verification_launch_url` 和 `device_ready_at` 合并回当前共享任务；登录标签看到 `device_ready_at` 后应立即跳转可信验证页。设备码页必须提交当前任务的 `user_code` 或点击已预填当前码的“继续”；授权页必须确认是当前任务可信的 Grok Build OAuth 授权页后才允许点击“允许”/“Allow”。如果登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动只把它视为已登录中间态并写入 `authenticated_at`，不得点击账户页里的 Email 等设置控件；后续由控制台创建 Device Flow 后再跳转官方验证页。
 - 登录驱动中基于页面停留时间的判断必须在 URL 变化时重置计时。xAI 自己从密码页跳到账户页、再跳到 Device Flow 页时，脚本不得沿用上一页的 `firstSeenAt` 提前触发未知页或兜底跳转。
-- 控制台状态必须跟随关键自动化阶段推进：密码实际提交并删除共享密码后不得继续显示“填写密码”，应进入授权页等待状态；Device Code 输入页填入 `user_code` 后应进入 Token 轮询/等待授权结果状态，即使页面没有单独的 consent 按钮。
-- xAI 未登录状态若先展示 Device Sign-in 设备码输入页，登录驱动必须通过 input 自身属性、label、placeholder、输入框附近短文本、URL `user_code` 参数或页面已渲染的当前设备码识别中文/英文设备码表单，填入当前任务的 `user_code` 或直接点击“继续”；这一步不删除共享密码，也不把控制台切到 Token 轮询。不得把通用 OTP/验证码页误识别为设备码页。
+- 控制台状态必须跟随关键自动化阶段推进：密码实际提交并确认登录态后不得继续显示“填写密码”，应进入授权页等待状态；Device Code 输入页填入 `user_code` 后应进入 Token 轮询/等待授权结果状态，即使页面没有单独的 consent 按钮。
+- 只有共享任务已经写入当前 `user_code` 时，登录驱动才允许把 Device Sign-in 识别为设备码页。设备码识别必须通过 input 自身属性、label、placeholder、输入框附近短文本、URL `user_code` 参数或页面已渲染的当前设备码确认中文/英文设备码表单，填入当前任务的 `user_code` 或直接点击“继续”；不得把通用 OTP/验证码页误识别为设备码页。
 - xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
 - Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。Cloudflare / Turnstile 显示“成功 / Success / Verified”后仍可能需要短暂写入验证结果，驱动必须等待稳定窗口再恢复提交；如果曾经检测到 challenge，但 challenge DOM 消失后登录/授权控件尚未恢复，必须在有限后置窗口内继续等待并复扫，不得立刻按普通未知页停机；人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
 - 填表后的延迟动作必须按以下顺序执行：记录任务归属和调度 URL -> 等待有限延迟 -> 重新校验共享任务、标签、URL 和非 challenge 状态 -> 占用动作门禁次数 -> 点击高置信度按钮或派发 Enter。
@@ -136,9 +139,11 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | `authorization_pending` | 保持当前轮询间隔 |
 | `slow_down` | 在上限内增加轮询间隔 |
 | Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
-| 密码提交后进入 `accounts.x.ai/account` 账户页 | 视为登录成功中间态，删除共享密码，等待 xAI 自然跳转；超时后兜底跳转官方 Device Flow 验证页，不点击账户设置控件 |
-| xAI 自己从密码页跳到 `/account` 再跳到 `/oauth2/device` | URL 变化重置页面计时，不用上一页等待时间提前兜底跳转；控制台状态从“填写密码”推进到授权/轮询阶段 |
-| 未提交密码前进入 Device Sign-in 页 | 若识别到设备码输入框、URL 参数或页面已预填当前 `user_code`，先填码或直接点“继续”且保留密码；若只有邮箱登录入口则点击入口；若没有设备码、继续按钮或登录控件且等待窗口耗尽，才回到 `https://accounts.x.ai/sign-in` |
+| 密码已提交但尚未写入 `authenticated_at` | 继续等待登录态，不创建 Device Flow |
+| 已取消或过期任务已经写入 `authenticated_at` | 不创建 Device Flow，不合并授权任务 |
+| 密码提交后进入 `accounts.x.ai/account` 账户页 | 视为登录成功中间态，删除共享密码并写入 `authenticated_at`；等待控制台创建 Device Flow 后再跳转官方验证页，不点击账户设置控件 |
+| 控制台写入 `device_ready_at` 后登录标签仍停在 `/account` 或登录后页面 | 立即跳转当前任务可信 Device Flow 验证页 |
+| Device Sign-in 页 | 仅当共享任务已有当前 `user_code` 时，才通过输入框、URL 参数或页面已预填当前码提交/点击“继续” |
 | 密码提交后 Device Sign-in 中文页只在输入框附近显示“输入设备代码” | 通过近邻文本识别设备码输入框，填入 `user_code` 并提交 |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
 | 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败；`auth.x.ai` 不得使用根路径承载 |
@@ -156,16 +161,16 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：HTTPS 控制台持有 Web Lock 和共享租约时，HTTP 控制台读取同一租约并拒绝启动；反向顺序同样成立。
 - Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
 - Good：实际入口是 `http://www.havefun.eu.cc:8080/admin/accounts` 时，元数据包含精确 `:8080` 规则，运行时仍用 host/protocol 校验限制控制台。
-- Good：xAI Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，任务保存基础验证页和带 `user_code` 的启动页，登录标签先打开 `verification_uri_complete`；未登录时先在该页提交设备码，或在该页已有邮箱登录入口时点击入口，没有设备码或登录控件时才兜底回 `accounts.x.ai/sign-in`。
-- Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮；驱动忽略该按钮，确认共享密码已删除，给 xAI 自然后续跳转窗口，窗口耗尽后才兜底跳转 `verification_url`。
-- Good：密码页停留数秒后 xAI 自己跳到 `/account`，再自己跳到 `/oauth2/device`；驱动在每次 URL 变化时重置页面计时，控制台不继续显示“填写密码”，并在设备码填入后进入等待授权结果。
-- Good：未提交密码前进入 `accounts.x.ai/oauth2/device` 中文页时，驱动通过附近容器“输入设备代码”填入当前 `user_code` 并点击“继续”；如果 `verification_uri_complete` 已经让页面预填设备码，则直接点击“继续”。这两种情况都保留共享密码等待后续邮箱登录；密码提交后再进入 Device 页时同样可以提交当前 `user_code` 或点击授权。
+- Good：控制台先打开 `accounts.x.ai/sign-in`；驱动自动填写邮箱密码，确认进入 `/account` 或其它登录态页面后写入 `authenticated_at`；控制台随后创建 Device Flow 并把 `user_code` / 验证页写回共享任务。
+- Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮；驱动忽略该按钮，只写入登录态确认；控制台写入 `device_ready_at` 后登录标签立即跳转可信 Device Flow 验证页。
+- Good：Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，控制台在登录完成后保存基础验证页和带 `user_code` 的启动页；登录标签随后在设备码页填入当前码或点击已预填当前码的“继续”。
+- Good：授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径是可信 xAI OAuth 路径时，驱动点击“允许”/“Allow”；未知 OAuth 页面或非 xAI HTTPS 页面不点击。
 - Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
 - Bad：测试只检查源码包含 `http://www.havefun.eu.cc/*`，却没有覆盖用户实际使用的 `:8080` URL。
 - Bad：只接受 `verification_uri_complete` 或只匹配 `/oauth2/device/complete`，导致当前官方 `/oauth2/device` 基础路径被误判为未知/验证页面。
-- Bad：未提交密码前看到 `/oauth2/device` 就强制跳到 `sign-in`，跳过官方设备码确认步骤，导致后续邮箱登录缺少 Device Flow 上下文。
+- Bad：密码提交后只看到 `password_consumed_at` 就创建 Device Flow；应等登录驱动确认 `/account` 或登录态并写入 `authenticated_at`。
 - Bad：清理标签也使用 `#grok-bulk-login=...`，或继续使用 `https://auth.x.ai/#grok-bulk-cleanup=...` 根路径，导致手工验收时被误认为授权页或错误页。
 - Bad：创建延迟定时器时立即占用动作次数，导致守卫拒绝后无法恢复。
 - Bad：只删除当前 URL 可见 Cookie，遗漏其它 path、子域、HttpOnly 或分区 Cookie。
@@ -183,10 +188,10 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
   - 页面卸载只删除当前 `run_id` 的共享值，保留其它批次。
 - Node VM 浏览器状态机测试至少覆盖：
   - 登录入口出现 `Login with email` / 邮箱登录按钮时优先点击该入口。
-  - 未提交密码时登录入口无表单不会提前跳转官方设备验证页；密码提交并写入 `password_consumed_at` 后，才会在有限延迟后跳转官方设备验证页并保留标签归属。
-  - 密码提交后落到 `accounts.x.ai/account` 时，即使页面存在 “Email” 等账户设置按钮，也不会点击账户页控件；先等待自然跳转，窗口耗尽后才跳转官方设备验证页。
-  - 完整模拟密码页 -> xAI 自然 `/account` -> xAI 自然 `/oauth2/device`，断言 URL 变化重置页面计时、账户页不提前接管、设备码填入后状态事件继续推进。
-  - 未提交密码前进入 Device Sign-in 页时，若有设备码输入框、URL 参数或页面已预填当前 `user_code`，则填码或直接点击“继续”且保留密码；若页面已有邮箱登录入口则点击；若没有设备码、继续按钮或登录控件且等待窗口耗尽才回邮箱登录入口；密码提交后中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
+  - 控制台先打开 `accounts.x.ai/sign-in`，并且只有共享任务带 `password_consumed_at` 与 `authenticated_at` 时才创建并合并 Device Flow；已取消或过期任务不能触发创建。
+  - 密码提交后落到 `accounts.x.ai/account` 时，即使页面存在 “Email” 等账户设置按钮，也不会点击账户页控件；只写入登录态确认，待 `device_ready_at` 写入后才跳转官方设备验证页。
+  - 完整模拟密码页 -> `/account` 登录态确认 -> 控制台写入 Device Flow -> `/oauth2/device`，断言 URL 变化重置页面计时、账户页不提前点击设置控件、设备码填入后状态事件继续推进。
+  - 共享任务已有当前 `user_code` 后进入 Device Sign-in 页时，若有设备码输入框、URL 参数或页面已预填当前码，则填码或直接点击“继续”；中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
   - URL 变化或 challenge 出现后，按钮和 Enter 都不触发，密码不标记为已提交。

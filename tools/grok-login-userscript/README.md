@@ -32,10 +32,12 @@ second@example.com|ExamplePassword2
 
 1. 勾选页面协议风险、权限与 Session 清理确认；HTTP 页面会显示额外的红色风险提示。
 2. 点击“开始”。
-3. 脚本会串行打开 xAI 返回的官方 Device Flow 启动页（优先 `verification_uri_complete`，URL 带当前 `user_code`）。未登录时如果该页显示设备码输入框，脚本会先填入当前 `user_code` 并点击继续；如果页面已经预填当前设备码，脚本会直接点击“继续”；如果该页直接显示 `Login with email`，脚本会点击该入口，然后自动填写邮箱、密码。这些路径都会保留 Device Flow 上下文；如果该页短时间内没有设备码、继续按钮或登录控件，才兜底回 `https://accounts.x.ai/sign-in`。如果登录成功后落到 `https://accounts.x.ai/account` 账户页，脚本会先等待 xAI 自然进入后续授权页，超时后才兜底跳转到官方 Device Flow 验证页。
-4. 出现 Cloudflare、验证码、2FA 或其它安全验证时，脚本会暂停自动点击，请在登录标签中手工完成；Cloudflare 显示“成功”后脚本会等待约 5 秒让 Turnstile token 回写，登录按钮可用后再点击登录；如果 challenge 消失但登录页还没恢复，脚本会继续有限等待约 60 秒，避免过早显示未知页面。
-5. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
-6. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
+3. 脚本会先打开 `https://accounts.x.ai/sign-in`，自动填写邮箱和密码；如果页面要求 Cloudflare、验证码、2FA 或其它安全验证，脚本只等待人工处理。
+4. 登录驱动确认已经进入 xAI 登录态后，控制台才调用官方 Device Flow 创建设备授权任务，并把当前 `user_code` 和可信验证页写回同一个登录标签。
+5. 登录标签随后跳转到官方 Device Flow 验证页：设备码页会填入或确认当前 `user_code` 并点击“继续”，授权页识别 “授权 Grok Build” / “Authorize Grok Build” 后点击“允许”/“Allow”。
+6. Cloudflare 显示“成功”后脚本会等待约 5 秒让 Turnstile token 回写，登录按钮可用后再点击登录；如果 challenge 消失但登录页还没恢复，脚本会继续有限等待约 60 秒，避免过早显示未知页面。
+7. 成功后控制台会收集 refresh token，并清除本账号的 xAI/Grok Session。
+8. 全部完成后点击“复制 RT”，粘贴到 Sub2API 的 Grok Refresh Token 批量导入入口。
 
 密码只按第一个 `|` 分隔，因此密码本身可以包含后续 `|`。
 开始后输入框会立即清空，账号密码只保留在当前控制台标签的运行内存中。脚本只会驱动自己用随机标记打开的登录标签，不会操作此前已经打开的其它 xAI/Grok 标签。
@@ -76,20 +78,20 @@ second@example.com|ExamplePassword2
 ### 页面没有出现控制台
 
 - 确认地址栏 host 是 `www.havefun.eu.cc`。
-- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.14` 已内置精确 include。
-- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.14` 应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
+- 确认地址栏协议是 HTTP 或 HTTPS；其它协议不会启动控制台。若地址是 `http://www.havefun.eu.cc:8080/admin/accounts`，脚本 `0.2.15` 已内置精确 include。
+- 若仍看到 `https://auth.x.ai/#grok-bulk-cleanup=...`，说明浏览器里还是旧版脚本；`0.2.15` 应显示 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`。
 - 若使用 HTTPS，证书必须匹配该域名；不要通过忽略证书错误继续运行，证书异常时可按风险提示改用 HTTP。
 
 ### 自动填写没有继续
 
 - 页面可能处于 Cloudflare 或未知安全验证，请手工完成。
-- 如果 Cloudflare 已显示“成功!”但没有立刻点击登录，等待约 5 秒；脚本 `0.2.14` 会等验证结果稳定且登录按钮可用后继续提交。
-- 如果 Cloudflare 消失后页面短暂空白、加载中或登录控件还没恢复，脚本 `0.2.14` 会继续等待约 60 秒并复扫，不会在原 12 秒未知页超时时立即报“无法识别当前 xAI 页面”。
-- 如果控制台显示“无法识别当前 xAI 页面”，但登录标签还停在已填写密码的“使用您的邮箱登录”页，说明旧版可能已删除共享密码但第一次点击没有跳转；`0.2.14` 会在密码框仍有值时重按“登录”。
+- 如果 Cloudflare 已显示“成功!”但没有立刻点击登录，等待约 5 秒；脚本 `0.2.15` 会等验证结果稳定且登录按钮可用后继续提交。
+- 如果 Cloudflare 消失后页面短暂空白、加载中或登录控件还没恢复，脚本 `0.2.15` 会继续等待约 60 秒并复扫，不会在原 12 秒未知页超时时立即报“无法识别当前 xAI 页面”。
+- 如果控制台显示“无法识别当前 xAI 页面”，但登录标签还停在已填写密码的“使用您的邮箱登录”页，说明旧版可能已删除共享密码但第一次点击没有跳转；`0.2.15` 会在密码框仍有值时重按“登录”。
 - xAI 页面结构可能变化。脚本会选择暂停，不会对低置信度按钮进行猜测性点击。
-- 若密码提交后页面进入 `https://accounts.x.ai/account`，脚本 `0.2.14` 会把控制台状态改为“进入授权页”，等待 xAI 自然跳到 Device Flow；如果长时间不动，才会忽略账户页上的 Email 等设置按钮并兜底跳转官方 Device Flow 验证页。
-- 若页面已经进入 `accounts.x.ai/oauth2/device` 且设备码已填好但只差点“继续”，脚本 `0.2.14` 会直接点击“继续”；如果页面右上角已显示“退出登录”但控制台还停在“填写密码”，脚本会先删除共享密码并把状态推进到授权阶段。
-- 若未提交密码前页面停在 `accounts.x.ai/oauth2/device`，脚本 `0.2.14` 会先识别设备码输入框或已预填的当前 `user_code` 并提交/点击“继续”，但不会删除共享密码；如果该页已经显示邮箱登录入口，会点击该入口；如果没有设备码、继续按钮或登录控件，等待窗口耗尽后才回到 `accounts.x.ai/sign-in`。
+- 若密码提交后页面进入 `https://accounts.x.ai/account`，脚本 `0.2.15` 会标记已登录；控制台随后创建 Device Flow，并让该登录标签跳转官方验证页，不点击账户页上的 Email 等设置按钮。
+- 若页面进入 `accounts.x.ai/oauth2/device` 且设备码已填好但只差点“继续”，脚本 `0.2.15` 会直接点击“继续”；如果后续出现 “授权 Grok Build” 页面，会点击“允许”。
+- 若控制台一直停在“进入授权页”，检查登录标签是否已显示设备码页或授权页；旧版脚本可能在登录前就打开 Device Flow，`0.2.15` 的主流程应先登录，再创建设备授权。
 - 返回控制台查看当前状态，必要时使用“跳过当前”或停止后重试失败项。
 
 ### 清理 Session 失败

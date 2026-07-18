@@ -292,6 +292,28 @@ function createPasswordSubmittedTask(overrides = {}) {
   return task
 }
 
+function createLoginOnlyTask(overrides = {}) {
+  const task = createActiveTask(overrides)
+  delete task.user_code
+  delete task.verification_url
+  delete task.verification_launch_url
+  delete task.device_ready_at
+  return task
+}
+
+function createPasswordSubmittedLoginTask(overrides = {}) {
+  const task = createLoginOnlyTask(overrides)
+  delete task.password
+  task.password_consumed_at = overrides.password_consumed_at || Date.now()
+  return task
+}
+
+function createAuthenticatedTask(overrides = {}) {
+  const task = createPasswordSubmittedTask(overrides)
+  task.authenticated_at = overrides.authenticated_at || Date.now()
+  return task
+}
+
 test('登录驱动在模拟密码页填入并只提交一次', () => {
   const harness = createDriverHarness({
     values: { [core.CONFIG.sharedKeys.task]: createActiveTask() },
@@ -540,21 +562,21 @@ test('未提交密码的登录入口无表单时不会跳转 Device Flow', () =>
   assert.equal(harness.location.href, 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1')
 })
 
-test('密码提交后登录入口无表单时导航到官方 Device Flow 验证页', () => {
+test('Device Flow 写入后登录入口无表单时导航到官方验证页', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
     pathname: '/sign-in',
     href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
     title: 'xAI Accounts',
     values: {
-      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+      [core.CONFIG.sharedKeys.task]: createAuthenticatedTask({
         verification_url: 'https://accounts.x.ai/oauth2/device',
-        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+        device_ready_at: Date.now()
       })
     }
   })
 
-  harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
 
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
@@ -569,10 +591,7 @@ test('密码提交后落到 xAI 账户页时忽略账户控件并跳转 Device F
     windowName: 'grok-bulk-login:tab-1',
     title: 'xAI Account',
     values: {
-      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
-        verification_url: 'https://accounts.x.ai/oauth2/device',
-        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
-      })
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedLoginTask()
     },
     button: { textContent: 'Email' }
   })
@@ -581,6 +600,19 @@ test('密码提交后落到 xAI 账户页时忽略账户控件并跳转 Device F
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
 
   assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/account')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.task).authenticated_at > 0, true)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'password_submitted')
+
+  harness.setValue(core.CONFIG.sharedKeys.task, {
+    ...harness.values.get(core.CONFIG.sharedKeys.task),
+    user_code: 'FAKE-CODE',
+    verification_url: 'https://accounts.x.ai/oauth2/device',
+    verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+    device_ready_at: Date.now()
+  })
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
   assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
 })
@@ -592,10 +624,7 @@ test('密码未消费但已落到账户页时先删除共享密码再跳转 Devi
     href: 'https://accounts.x.ai/account',
     windowName: 'grok-bulk-login:tab-1',
     values: {
-      [core.CONFIG.sharedKeys.task]: createActiveTask({
-        verification_url: 'https://accounts.x.ai/oauth2/device',
-        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
-      })
+      [core.CONFIG.sharedKeys.task]: createLoginOnlyTask()
     },
     button: { textContent: 'Email' }
   })
@@ -606,7 +635,13 @@ test('密码未消费但已落到账户页时先删除共享密码再跳转 Devi
   assert.equal(harness.location.href, 'https://accounts.x.ai/account')
   assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'password_submitted')
 
-  harness.advanceTime(core.CONFIG.authenticatedLandingGraceMs + 1)
+  harness.setValue(core.CONFIG.sharedKeys.task, {
+    ...harness.values.get(core.CONFIG.sharedKeys.task),
+    user_code: 'FAKE-CODE',
+    verification_url: 'https://accounts.x.ai/oauth2/device',
+    verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+    device_ready_at: Date.now()
+  })
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
   assert.equal(harness.button.clickCalls, 0)
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
@@ -619,10 +654,7 @@ test('完整模拟 xAI 自然跳转链路时不会提前接管账户页且状态
     href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
     windowName: 'grok-bulk-login:tab-1',
     values: {
-      [core.CONFIG.sharedKeys.task]: createActiveTask({
-        verification_url: 'https://accounts.x.ai/oauth2/device',
-        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
-      })
+      [core.CONFIG.sharedKeys.task]: createLoginOnlyTask()
     },
     input: { type: 'password', name: 'password', autocomplete: 'current-password' },
     button: { textContent: '登录' }
@@ -644,6 +676,16 @@ test('完整模拟 xAI 自然跳转链路时不会提前接管账户页且状态
   assert.equal(harness.location.href, 'https://accounts.x.ai/account')
   assert.equal(harness.button.clickCalls, 1)
   assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'password_submitted')
+
+  harness.setValue(core.CONFIG.sharedKeys.task, {
+    ...harness.values.get(core.CONFIG.sharedKeys.task),
+    user_code: 'FAKE-CODE',
+    verification_url: 'https://accounts.x.ai/oauth2/device',
+    verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+    device_ready_at: Date.now()
+  })
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
 
   harness.location.href = 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1'
   harness.location.pathname = '/oauth2/device'
@@ -761,6 +803,29 @@ test('登录态 Device Flow 已预填设备码时删除密码并点击继续', (
   assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'user_code_filled')
   assert.equal(harness.timers.runDelay(150), true)
   assert.equal(harness.button.clickCalls, 1)
+})
+
+test('可信 Grok Build 授权页会点击允许', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/authorize',
+    href: 'https://accounts.x.ai/oauth2/authorize?client_id=fake#grok-bulk-login=tab-1',
+    title: 'Authorize Grok Build',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+        user_code: 'FAKE-CODE',
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: '已以 user@example.com 身份登录 授权 Grok Build Use the xAI API Read your email address',
+    button: { textContent: '允许' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'authorization_submitted')
 })
 
 test('未提交密码前 Device Flow 页面没有设备码或登录控件才回邮箱登录入口', () => {

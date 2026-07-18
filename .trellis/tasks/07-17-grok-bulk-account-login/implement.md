@@ -22,7 +22,7 @@
 - [x] 修复 xAI 登录入口与 Device Flow 验证页混用问题：先打开 `accounts.x.ai` 登录入口，登录完成后再跳转官方 `verification_uri`；授权路径兼容当前 `/oauth2/device` 基础路径。
 - [x] 修复清理标签与登录标签 marker 混用问题：清理标签改用 `#grok-bulk-cleanup=...`，登录/授权标签保留 `#grok-bulk-login=...`，并补清理请求拒绝登录 marker 的回归测试。
 - [x] 修复 `auth.x.ai` 根路径清理承载页 404 问题：改用 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，并补禁止 `https://auth.x.ai/` 进入 `storageUrls` 的回归测试。
-- [x] 修复邮箱登录入口选择问题：曾在 0.2.5 改为登录标签打开 `https://accounts.x.ai/sign-in` 并优先点击 `Login with email`；该路径后来证实会丢失 Device Flow 上下文，已由 0.2.13 的“先打开 `verification_uri_complete` 并前置提交设备码”取代。
+- [x] 修复邮箱登录入口选择问题：曾在 0.2.5 改为登录标签打开 `https://accounts.x.ai/sign-in` 并优先点击 `Login with email`；0.2.13/0.2.14 尝试改为先打开 `verification_uri_complete` 并前置提交设备码，但真实页面反馈表明该顺序仍会卡在授权链路。
 - [x] 保留密码提交后的 Device Flow 授权能力：密码提交并删除共享密码后，才允许跳转官方验证页、填写 `user_code` 或点击授权。
 - [x] 控制台 UI 改为默认右下角悬浮球，点击展开完整面板，标题栏可收起，避免长期遮挡 `www.havefun.eu.cc` 页面。
 - [x] 修复 Cloudflare 成功后的等待竞态：看到 Turnstile/Cloudflare “成功”后先等待稳定窗口，再点击登录，避免验证结果尚未写入时卡住或过早提交。
@@ -31,9 +31,10 @@
 - [x] 修复 Cloudflare 消失后的页面恢复延迟问题：最近检测到 challenge 后，登录/授权控件尚未恢复时保留约 60 秒后置等待窗口，避免 12 秒普通未知页超时误报。
 - [x] 修复登录成功后落到 `accounts.x.ai/account` 的中间态：删除共享密码并跳转官方 Device Flow 验证页，不点击账户页的 Email 设置按钮。
 - [x] 修复 xAI 自然跳转链路的计时与状态错位：URL 变化时重置页面计时，`/account` 先等待自然跳转后兜底，密码提交后控制台进入“进入授权页”，设备码填入后进入“等待授权结果”。
-- [x] 修复 Device Flow 上下文丢失问题：登录标签首次打开 `verification_uri_complete`，未登录 Device 页优先点击官方邮箱登录入口，只有没有登录控件且等待窗口耗尽时才兜底 `sign-in`。
-- [x] 修复 Device Flow 前置设备码步骤：未提交密码前在可信 `/oauth2/device` 页识别设备码输入框并提交当前 `user_code`，保留共享密码等待后续邮箱登录；只有没有设备码或登录控件时才兜底 `sign-in`。
-- [x] 修复 Device Flow 已预填设备码末步：当 `verification_uri_complete` 已让页面显示当前设备码时，即使没有可编辑输入框也能点击“继续”；若页面已是登录态但共享密码仍残留，先删除密码并推进授权状态。
+- [x] 保留已有 Device Flow 标签兼容路径：任务已经携带 `user_code` 且标签位于可信 `/oauth2/device` 时，识别设备码输入框、URL 参数或页面预填码，并点击“继续”；低置信度页面仍回到 `sign-in` 或等待人工，不猜测点击。
+- [x] 保留登录态 Device Flow 兼容路径：若 Device 页显示“退出登录”等登录态文案但共享密码仍残留，先删除密码、写入登录态确认并推进授权状态。
+- [x] 保留 Device Flow 已预填设备码末步：当页面已经显示当前设备码时，即使没有可编辑输入框也能点击“继续”。
+- [x] 修复 0.2.15 实测主流程：登录标签先打开 `https://accounts.x.ai/sign-in` 完成邮箱密码登录；驱动确认 `/account` 或登录态后写入 `authenticated_at`；控制台随后创建 Device Flow 并写入 `device_ready_at`；登录标签再跳转官方设备码页、点击“继续”和 Grok Build 授权页“允许”。已取消或过期任务不得在登录后继续创建 Device Flow。
 
 ## 重点风险
 
@@ -61,10 +62,10 @@ git diff --check
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
 - 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 5 秒后自动点击“登录”；如果 Cloudflare 消失后页面短暂空白或登录控件尚未恢复，脚本应继续等待约 60 秒并复扫，不应立刻显示“无法识别当前 xAI 页面”；如果第一次点击后仍停在已填写密码的登录表单，脚本应重按“登录”。
-- 确认登录标签首先进入 xAI 返回的 `verification_uri_complete`（URL 含当前 `user_code`）；若未登录 Device 页显示设备码输入框，脚本应填入当前 `user_code` 并点击继续；若页面已预填当前设备码，脚本应直接点击“继续”；这两种情况都保留共享密码等待后续邮箱登录。若显示 `Login with email`，脚本应点击该入口；若没有设备码、继续按钮或登录控件，等待窗口耗尽后才回到 `https://accounts.x.ai/sign-in`。
-- 如果 Device 页右上角已显示“退出登录”但控制台仍停在“填写密码”，脚本应先删除共享密码、上报“进入授权页”，再点击“继续”并进入 Token 轮询。
-- 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应显示“进入授权页”，不点击账户页 “Email” 设置按钮；如果 xAI 自己继续跳到 Device Flow，脚本应跟随自然跳转并填写设备码；如果账户页长时间不动，脚本再兜底跳到官方 Device Flow 验证页。
-- 密码提交后若进入 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，脚本才应通过附近文案识别设备码输入框并点击“继续”。
+- 确认登录标签首先进入 `https://accounts.x.ai/sign-in`，而不是先进入 `verification_uri_complete`；脚本应自动填写邮箱和密码，Cloudflare/验证码仍由人工处理。
+- 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应显示“进入授权页”，不点击账户页 “Email” 设置按钮；此时控制台才创建 Device Flow 并把设备码写回共享任务。
+- 控制台写入 Device Flow 后，登录标签应跳转到 `accounts.x.ai/oauth2/device` 或 xAI 返回的等价验证页；若显示设备码输入框，脚本应填入当前 `user_code` 并点击“继续”；若页面已预填当前设备码，脚本应直接点击“继续”。
+- 若后续出现 “授权 Grok Build” / “Authorize Grok Build” 页面，脚本应点击“允许”/“Allow”，随后控制台进入 Token 轮询。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
 - 使用两个测试账号串行运行，确认第二号不会继承第一号登录态。

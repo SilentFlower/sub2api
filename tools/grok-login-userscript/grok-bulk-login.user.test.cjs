@@ -230,6 +230,7 @@ test('登录入口无可识别控件时才跳转官方 Device Flow 验证页', (
   const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
 
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, false), true)
+  assert.equal(core.shouldNavigateToVerification({ ...task, device_ready_at: 1500 }, 'https://accounts.x.ai/', 1000, 1000, false), true)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 2000, 0, true), false)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/', 1000, 0, false), false)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/oauth2/device', 2000, 0, false), false)
@@ -246,14 +247,57 @@ test('登录成功落到账户页时即使有账户设置控件也跳转 Device 
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/account', 2000, 0, true), false)
   assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 2000, 0), false)
   assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', core.CONFIG.authenticatedLandingGraceMs + 1, 0), true)
+  assert.equal(core.shouldNavigateFromAuthenticatedLanding({ ...task, device_ready_at: 123 }, 'https://accounts.x.ai/account', 1000, 1000), true)
   assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 1000, 0), false)
 })
 
 test('授权中状态覆盖密码提交后到设备码提交的自然跳转阶段', () => {
   assert.equal(core.STATUS_LABELS.authorizing, '进入授权页')
+  assert.equal(core.canTransition('pending', 'opening_login'), true)
   assert.equal(core.canTransition('filling_password', 'authorizing'), true)
+  assert.equal(core.canTransition('authorizing', 'requesting_device'), true)
   assert.equal(core.canTransition('authorizing', 'polling_token'), true)
   assert.equal(core.canTransition('authorizing', 'filling_password'), true)
+})
+
+test('Device Flow 在登录完成后才合并到共享任务', () => {
+  const loginTask = {
+    run_id: 'run-1',
+    account_id: 'account-1',
+    tab_marker: 'tab-1',
+    email: 'user@example.com',
+    password: 'fake-password',
+    created_at: 1000,
+    expires_at: Date.now() + 60000
+  }
+  const submittedTask = core.stripTaskPassword(loginTask, 1234)
+  const authenticatedTask = core.markTaskAuthenticated(submittedTask, 1500)
+  const deviceTask = core.attachDeviceFlowToTask(submittedTask, {
+    userCode: 'FAKE-CODE',
+    verificationUrl: 'https://accounts.x.ai/oauth2/device',
+    verificationLaunchUrl: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+    expiresInMs: 600000
+  }, 2000)
+
+  assert.equal(core.hasAuthenticatedLogin(submittedTask), false)
+  assert.equal(core.hasAuthenticatedLogin(authenticatedTask), true)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin(loginTask), false)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin(submittedTask), false)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin(authenticatedTask), true)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin({ ...authenticatedTask, cancelled_at: 1600 }), false)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin({ ...authenticatedTask, expires_at: 1 }), false)
+  assert.equal(core.shouldRequestDeviceFlowAfterLogin(deviceTask), false)
+  const authenticatedDeviceTask = core.attachDeviceFlowToTask(authenticatedTask, {
+    userCode: 'FAKE-CODE',
+    verificationUrl: 'https://accounts.x.ai/oauth2/device',
+    verificationLaunchUrl: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE',
+    expiresInMs: 600000
+  }, 2000)
+  assert.equal(Object.prototype.hasOwnProperty.call(authenticatedDeviceTask, 'password'), false)
+  assert.equal(authenticatedDeviceTask.user_code, 'FAKE-CODE')
+  assert.equal(authenticatedDeviceTask.verification_launch_url, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE')
+  assert.equal(authenticatedDeviceTask.authenticated_at, 1500)
+  assert.equal(authenticatedDeviceTask.device_ready_at, 2000)
 })
 
 test('未提交密码前进入 Device 页时允许先提交当前设备码', () => {
@@ -285,6 +329,34 @@ test('未提交密码前进入 Device 页时允许先提交当前设备码', () 
     '登录 Grok Build 输入终端中显示的代码 VZVA - E9VE'
   ), true)
   assert.equal(core.hasAuthenticatedSessionText('右上角 退出登录'), true)
+})
+
+test('可信 Grok Build 授权页允许点击 consent', () => {
+  const task = {
+    user_code: 'FAKE-CODE',
+    password_consumed_at: 123
+  }
+
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://accounts.x.ai/oauth2/authorize?client_id=fake',
+    '授权 Grok Build Read your email address Use the xAI API'
+  ), true)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://accounts.x.ai/oauth2/authorize?client_id=fake',
+    'Authorize Unknown App'
+  ), false)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    { ...task, password: 'fake-password' },
+    'https://accounts.x.ai/oauth2/authorize?client_id=fake',
+    '授权 Grok Build'
+  ), false)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://evil.example.com/oauth2/authorize',
+    '授权 Grok Build'
+  ), false)
 })
 
 test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
@@ -820,12 +892,13 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.14'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.15'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
   assert.equal(scriptSource.includes("loginStartUrl: 'https://accounts.x.ai/sign-in'"), true)
-  assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), true)
+  assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker)'), true)
+  assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), false)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
   assert.equal(scriptSource.includes("attachShadow({ mode: 'closed' })"), true)
