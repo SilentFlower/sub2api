@@ -24,15 +24,15 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-18T00:48:11Z",
+    "updatedAt": "2026-07-18T00:57:48Z",
     "completedSteps": [
-      "Phase 2.1 0.2.12 Device Flow 启动页修复：首次打开 verification_uri_complete，未登录 Device 页邮箱入口优先并延迟兜底 sign-in",
-      "Phase 2.2 0.2.12 检查：node --check、Node 测试 74/74、git diff --check 全部通过",
-      "Phase 3.3 0.2.12 规范：同步浏览器认证自动化 code-spec、任务三件套与 README",
-      "Phase 3.4 0.2.12 Device Flow 启动页修复已提交并推送到 origin/build"
+      "Phase 2.1 0.2.13 Device Flow 前置设备码修复：未提交密码前在可信 /oauth2/device 页提交当前 user_code 并保留密码，避免跳 sign-in 丢失设备授权上下文",
+      "Phase 2.2 0.2.13 检查：node --check、Node 测试 75/75、git diff --check 全部通过，且旧错误假设扫描无敏感凭据残留",
+      "Phase 3.3 0.2.13 规范：同步浏览器认证自动化 code-spec、任务设计/实施说明与 README",
+      "Phase 3.4 0.2.13 Device Flow 前置设备码修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "在 Violentmonkey 中替换为 0.2.12 脚本后，打开 http://www.havefun.eu.cc:8080/admin/accounts 重测；登录标签应先进入带 user_code 的 xAI Device Flow 验证页，未登录时优先点击该页的 Login with email，只有没有登录控件且等待窗口耗尽时才回 sign-in。",
-    "notes": "0.2.12 修复 Device Flow 上下文丢失：保存 verification_url 与 verification_launch_url，控制台打开 verification_uri_complete；未提交密码前不填设备码，Device 页有邮箱入口时优先点击，只有无登录控件并延迟后才兜底回 sign-in。"
+    "nextStep": "在 Violentmonkey 中替换为 0.2.13 脚本后，打开 http://www.havefun.eu.cc:8080/admin/accounts 重测；登录标签应先进入带 user_code 的 xAI Device Flow 验证页，若出现设备码输入框应自动填入当前 user_code 并点击继续，随后进入邮箱密码登录。",
+    "notes": "0.2.13 修正 0.2.12 的错误流程假设：Device Flow 需要先在官方 Device 页提交当前 user_code 建立设备授权上下文，再进入邮箱登录；脚本提交设备码时保留共享密码，不切到 Token 轮询，也不碰通用 OTP/验证码。"
   }
 }
