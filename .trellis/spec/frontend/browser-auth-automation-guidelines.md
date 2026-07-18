@@ -97,7 +97,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - HTTP/HTTPS 控制台必须持有同一个 Violentmonkey 共享租约，提供跨协议互斥；HTTPS 还必须先获得 Web Lock，再在其回调内获得共享租约。只使用 Web Lock 会因锁按 origin 隔离而无法阻止 HTTP 与 HTTPS 标签同时运行。
 - GM 共享值没有 compare-and-swap。租约必须使用随机 owner、有限竞争确认延迟、心跳续租和过期回收；结束时只能删除 owner 仍匹配的租约。锁 API 或共享存储异常时必须显示稳定错误，并保持批次未启动。
 - 清空敏感数据必须先获得同一控制台锁。页面卸载只能删除与自身 `run_id` 匹配的任务、事件和清理消息，空闲或旧控制台不得清除其它活动批次。
-- 登录驱动只有在 `run_id`、`account_id`、`tab_marker` 全部匹配且任务未取消、未过期时才能自动动作。标签标识只能放在 URL fragment 或标签私有状态中，禁止携带密码。
+- 登录驱动只有在 `run_id`、`account_id`、`tab_marker` 全部匹配且任务未取消、未过期时才能自动动作。标签标识只能放在 URL fragment 或标签私有状态中，禁止携带密码。登录标签首次从 `#grok-bulk-login=...` 读到随机标记时，必须把该标记写入同标签 `sessionStorage`；xAI 跳转到 `/account` 后可能清除 URL hash 或 `window.name`，驱动必须能从该私有状态恢复归属，但仍只能在共享任务的 `tab_marker` 同时匹配时执行。
 - 登录/授权标签和站点存储清理标签必须使用不同的 URL fragment / `window.name` marker key。登录标签使用 `grok-bulk-login`，清理标签使用 `grok-bulk-cleanup`；清理 ACK 只接受 cleanup marker，不能接受 login marker，即使 `tab_marker` 值相同。
 - 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
@@ -128,6 +128,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | Web Lock、GM 共享存储或租约调度抛错 | 显示稳定锁失败错误，不处理任何账号 |
 | 旧控制台卸载且共享值属于其它 `run_id` | 保留其它控制台的共享值 |
 | 任务、账号或标签标识不匹配 | 不填表、不点击、不清理其它标签的数据 |
+| 登录跳转到 `/account` 后 URL hash / `window.name` 丢失，但同标签 `sessionStorage` 中有当前 `tab_marker` | 继续识别为当前登录标签，写入 `authenticated_at` 并等待控制台创建 Device Flow |
 | 清理请求出现在 `grok-bulk-login` 登录 marker 标签中 | 不返回清理 ACK，不清理该页存储 |
 | 任务过期、停止或跳过 | 取消待执行动作并删除共享密码 |
 | 延迟期间 URL 变化 | 旧动作不执行，且不标记密码已提交 |
@@ -162,7 +163,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：旧控制台关闭时只删除自身 `run_id` 的共享值；另一个活动批次的任务、事件和清理 ACK 保持不变。
 - Good：实际入口是 `http://www.havefun.eu.cc:8080/admin/accounts` 时，元数据包含精确 `:8080` 规则，运行时仍用 host/protocol 校验限制控制台。
 - Good：控制台先打开 `accounts.x.ai/sign-in`；驱动自动填写邮箱密码，确认进入 `/account` 或其它登录态页面后写入 `authenticated_at`；控制台随后创建 Device Flow 并把 `user_code` / 验证页写回共享任务。
-- Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮；驱动忽略该按钮，只写入登录态确认；控制台写入 `device_ready_at` 后登录标签立即跳转可信 Device Flow 验证页。
+- Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮，且跳转已清掉 URL hash / `window.name`；驱动通过同标签 `sessionStorage` 恢复 `tab_marker`，忽略账户设置按钮，只写入登录态确认；控制台写入 `device_ready_at` 后登录标签立即跳转可信 Device Flow 验证页。
 - Good：Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，控制台在登录完成后保存基础验证页和带 `user_code` 的启动页；登录标签随后在设备码页填入当前码或点击已预填当前码的“继续”。
 - Good：授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径是可信 xAI OAuth 路径时，驱动点击“允许”/“Allow”；未知 OAuth 页面或非 xAI HTTPS 页面不点击。
 - Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
@@ -189,6 +190,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Node VM 浏览器状态机测试至少覆盖：
   - 登录入口出现 `Login with email` / 邮箱登录按钮时优先点击该入口。
   - 控制台先打开 `accounts.x.ai/sign-in`，并且只有共享任务带 `password_consumed_at` 与 `authenticated_at` 时才创建并合并 Device Flow；已取消或过期任务不能触发创建。
+  - 登录页读到 `#grok-bulk-login=...` 后写入同标签 `sessionStorage`；模拟跳转到 `/account` 且 URL hash / `window.name` 为空时，仍能用该私有标记确认当前标签并写入 `authenticated_at`。
   - 密码提交后落到 `accounts.x.ai/account` 时，即使页面存在 “Email” 等账户设置按钮，也不会点击账户页控件；只写入登录态确认，待 `device_ready_at` 写入后才跳转官方设备验证页。
   - 完整模拟密码页 -> `/account` 登录态确认 -> 控制台写入 Device Flow -> `/oauth2/device`，断言 URL 变化重置页面计时、账户页不提前点击设置控件、设备码填入后状态事件继续推进。
   - 共享任务已有当前 `user_code` 后进入 Device Sign-in 页时，若有设备码输入框、URL 参数或页面已预填当前码，则填码或直接点击“继续”；中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。

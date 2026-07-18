@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.15
+// @version      0.2.16
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -78,6 +78,7 @@
 
   const DRIVER_MARKER_KEY = 'grok-bulk-login'
   const DRIVER_WINDOW_PREFIX = `${DRIVER_MARKER_KEY}:`
+  const DRIVER_SESSION_MARKER_KEY = `${DRIVER_MARKER_KEY}:tab-marker`
   const CLEANUP_MARKER_KEY = 'grok-bulk-cleanup'
   const CLEANUP_WINDOW_PREFIX = `${CLEANUP_MARKER_KEY}:`
 
@@ -1848,7 +1849,18 @@
       } catch {
         // 部分安全页面可能限制 window.name；URL fragment 仍可完成当前页归属校验。
       }
+      try {
+        sessionStorage.setItem(DRIVER_SESSION_MARKER_KEY, hashMarker)
+      } catch {
+        // 登录跳转可能清掉 URL fragment 或 window.name；sessionStorage 只是同标签恢复标记的降级缓存。
+      }
       return hashMarker
+    }
+    try {
+      const sessionMarker = sessionStorage.getItem(DRIVER_SESSION_MARKER_KEY)
+      if (sessionMarker) return sessionMarker
+    } catch {
+      // sessionStorage 受限时继续回退到 window.name。
     }
     const windowName = String(window.name || '')
     return windowName.startsWith(DRIVER_WINDOW_PREFIX) ? windowName.slice(DRIVER_WINDOW_PREFIX.length) : ''

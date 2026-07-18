@@ -47,13 +47,25 @@ function createFakeTimers() {
  * @return {object} Storage mock。
  */
 function createStorage(failClear = false) {
+  const entries = new Map()
   return {
-    length: 0,
+    get length() {
+      return entries.size
+    },
     clearCalls: 0,
     clear() {
       this.clearCalls++
       if (failClear) throw new Error('fake storage cleanup failure')
-      this.length = 0
+      entries.clear()
+    },
+    getItem(key) {
+      return entries.has(String(key)) ? entries.get(String(key)) : null
+    },
+    setItem(key, value) {
+      entries.set(String(key), String(value))
+    },
+    removeItem(key) {
+      entries.delete(String(key))
     }
   }
 }
@@ -615,6 +627,36 @@ test('密码提交后落到 xAI 账户页时忽略账户控件并跳转 Device F
 
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
   assert.equal(harness.window.name, 'grok-bulk-login:tab-1')
+})
+
+test('xAI 登录跳转丢失 hash 和 window.name 后仍可用 sessionStorage 归属标签', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/sign-in',
+    href: 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1',
+    hash: '#grok-bulk-login=tab-1',
+    windowName: '',
+    values: { [core.CONFIG.sharedKeys.task]: createLoginOnlyTask() },
+    input: { type: 'password', name: 'password', autocomplete: 'current-password' },
+    button: { textContent: '登录' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
+  assert.equal(harness.sessionStorage.getItem('grok-bulk-login:tab-marker'), 'tab-1')
+
+  harness.location.href = 'https://accounts.x.ai/account'
+  harness.location.pathname = '/account'
+  harness.location.hash = ''
+  harness.window.name = ''
+  harness.button.textContent = 'Email'
+  harness.triggerMutation()
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+
+  assert.equal(harness.location.href, 'https://accounts.x.ai/account')
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.task).authenticated_at > 0, true)
 })
 
 test('密码未消费但已落到账户页时先删除共享密码再跳转 Device Flow', () => {

@@ -9,7 +9,7 @@
 1. `www.havefun.eu.cc` 控制台上下文：解析批次、维护队列、启动 Device Flow、打开登录标签、轮询 Token、清理 Cookie、汇总 refresh token。
 2. xAI/Grok 驱动上下文：隐藏运行，读取当前账号临时任务，识别登录页面、自动填写、检测人工验证、清理当前 origin 的站点存储并上报状态。
 
-两个上下文通过带 `run_id`、`account_id` 和随机 `tab_marker` 的 Violentmonkey 共享值通信。所有事件都校验当前运行标识；登录驱动还必须验证当前标签 fragment 中的 `tab_marker`，避免旧标签、用户预先打开的标签或旧批次读取当前凭据。
+两个上下文通过带 `run_id`、`account_id` 和随机 `tab_marker` 的 Violentmonkey 共享值通信。所有事件都校验当前运行标识；登录驱动还必须验证当前标签 fragment 中的 `tab_marker`，并在首次读到 fragment 标记时把随机标记写入同标签 `sessionStorage` 作为降级恢复状态，避免 xAI 跳转到 `/account` 后清掉 URL hash / `window.name` 导致标签归属丢失。该私有状态只保存随机标记，不保存邮箱、密码或 token，仍必须与共享任务中的 `run_id`、`account_id`、`tab_marker` 同时匹配后才允许自动动作。
 
 控制台声明 `http://www.havefun.eu.cc/*` 和 `https://www.havefun.eu.cc/*` 匹配规则，并在启动入口再次校验 host 与协议。xAI/Grok 驱动仍只允许 HTTPS。控制台使用 `closed` Shadow DOM 隔离页面脚本对账号输入和 refresh token 结果区的直接访问；HTTP 模式额外显示网络注入和凭据泄露风险，并要求用户显式确认后才能开始或重试。
 
@@ -133,7 +133,7 @@ pending
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
 - Device Flow 响应保存两类可信 HTTPS 验证页：`verification_url` 优先使用标准 `verification_uri`、缺失时回退 `verification_uri_complete`；`verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。
 - 控制台主流程先打开 `https://accounts.x.ai/sign-in`，让登录驱动完成邮箱密码登录和人工 challenge 等待。只有登录驱动写入 `authenticated_at` 后，控制台才调用 Device Flow，并将 `user_code`、`verification_url`、`verification_launch_url` 和 `device_ready_at` 合并回当前共享任务。
-- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，确认共享密码已删除并写入 `authenticated_at`；账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。控制台写入 `device_ready_at` 后，登录标签再立即跳转 `verification_launch_url` 或 `verification_url`。
+- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态；即使跳转清除了 URL hash 或 `window.name`，也要用同标签 `sessionStorage` 恢复 `tab_marker` 后继续确认共享密码已删除并写入 `authenticated_at`。账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。控制台写入 `device_ready_at` 后，登录标签再立即跳转 `verification_launch_url` 或 `verification_url`。
 - 页面停留时间必须按当前 URL 计算。xAI 自己从密码页跳到 `/account` 再跳到 `/oauth2/device` 时，驱动要在每次 URL 变化时重置页面计时，不能沿用上一页时间提前触发兜底跳转。
 - 当任务已有 `user_code` 后进入 `/oauth2/device`，登录驱动必须识别设备码输入框、URL `user_code` 参数或页面已渲染的当前设备码，并提交当前 `user_code` 或直接点击“继续”。授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径可信时，才点击“允许”/“Allow”。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
@@ -183,6 +183,6 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 ## 验证策略
 
 - Node 纯逻辑测试覆盖解析、状态迁移、Token 错误分类、选择器候选评分、脱敏、动作门禁、可取消延迟动作和异常收尾投影。
-- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、登录后落到 `/account` 时只写入 `authenticated_at` 且不点击账户设置、控制台写入 `device_ready_at` 后立即跳转 Device Flow、设备码页提交当前 `user_code`、Grok Build 授权页点击“允许”、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
+- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、登录后落到 `/account` 时只写入 `authenticated_at` 且不点击账户设置、跳转后 URL hash / `window.name` 丢失时通过同标签 `sessionStorage` 恢复 `tab_marker`、控制台写入 `device_ready_at` 后立即跳转 Device Flow、设备码页提交当前 `user_code`、Grok Build 授权页点击“允许”、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
 - GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占、共享租约竞争/过期/释放、按 `run_id` 卸载清理和 HTTP/HTTPS/closed Shadow DOM 静态约束。
 - 真实 xAI 页面、Cloudflare 和 Violentmonkey HttpOnly 权限只能在用户浏览器中手工验收；测试使用虚构账号和假 Token，不使用用户真实凭据。

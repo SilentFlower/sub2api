@@ -892,12 +892,13 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.15'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.16'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
   assert.equal(scriptSource.includes("loginStartUrl: 'https://accounts.x.ai/sign-in'"), true)
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker)'), true)
+  assert.equal(scriptSource.includes('sessionStorage.setItem(DRIVER_SESSION_MARKER_KEY, hashMarker)'), true)
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), false)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
