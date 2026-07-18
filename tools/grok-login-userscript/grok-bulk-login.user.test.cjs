@@ -339,7 +339,7 @@ test('未提交密码前进入 Device 页时允许先提交当前设备码', () 
   assert.equal(core.hasAuthenticatedSessionText('右上角 退出登录'), true)
 })
 
-test('可信 Grok Build 授权页允许点击 consent', () => {
+test('可信 Grok Build 授权页识别为最终授权页', () => {
   const task = {
     user_code: 'FAKE-CODE',
     password_consumed_at: 123
@@ -934,7 +934,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.18'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.19'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
@@ -942,6 +942,8 @@ test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker)'), true)
   assert.equal(scriptSource.includes('sessionStorage.setItem(DRIVER_SESSION_MARKER_KEY, hashMarker)'), true)
   assert.equal(scriptSource.includes('await waitForAuthorizationSettle(signal)'), true)
+  assert.equal(scriptSource.includes('MANUAL_CONSENT_REQUIRED'), true)
+  assert.equal(scriptSource.includes('requestSubmit'), false)
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), false)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)

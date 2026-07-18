@@ -847,7 +847,7 @@ test('登录态 Device Flow 已预填设备码时删除密码并点击继续', (
   assert.equal(harness.button.clickCalls, 1)
 })
 
-test('可信 Grok Build 授权页会点击允许', () => {
+test('可信 Grok Build 授权页会提示人工点击允许', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
     pathname: '/oauth2/authorize',
@@ -866,11 +866,12 @@ test('可信 Grok Build 授权页会点击允许', () => {
   })
 
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
-  assert.equal(harness.button.clickCalls, 1)
-  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'authorization_submitted')
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'waiting_human')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'MANUAL_CONSENT_REQUIRED')
 })
 
-test('Device approve 授权页会把继续按钮当作最终授权提交', () => {
+test('Device approve 授权页会提示人工点击继续', () => {
   const harness = createDriverHarness({
     hostname: 'auth.x.ai',
     pathname: '/oauth2/device/approve',
@@ -889,11 +890,12 @@ test('Device approve 授权页会把继续按钮当作最终授权提交', () =>
   })
 
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
-  assert.equal(harness.button.clickCalls, 1)
-  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'authorization_submitted')
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'waiting_human')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'MANUAL_CONSENT_REQUIRED')
 })
 
-test('Device approve 授权页不会点击会 GET approve 的链接伪按钮', () => {
+test('Device approve 授权页不会点击会 GET approve 的链接伪按钮并等待人工', () => {
   const harness = createDriverHarness({
     hostname: 'auth.x.ai',
     pathname: '/oauth2/device/approve',
@@ -920,7 +922,8 @@ test('Device approve 授权页不会点击会 GET approve 的链接伪按钮', (
 
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
   assert.equal(harness.button.clickCalls, 0)
-  assert.equal(harness.values.has(core.CONFIG.sharedKeys.event), false)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'waiting_human')
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).detail, 'MANUAL_CONSENT_BUTTON_NOT_READY')
 })
 
 test('未提交密码前 Device Flow 页面没有设备码或登录控件才回邮箱登录入口', () => {

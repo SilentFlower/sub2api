@@ -47,4 +47,4 @@
 
 ## Next Step
 
-- 继续验证 0.2.18 主流程：登录标签先打开 `accounts.x.ai/sign-in`，Cloudflare 成功后等待约 5 秒且按钮可用再提交；进入 `/account` 或登录态后即使 URL hash / `window.name` 被跳转清掉，也能用同标签 `sessionStorage` 恢复 `tab_marker` 并写入 `authenticated_at`；控制台再创建 Device Flow 并写入 `device_ready_at`；登录标签随后进入设备码页点击“继续”，再在 “授权 Grok Build” / “Authorize Grok Build” 页面点击“允许”/“Allow”/“继续”/“Continue”。`/oauth2/device/approve` 不得被当成设备码页，也不得因点击 GET approve 伪按钮显示 `Invalid action`。Token 成功后如果距最终设备码/授权提交不足约 5 秒，控制台应补足稳定窗口再关闭登录标签和清理 Session。同时回归 challenge 消失后的 60 秒后置等待、密码已消费但仍停留密码表单时重按登录、悬浮球 UI 和每号 Session 清理；检查通过后再进入 Phase 3.3/3.4。
+- 继续验证 0.2.19 主流程：登录标签先打开 `accounts.x.ai/sign-in`，Cloudflare 成功后等待约 5 秒且按钮可用再提交；进入 `/account` 或登录态后即使 URL hash / `window.name` 被跳转清掉，也能用同标签 `sessionStorage` 恢复 `tab_marker` 并写入 `authenticated_at`；控制台再创建 Device Flow 并写入 `device_ready_at`；登录标签随后进入设备码页点击“继续”；到 “授权 Grok Build” / “Authorize Grok Build” 最终授权页时，脚本只提示人工点击“允许”/“Allow”/“继续”/“Continue”，控制台继续轮询 Token。`/oauth2/device/approve` 不得被当成设备码页，也不得因脚本自动点击显示 `Invalid action`。Token 成功后如果缺少最终授权提交事件，控制台应从 Token 成功时保留约 5 秒稳定窗口再关闭登录标签和清理 Session。同时回归 challenge 消失后的 60 秒后置等待、密码已消费但仍停留密码表单时重按登录、悬浮球 UI 和每号 Session 清理；检查通过后再进入 Phase 3.3/3.4。

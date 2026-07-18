@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.18
+// @version      0.2.19
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -82,6 +82,8 @@
   const DRIVER_SESSION_MARKER_KEY = `${DRIVER_MARKER_KEY}:tab-marker`
   const CLEANUP_MARKER_KEY = 'grok-bulk-cleanup'
   const CLEANUP_WINDOW_PREFIX = `${CLEANUP_MARKER_KEY}:`
+  const MANUAL_CONSENT_REQUIRED = 'MANUAL_CONSENT_REQUIRED'
+  const MANUAL_CONSENT_BUTTON_NOT_READY = 'MANUAL_CONSENT_BUTTON_NOT_READY'
 
   const STATUS_LABELS = Object.freeze({
     pending: '等待处理',
@@ -117,6 +119,8 @@
     LOGIN_TIMEOUT: '等待 xAI 登录完成超时',
     NETWORK_ERROR: '网络请求失败',
     PAGE_UNKNOWN: '无法识别当前 xAI 页面',
+    MANUAL_CONSENT_REQUIRED: '请在 xAI 授权页手动点击允许/继续',
+    MANUAL_CONSENT_BUTTON_NOT_READY: '请等待 xAI 授权按钮出现后手动点击允许/继续',
     SCRIPT_STOPPED: '批次已停止',
     TOKEN_MISSING_REFRESH: 'Token 响应缺少 refresh token',
     TOKEN_REQUEST_FAILED: '轮询 xAI Token 失败',
@@ -2247,10 +2251,11 @@
         return
       }
 
-      if (consentButton && trustedConsentPage) {
-        if (clickOnce(consentButton, `consent:${location.href}`)) {
-          reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
-        }
+      if (trustedConsentPage) {
+        // xAI 最终 OAuth 授权页可能依赖真实用户点击的可信事件；用户脚本无法伪造 isTrusted。
+        // 因此这里只提示人工点击，控制台继续轮询 Device Flow token，避免自动点击触发 Invalid action。
+        reportOnce('waiting_human', consentButton ? MANUAL_CONSENT_REQUIRED : MANUAL_CONSENT_BUTTON_NOT_READY)
+        scheduleScanAfter(CONFIG.challengeRecheckMs)
         return
       }
 
@@ -2513,6 +2518,9 @@
           break
         case 'waiting_human':
         case 'page_unknown':
+          if (event.detail === MANUAL_CONSENT_REQUIRED || event.detail === MANUAL_CONSENT_BUTTON_NOT_READY) {
+            runtime.authorizationActionAt = 0
+          }
           updateAccount(runtime.currentAccount, 'waiting_human', event.detail || '')
           break
         case 'authorization_submitted':
