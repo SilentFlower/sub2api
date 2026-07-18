@@ -260,6 +260,14 @@ test('授权中状态覆盖密码提交后到设备码提交的自然跳转阶�
   assert.equal(core.canTransition('authorizing', 'filling_password'), true)
 })
 
+test('最终设备授权提交后按剩余稳定窗口停留', () => {
+  assert.equal(core.CONFIG.authorizationSettleMs, 5000)
+  assert.equal(core.authorizationSettleDelayMs(0, 10000, 5000), 0)
+  assert.equal(core.authorizationSettleDelayMs(10000, 10000, 5000), 5000)
+  assert.equal(core.authorizationSettleDelayMs(10000, 12500, 5000), 2500)
+  assert.equal(core.authorizationSettleDelayMs(10000, 16000, 5000), 0)
+})
+
 test('Device Flow 在登录完成后才合并到共享任务', () => {
   const loginTask = {
     run_id: 'run-1',
@@ -892,13 +900,14 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.16'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.17'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
   assert.equal(scriptSource.includes("loginStartUrl: 'https://accounts.x.ai/sign-in'"), true)
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker)'), true)
   assert.equal(scriptSource.includes('sessionStorage.setItem(DRIVER_SESSION_MARKER_KEY, hashMarker)'), true)
+  assert.equal(scriptSource.includes('await waitForAuthorizationSettle(signal)'), true)
   assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), false)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)

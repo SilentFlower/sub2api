@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.16
+// @version      0.2.17
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -66,6 +66,7 @@
     maxPollMs: 30000,
     loginToVerificationDelayMs: 1500,
     authenticatedLandingGraceMs: 8000,
+    authorizationSettleMs: 5000,
     challengePassedGraceMs: 5000,
     postChallengeUnknownGraceMs: 60000,
     challengeRecheckMs: 1000,
@@ -573,6 +574,21 @@
       && !task.user_code
       && !task.verification_url
       && !task.verification_launch_url)
+  }
+
+  /**
+   * 计算最终设备授权提交后仍需停留的时间。
+   * @param {number} actionAt 最近一次设备码或授权提交时间。
+   * @param {number} [now] 当前时间。
+   * @param {number} [settleMs] 目标停留窗口。
+   * @return {number} 仍需等待的毫秒数。
+   */
+  function authorizationSettleDelayMs(actionAt, now = Date.now(), settleMs = CONFIG.authorizationSettleMs) {
+    const startedAt = Number(actionAt)
+    const windowMs = Math.max(0, Number(settleMs) || 0)
+    if (!Number.isFinite(startedAt) || startedAt <= 0 || windowMs <= 0) return 0
+    const elapsedMs = Math.max(0, Number(now) - startedAt)
+    return Math.max(0, windowMs - elapsedMs)
   }
 
   /**
@@ -1235,6 +1251,7 @@
     hasPasswordBeenSubmitted,
     hasAuthenticatedLogin,
     shouldRequestDeviceFlowAfterLogin,
+    authorizationSettleDelayMs,
     shouldReturnToLoginBeforePassword,
     normalizeDeviceUserCode,
     pageContainsDeviceUserCode,
@@ -2390,6 +2407,7 @@
       currentTab: null,
       currentAbort: null,
       currentDriverError: '',
+      authorizationActionAt: 0,
       closingTab: false,
       currentCleanupTab: null,
       apiAvailable: true,
@@ -2429,6 +2447,7 @@
           updateAccount(runtime.currentAccount, 'authorizing')
           break
         case 'user_code_filled':
+          runtime.authorizationActionAt = Number(event.at) || Date.now()
           updateAccount(runtime.currentAccount, 'polling_token')
           break
         case 'waiting_human':
@@ -2436,6 +2455,7 @@
           updateAccount(runtime.currentAccount, 'waiting_human', event.detail || '')
           break
         case 'authorization_submitted':
+          runtime.authorizationActionAt = Number(event.at) || Date.now()
           updateAccount(runtime.currentAccount, 'polling_token')
           break
         case 'login_failed':
@@ -2737,9 +2757,24 @@
       throw createCodedError('LOGIN_TIMEOUT')
     }
 
+    /**
+     * Token 已返回后仍保留授权页一小段时间，给 xAI 页面完成跳转/落盘和用户观察窗口。
+     * @param {AbortSignal} signal 取消信号。
+     * @return {Promise<void>} 稳定窗口结束 Promise。
+     */
+    async function waitForAuthorizationSettle(signal) {
+      const actionAt = runtime.authorizationActionAt || Date.now()
+      const delayMs = authorizationSettleDelayMs(actionAt)
+      if (delayMs <= 0) return
+      setGlobalStatus(`授权已提交，等待 xAI 页面稳定 ${Math.ceil(delayMs / 1000)} 秒`)
+      render()
+      await wait(delayMs, signal)
+    }
+
     async function processAccount(account) {
       runtime.currentAccount = account
       runtime.currentDriverError = ''
+      runtime.authorizationActionAt = 0
       runtime.skipRequested = false
       runtime.currentAbort = new AbortController()
       const signal = runtime.currentAbort.signal
@@ -2787,6 +2822,7 @@
         render()
 
         const refreshToken = await pollDeviceToken(device, signal)
+        await waitForAuthorizationSettle(signal)
         if (runtime.currentDriverError) throw createCodedError(runtime.currentDriverError)
         if (!refreshToken) throw createCodedError('TOKEN_MISSING_REFRESH')
         account.refreshToken = refreshToken
