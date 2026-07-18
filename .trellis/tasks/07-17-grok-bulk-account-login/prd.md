@@ -40,7 +40,7 @@
 ### R3 xAI Device Flow
 
 - 控制台通过 `GM_xmlhttpRequest` 调用官方 `https://auth.x.ai/oauth2/device/code`，使用项目现有公开 client ID 和 Grok CLI scope。
-- 脚本优先使用返回的 `verification_uri`，缺失时回退 `verification_uri_complete`，并按服务端返回的 `interval` 轮询 `https://auth.x.ai/oauth2/token`。
+- 脚本保存标准验证页和浏览器启动页：标准验证页优先使用返回的 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。Token 轮询按服务端返回的 `interval` 调用 `https://auth.x.ai/oauth2/token`。
 - 正确处理 `authorization_pending`、`slow_down`、`access_denied`、`expired_token`、网络错误和超时。
 - 成功响应只保留 refresh token 作为批量导出结果；access token、ID token 和 device code 在当前账号完成后删除。
 - 不保存或输出裸授权码，不调用 Sub2API 管理 API。

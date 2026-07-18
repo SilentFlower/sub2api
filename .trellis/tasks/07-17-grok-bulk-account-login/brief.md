@@ -47,4 +47,4 @@
 
 ## Next Step
 
-- 继续验证 0.2.10 Cloudflare 成功后 5 秒稳定等待、challenge 消失但页面未恢复时 60 秒后置等待、按钮可用后再提交、密码已消费但页面仍停在密码表单时重按登录、登录成功落到 `/account` 后继续跳转 Device Flow、邮箱登录优先、未登录 Device 页回退和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。
+- 继续验证 0.2.12 Cloudflare 成功后 5 秒稳定等待、challenge 消失但页面未恢复时 60 秒后置等待、按钮可用后再提交、密码已消费但页面仍停在密码表单时重按登录、首次打开 `verification_uri_complete`、xAI 自然 `/account` -> `/oauth2/device` 跳转链路、授权中状态推进、未登录 Device 页邮箱入口优先/延迟回退和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。

@@ -41,6 +41,7 @@ HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协
   "password": "当前账号密码",
   "user_code": "Device Flow 用户代码",
   "verification_url": "xAI 官方 Device Flow 验证页",
+  "verification_launch_url": "优先带 user_code 的 xAI 官方 Device Flow 浏览器启动页",
   "created_at": 0,
   "expires_at": 0,
   "password_consumed_at": "密码提交后出现，任务不再包含 password",
@@ -56,7 +57,7 @@ HTTP/HTTPS 控制台都使用同一个 Violentmonkey 共享值租约提供跨协
 {
   "run_id": "随机运行标识",
   "account_id": "批次内标识",
-  "type": "email_filled|password_filled|user_code_filled|email_method_selected|waiting_human|page_unknown|authorization_submitted|login_failed",
+  "type": "email_filled|password_filled|password_submitted|user_code_filled|email_method_selected|waiting_human|page_unknown|authorization_submitted|login_failed",
   "detail": "不含凭据的短描述",
   "at": 0
 }
@@ -128,10 +129,11 @@ pending
 ## Device Flow
 
 - 使用 `application/x-www-form-urlencoded` 请求 `/oauth2/device/code`。
-- Device Flow 响应优先使用可信 `verification_uri`，缺失时回退 `verification_uri_complete`；当前任务保存该验证页供邮箱密码登录完成后跳转。
-- 登录标签首次打开 `https://accounts.x.ai/sign-in`，优先点击 `Login with email` / 邮箱登录入口，避免把后台清理标签、根路径或 Device 页误判为登录页。
-- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，确认共享密码已删除后跳转 `verification_url`；账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。
-- 未提交密码前若误入 `/oauth2/device`，登录驱动必须回到 `https://accounts.x.ai/sign-in`，不得填写 `user_code`；只有密码提交并写入 `password_consumed_at` 后，才允许跳转官方验证页、填写设备码或点击授权。
+- Device Flow 响应保存两类可信 HTTPS 验证页：`verification_url` 优先使用标准 `verification_uri`、缺失时回退 `verification_uri_complete`；`verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。
+- 登录标签首次打开 `verification_launch_url`，保留官方 Device Flow 上下文；未登录时优先在该页点击 `Login with email` / 邮箱登录入口，若短时间内没有登录控件再兜底回 `https://accounts.x.ai/sign-in`，避免直接打开 sign-in 丢失当前 `user_code` 授权上下文。
+- 邮箱密码登录成功后如果 xAI 先跳到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，确认共享密码已删除后先等待 xAI 自然后续跳转；等待窗口耗尽后才兜底跳转 `verification_url`；账户页里的 “Email” 等设置按钮不得按邮箱登录入口处理。
+- 页面停留时间必须按当前 URL 计算。xAI 自己从密码页跳到 `/account` 再跳到 `/oauth2/device` 时，驱动要在每次 URL 变化时重置页面计时，不能沿用上一页时间提前触发兜底跳转。
+- 未提交密码前若进入 `/oauth2/device`，登录驱动必须先识别该页是否已经提供邮箱登录入口；只有没有登录控件且等待窗口耗尽时才回到 `https://accounts.x.ai/sign-in`，不得填写 `user_code`；只有密码提交并写入 `password_consumed_at` 后，才允许跳转官方验证页、填写设备码或点击授权。
 - 使用服务端返回的 `interval`，最小轮询间隔不低于 1 秒。
 - `authorization_pending` 保持当前间隔；`slow_down` 增加 5 秒；`access_denied` 和 `expired_token` 结束当前账号。
 - 控制台停止或切换账号时调用请求控制对象的 `abort()` 并使旧回调因 `run_id` 不匹配而失效。
@@ -179,6 +181,6 @@ Violentmonkey 的 HttpOnly Cookie 权限默认关闭，因此 UI 在开始前展
 ## 验证策略
 
 - Node 纯逻辑测试覆盖解析、状态迁移、Token 错误分类、选择器候选评分、脱敏、动作门禁、可取消延迟动作和异常收尾投影。
-- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、密码提交后落到 `/account` 账户页时继续跳转 Device Flow、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
+- Node VM 浏览器 mock 真实执行用户脚本 `bootstrap()` 与隐藏登录驱动，覆盖模拟密码页填入/提交、取消后禁止补交、Cloudflare 只等待人工处理、Cloudflare 成功后等待稳定窗口再提交、Cloudflare 消失但页面暂未恢复时不提前 unknown、首次打开带 `user_code` 的 Device Flow 验证页、未登录 Device 页优先邮箱入口且必要时兜底 sign-in、密码提交后落到 `/account` 账户页时等待自然跳转并在超时后兜底跳转 Device Flow、密码页 -> `/account` -> `/oauth2/device` 完整自然跳转链路、密码已消费但页面仍停在密码表单时重按登录、站点存储清理成功与失败 ACK。
 - GM API mock 测试覆盖 Cookie 适配器、共享事件/清理 ACK 过滤、domain Cookie 枚举与二次检查、Web Locks 独占、共享租约竞争/过期/释放、按 `run_id` 卸载清理和 HTTP/HTTPS/closed Shadow DOM 静态约束。
 - 真实 xAI 页面、Cloudflare 和 Violentmonkey HttpOnly 权限只能在用户浏览器中手工验收；测试使用虚构账号和假 Token，不使用用户真实凭据。

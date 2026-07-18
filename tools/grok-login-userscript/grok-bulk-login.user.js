@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.10
+// @version      0.2.12
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -65,6 +65,7 @@
     minPollMs: 1000,
     maxPollMs: 30000,
     loginToVerificationDelayMs: 1500,
+    authenticatedLandingGraceMs: 8000,
     challengePassedGraceMs: 5000,
     postChallengeUnknownGraceMs: 60000,
     challengeRecheckMs: 1000,
@@ -86,6 +87,7 @@
     opening_login: '打开登录页',
     filling_email: '填写邮箱',
     filling_password: '填写密码',
+    authorizing: '进入授权页',
     waiting_human: '等待人工验证',
     polling_token: '等待授权结果',
     success: '成功',
@@ -122,10 +124,11 @@
   const TRANSITIONS = Object.freeze({
     pending: new Set(['requesting_device', 'skipped']),
     requesting_device: new Set(['opening_login', 'failed', 'skipped', 'cleaning']),
-    opening_login: new Set(['filling_email', 'filling_password', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
-    filling_email: new Set(['filling_password', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
-    filling_password: new Set(['waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
-    waiting_human: new Set(['filling_email', 'filling_password', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    opening_login: new Set(['filling_email', 'filling_password', 'authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    filling_email: new Set(['filling_password', 'authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    filling_password: new Set(['authorizing', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    authorizing: new Set(['filling_email', 'filling_password', 'waiting_human', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
+    waiting_human: new Set(['filling_email', 'filling_password', 'authorizing', 'polling_token', 'success', 'failed', 'skipped', 'cleaning']),
     polling_token: new Set(['waiting_human', 'success', 'failed', 'skipped', 'cleaning']),
     success: new Set(['cleaning']),
     failed: new Set(['cleaning', 'pending', 'requesting_device']),
@@ -484,6 +487,31 @@
   }
 
   /**
+   * 从 Device Flow 响应中选择浏览器启动页，优先使用带 user_code 的 verification_uri_complete。
+   * @param {object} payload Device Flow 响应体。
+   * @return {string} 可信浏览器启动页；缺失时为空字符串。
+   */
+  function selectTrustedVerificationLaunchUrl(payload) {
+    if (!payload || typeof payload !== 'object') return ''
+    const candidates = [payload.verification_uri_complete, payload.verification_uri]
+    for (const candidate of candidates) {
+      if (isTrustedVerificationUrl(candidate)) return String(candidate)
+    }
+    return ''
+  }
+
+  /**
+   * 读取当前任务用于打开或兜底跳转的官方 Device Flow 验证页。
+   * @param {object|null} task 当前共享任务。
+   * @return {string} 可信验证页；缺失时为空字符串。
+   */
+  function taskVerificationUrl(task) {
+    if (!task) return ''
+    const candidate = task.verification_launch_url || task.verification_url
+    return isTrustedVerificationUrl(candidate) ? String(candidate) : ''
+  }
+
+  /**
    * 判断路径是否为 xAI Device Flow 验证页或其子路径。
    * @param {string} pathname 当前路径。
    * @return {boolean} 是否为设备授权路径。
@@ -504,13 +532,18 @@
   }
 
   /**
-   * 判断未完成邮箱密码登录时是否应从 Device 页返回邮箱登录入口。
+   * 判断未完成邮箱密码登录时是否应从 Device 页兜底返回邮箱登录入口。
    * @param {object|null} task 当前共享任务。
    * @param {string} currentHref 当前页面地址。
+   * @param {number} now 当前时间。
+   * @param {number} firstSeenAt 当前页面首次扫描时间。
+   * @param {boolean} hasLoginControls 页面是否已有可处理的登录控件。
    * @return {boolean} 是否应回到邮箱登录入口。
    */
-  function shouldReturnToLoginBeforePassword(task, currentHref) {
+  function shouldReturnToLoginBeforePassword(task, currentHref, now = Date.now(), firstSeenAt = Date.now(), hasLoginControls = false) {
     if (!task || hasPasswordBeenSubmitted(task) || !Object.prototype.hasOwnProperty.call(task, 'password')) return false
+    if (hasLoginControls) return false
+    if (Number(now) - Number(firstSeenAt) < CONFIG.loginToVerificationDelayMs) return false
     try {
       const current = new URL(String(currentHref || ''))
       return current.protocol === 'https:'
@@ -531,13 +564,14 @@
    * @return {boolean} 是否应跳转。
    */
   function shouldNavigateToVerification(task, currentHref, now, firstSeenAt, hasRecognizedControls) {
-    if (!task || hasRecognizedControls || !isTrustedVerificationUrl(task.verification_url)) return false
+    const verificationUrl = taskVerificationUrl(task)
+    if (!task || hasRecognizedControls || !verificationUrl) return false
     if (!hasPasswordBeenSubmitted(task)) return false
     if (Number(now) - Number(firstSeenAt) < CONFIG.loginToVerificationDelayMs) return false
 
     try {
       const current = new URL(String(currentHref || ''))
-      const target = new URL(String(task.verification_url))
+      const target = new URL(verificationUrl)
       const currentHostAllowed = current.hostname === 'x.ai'
         || current.hostname.endsWith('.x.ai')
         || current.hostname === 'grok.com'
@@ -576,6 +610,7 @@
    */
   function shouldNavigateFromAuthenticatedLanding(task, currentHref, now, firstSeenAt) {
     if (!isAuthenticatedAccountLanding(currentHref)) return false
+    if (Number(now) - Number(firstSeenAt) < CONFIG.authenticatedLandingGraceMs) return false
     return shouldNavigateToVerification(task, currentHref, now, firstSeenAt, false)
   }
 
@@ -1043,6 +1078,8 @@
     sanitizeDetail,
     isTrustedVerificationUrl,
     selectTrustedVerificationUrl,
+    selectTrustedVerificationLaunchUrl,
+    taskVerificationUrl,
     isDeviceVerificationPath,
     hasPasswordBeenSubmitted,
     shouldReturnToLoginBeforePassword,
@@ -1334,13 +1371,15 @@
     }
     const payload = response.payload || {}
     const verificationUrl = selectTrustedVerificationUrl(payload)
-    if (!payload.device_code || !payload.user_code || !verificationUrl) {
+    const verificationLaunchUrl = selectTrustedVerificationLaunchUrl(payload)
+    if (!payload.device_code || !payload.user_code || !verificationUrl || !verificationLaunchUrl) {
       throw createCodedError('DEVICE_CODE_INVALID')
     }
     return {
       deviceCode: String(payload.device_code),
       userCode: String(payload.user_code),
       verificationUrl,
+      verificationLaunchUrl,
       intervalMs: Math.max(CONFIG.minPollMs, Number(payload.interval || 5) * 1000),
       expiresInMs: Math.min(CONFIG.maxDeviceFlowMs, Math.max(60000, Number(payload.expires_in || 1800) * 1000))
     }
@@ -1671,6 +1710,7 @@
     let interval
     let scanTimer
     let firstSeenAt = Date.now()
+    let lastSeenHref = String(location.href || '')
     let lastReported = ''
     let activeCleanupId = ''
     let challengePassedAt = 0
@@ -1745,6 +1785,7 @@
         lastChallengeSeenAt = 0
       }
       firstSeenAt = Date.now()
+      lastSeenHref = String(location.href || '')
       scheduleScan()
     })
     const cleanupListener = GM_addValueChangeListener(CONFIG.sharedKeys.cleanup, (_key, _oldValue, request) => {
@@ -1759,6 +1800,21 @@
     function scheduleScanAfter(delayMs) {
       clearTimeout(scanTimer)
       scanTimer = setTimeout(scan, Math.max(CONFIG.scanDebounceMs, Number(delayMs) || 0))
+    }
+
+    /**
+     * URL 变化表示 xAI 自己进入了新阶段；页面计时必须从新 URL 开始，不能沿用上一页的等待时间。
+     * @return {void} 无返回值。
+     */
+    function refreshPageContext() {
+      const currentHref = String(location.href || '')
+      if (currentHref === lastSeenHref) return
+      lastSeenHref = currentHref
+      firstSeenAt = Date.now()
+      lastReported = ''
+      challengePassedAt = 0
+      lastChallengeSeenAt = 0
+      deferredSubmit.cancel()
     }
 
     function reportOnce(type, detail) {
@@ -1842,6 +1898,7 @@
     function scan() {
       discardExpiredTask()
       if (!task || !task.run_id || !task.account_id || !ownsCurrentTask()) return
+      refreshPageContext()
       const challengeSnapshot = getChallengeSnapshot()
       if (isChallengePassedSnapshot(challengeSnapshot)) {
         lastChallengeSeenAt = Date.now()
@@ -1865,28 +1922,43 @@
         reportOnce('login_failed', 'LOGIN_FAILED')
         return
       }
-      if (shouldReturnToLoginBeforePassword(task, location.href)) {
-        location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
-        return
-      }
-      if (isAuthenticatedAccountLanding(location.href) && task.password) {
-        task = removeSharedPassword(task) || stripTaskPassword(task)
-        // 刚删除共享密码时停止本轮账户页识别，避免把账户设置里的 Email 按钮当成登录入口点击。
-        return
-      }
-      if (shouldNavigateFromAuthenticatedLanding(task, location.href, Date.now(), firstSeenAt)) {
-        location.href = appendDriverMarker(task.verification_url, task.tab_marker)
+      if (isAuthenticatedAccountLanding(location.href)) {
+        if (task.password) {
+          task = removeSharedPassword(task) || stripTaskPassword(task)
+          reportOnce('password_submitted', 'AUTHENTICATED_LANDING')
+          // 刚删除共享密码时停止本轮账户页识别，避免把账户设置里的 Email 按钮当成登录入口点击。
+          return
+        }
+        const authenticatedLandingRemainingMs = CONFIG.authenticatedLandingGraceMs - (Date.now() - firstSeenAt)
+        if (hasPasswordBeenSubmitted(task)
+          && taskVerificationUrl(task)
+          && authenticatedLandingRemainingMs > 0) {
+          reportOnce('password_submitted', 'AUTHENTICATED_LANDING')
+          scheduleScanAfter(authenticatedLandingRemainingMs)
+          return
+        }
+        if (!shouldNavigateFromAuthenticatedLanding(task, location.href, Date.now(), firstSeenAt)) return
+        location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)
         return
       }
 
       const descriptors = collectInputDescriptors()
       const password = chooseBestDescriptor(descriptors, 'password')
+      const email = chooseBestDescriptor(descriptors, 'email')
+      const userCode = chooseBestDescriptor(descriptors, 'user_code')
+      const consentButton = findActionButton('consent')
+      const emailMethod = findActionButton('email_method')
+      if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod))) {
+        location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
+        return
+      }
       if (password && task.password) {
         setInputValue(password.element, task.password)
         reportOnce('password_filled', 'PASSWORD_FILLED')
         const button = findActionButton('login')
         submitFilledInput(password.element, button, `password:${location.href}`, () => {
           task = removeSharedPassword(task) || stripTaskPassword(task)
+          reportOnce('password_submitted', 'PASSWORD_SUBMITTED')
         }, 'login')
         return
       }
@@ -1899,7 +1971,6 @@
         }
       }
 
-      const email = chooseBestDescriptor(descriptors, 'email')
       if (email) {
         setInputValue(email.element, task.email)
         reportOnce('email_filled', 'EMAIL_FILLED')
@@ -1908,8 +1979,7 @@
         return
       }
 
-      const userCode = chooseBestDescriptor(descriptors, 'user_code')
-      if (userCode && task.user_code) {
+      if (userCode && task.user_code && hasPasswordBeenSubmitted(task)) {
         setInputValue(userCode.element, task.user_code)
         reportOnce('user_code_filled', 'USER_CODE_FILLED')
         const button = findActionButton('login')
@@ -1917,15 +1987,13 @@
         return
       }
 
-      const consentButton = findActionButton('consent')
-      if (consentButton && isDeviceVerificationPath(location.pathname)) {
+      if (consentButton && isDeviceVerificationPath(location.pathname) && hasPasswordBeenSubmitted(task)) {
         if (clickOnce(consentButton, `consent:${location.href}`)) {
           reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
         }
         return
       }
 
-      const emailMethod = findActionButton('email_method')
       if (emailMethod) {
         if (clickOnce(emailMethod, `email-method:${location.href}`)) {
           reportOnce('email_method_selected', 'EMAIL_METHOD_SELECTED')
@@ -1933,9 +2001,10 @@
         return
       }
 
-      const hasRecognizedControls = Boolean(password || email || userCode || consentButton || emailMethod)
+      const hasRecognizedControls = Boolean(password || email || emailMethod
+        || (hasPasswordBeenSubmitted(task) && (userCode || consentButton)))
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
-        location.href = appendDriverMarker(task.verification_url, task.tab_marker)
+        location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)
         return
       }
 
@@ -2160,6 +2229,12 @@
           break
         case 'password_filled':
           updateAccount(runtime.currentAccount, 'filling_password')
+          break
+        case 'password_submitted':
+          updateAccount(runtime.currentAccount, 'authorizing')
+          break
+        case 'user_code_filled':
+          updateAccount(runtime.currentAccount, 'polling_token')
           break
         case 'waiting_human':
         case 'page_unknown':
@@ -2470,6 +2545,7 @@
           password: account.password,
           user_code: device.userCode,
           verification_url: device.verificationUrl,
+          verification_launch_url: device.verificationLaunchUrl,
           created_at: Date.now(),
           expires_at: Date.now() + Math.min(CONFIG.taskTtlMs, device.expiresInMs)
         }
@@ -2477,7 +2553,7 @@
         updateAccount(account, 'opening_login')
         render()
 
-        runtime.currentTab = GM_openInTab(appendDriverMarker(CONFIG.loginStartUrl, tabMarker), { active: true, insert: true })
+        runtime.currentTab = GM_openInTab(appendDriverMarker(task.verification_launch_url, tabMarker), { active: true, insert: true })
         if (!runtime.currentTab || typeof runtime.currentTab.close !== 'function') {
           throw createCodedError('LOGIN_TAB_CLOSED')
         }

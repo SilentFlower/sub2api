@@ -191,6 +191,34 @@ test('Device Flow 优先使用 verification_uri 并回退 verification_uri_compl
   }), '')
 })
 
+test('Device Flow 浏览器启动页优先使用 verification_uri_complete', () => {
+  assert.equal(core.selectTrustedVerificationLaunchUrl({
+    verification_uri: 'https://accounts.x.ai/oauth2/device',
+    verification_uri_complete: 'https://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), 'https://accounts.x.ai/oauth2/device?user_code=FAKE')
+  assert.equal(core.selectTrustedVerificationLaunchUrl({
+    verification_uri: 'https://accounts.x.ai/oauth2/device'
+  }), 'https://accounts.x.ai/oauth2/device')
+  assert.equal(core.selectTrustedVerificationLaunchUrl({
+    verification_uri: 'https://evil.example.com/oauth2/device',
+    verification_uri_complete: 'http://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), '')
+})
+
+test('共享任务跳转地址优先使用带 user_code 的启动页', () => {
+  assert.equal(core.taskVerificationUrl({
+    verification_url: 'https://accounts.x.ai/oauth2/device',
+    verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), 'https://accounts.x.ai/oauth2/device?user_code=FAKE')
+  assert.equal(core.taskVerificationUrl({
+    verification_url: 'https://accounts.x.ai/oauth2/device'
+  }), 'https://accounts.x.ai/oauth2/device')
+  assert.equal(core.taskVerificationUrl({
+    verification_url: 'https://evil.example.com/oauth2/device',
+    verification_launch_url: 'http://accounts.x.ai/oauth2/device?user_code=FAKE'
+  }), '')
+})
+
 test('Device Flow 授权路径兼容基础路径和子路径', () => {
   assert.equal(core.isDeviceVerificationPath('/oauth2/device'), true)
   assert.equal(core.isDeviceVerificationPath('/oauth2/device/consent'), true)
@@ -216,8 +244,16 @@ test('登录成功落到账户页时即使有账户设置控件也跳转 Device 
   assert.equal(core.isAuthenticatedAccountLanding('https://accounts.x.ai/account/profile'), true)
   assert.equal(core.isAuthenticatedAccountLanding('https://accounts.x.ai/sign-in'), false)
   assert.equal(core.shouldNavigateToVerification(task, 'https://accounts.x.ai/account', 2000, 0, true), false)
-  assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 2000, 0), true)
+  assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 2000, 0), false)
+  assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', core.CONFIG.authenticatedLandingGraceMs + 1, 0), true)
   assert.equal(core.shouldNavigateFromAuthenticatedLanding(task, 'https://accounts.x.ai/account', 1000, 0), false)
+})
+
+test('授权中状态覆盖密码提交后到设备码提交的自然跳转阶段', () => {
+  assert.equal(core.STATUS_LABELS.authorizing, '进入授权页')
+  assert.equal(core.canTransition('filling_password', 'authorizing'), true)
+  assert.equal(core.canTransition('authorizing', 'polling_token'), true)
+  assert.equal(core.canTransition('authorizing', 'filling_password'), true)
 })
 
 test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
@@ -226,7 +262,9 @@ test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
 
   assert.equal(core.hasPasswordBeenSubmitted(task), false)
   assert.equal(core.hasPasswordBeenSubmitted(submittedTask), true)
-  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/oauth2/device'), true)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/oauth2/device', 1000, 1000, false), false)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/oauth2/device', core.CONFIG.loginToVerificationDelayMs + 1, 0, false), true)
+  assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/oauth2/device', core.CONFIG.loginToVerificationDelayMs + 1, 0, true), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/sign-in'), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(submittedTask, 'https://accounts.x.ai/oauth2/device'), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(task, 'http://accounts.x.ai/oauth2/device'), false)
@@ -765,11 +803,12 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.10'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.12'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)
   assert.equal(scriptSource.includes("loginStartUrl: 'https://accounts.x.ai/sign-in'"), true)
+  assert.equal(scriptSource.includes('GM_openInTab(appendDriverMarker(task.verification_launch_url'), true)
   assert.equal(scriptSource.includes('if (isControllerLocation(location.protocol, location.hostname))'), true)
   assert.equal(scriptSource.includes("if (location.protocol !== 'https:') return"), true)
   assert.equal(scriptSource.includes("attachShadow({ mode: 'closed' })"), true)

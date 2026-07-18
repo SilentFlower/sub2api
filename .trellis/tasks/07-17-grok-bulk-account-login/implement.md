@@ -30,6 +30,8 @@
 - [x] 修复密码已消费后页面仍停在登录表单的问题：如果 DOM 密码框仍有值且存在高置信度“登录”按钮，驱动会重按登录而不是进入未知页。
 - [x] 修复 Cloudflare 消失后的页面恢复延迟问题：最近检测到 challenge 后，登录/授权控件尚未恢复时保留约 60 秒后置等待窗口，避免 12 秒普通未知页超时误报。
 - [x] 修复登录成功后落到 `accounts.x.ai/account` 的中间态：删除共享密码并跳转官方 Device Flow 验证页，不点击账户页的 Email 设置按钮。
+- [x] 修复 xAI 自然跳转链路的计时与状态错位：URL 变化时重置页面计时，`/account` 先等待自然跳转后兜底，密码提交后控制台进入“进入授权页”，设备码填入后进入“等待授权结果”。
+- [x] 修复 Device Flow 上下文丢失问题：登录标签首次打开 `verification_uri_complete`，未登录 Device 页优先点击官方邮箱登录入口，只有没有登录控件且等待窗口耗尽时才兜底 `sign-in`。
 
 ## 重点风险
 
@@ -57,8 +59,8 @@ git diff --check
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
 - 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 5 秒后自动点击“登录”；如果 Cloudflare 消失后页面短暂空白或登录控件尚未恢复，脚本应继续等待约 60 秒并复扫，不应立刻显示“无法识别当前 xAI 页面”；如果第一次点击后仍停在已填写密码的登录表单，脚本应重按“登录”。
-- 确认登录标签首先进入 `https://accounts.x.ai/sign-in` 并选择 `Login with email`；若未提交密码前误入 `accounts.x.ai/oauth2/device`，脚本应回到邮箱登录入口，不应填写设备码。
-- 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应自动跳到官方 Device Flow 验证页；即使账户页显示 “Email” 按钮，也不应停留在“填写密码”或点击账户设置。
+- 确认登录标签首先进入 xAI 返回的 `verification_uri_complete`（URL 含当前 `user_code`）；若未登录 Device 页显示 `Login with email`，脚本应优先点击该入口；若只显示设备码输入框，脚本应先等待且不填写设备码，等待窗口耗尽后才回到 `https://accounts.x.ai/sign-in`。
+- 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应显示“进入授权页”，不点击账户页 “Email” 设置按钮；如果 xAI 自己继续跳到 Device Flow，脚本应跟随自然跳转并填写设备码；如果账户页长时间不动，脚本再兜底跳到官方 Device Flow 验证页。
 - 密码提交后若进入 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，脚本才应通过附近文案识别设备码输入框并点击“继续”。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
