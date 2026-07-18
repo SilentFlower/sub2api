@@ -74,6 +74,111 @@ API client 已处理：
 
 ---
 
+## Component-local Server State and Parent Save
+
+当子组件自主管理一组后端配置，但父页面拥有统一保存按钮时，子组件必须显式维护
+初始加载状态，并让 `save()` 等待加载完成后再提交。
+
+### 1. Scope / Trigger
+
+- Trigger: 新增或抽离类似 `SettingsView -> FeatureSettings` 的组件，子组件在
+  `onMounted()` 中加载远端配置，父组件稍后通过 `ref.save()` 触发保存。
+- 风险：父组件的主表单可能早于子组件 API 返回完成。如果 `save()` 直接读取默认空状态，
+  会把远端已有配置覆盖成默认值。
+
+### 2. Signatures
+
+子组件暴露给父页面的接口应保持可等待：
+
+```ts
+defineExpose({
+  load, // () => Promise<void>
+  save, // () => Promise<boolean>
+})
+```
+
+内部至少维护：
+
+```ts
+let loaded = false
+let loadPromise: Promise<void> | null = null
+
+async function ensureLoaded(): Promise<boolean> {
+  if (loaded) return true
+  if (loadPromise) await loadPromise
+  if (loaded) return true
+  await load()
+  return loaded
+}
+```
+
+### 3. Contracts
+
+- `load()` 必须复用正在进行的 `loadPromise`，避免同一配置并发读取时互相覆盖。
+- 首次加载成功或“配置不存在但可使用默认值”的 404 场景，可以把 `loaded` 置为 `true`。
+- 非预期加载失败不得把 `loaded` 置为 `true`；`save()` 应返回 `false` 并提示错误，不提交默认状态。
+- `save()` 的第一步必须 `await ensureLoaded()`；只有加载完成后才执行校验、归一化和 API update。
+- 父页面在 `ref` 不存在时可以按业务需要降级为 `true`，但只要子组件已挂载，保存安全由子组件保证。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 行为 |
+| --- | --- |
+| 初始加载已完成 | `save()` 直接校验并提交当前状态 |
+| 初始加载进行中 | `save()` 等待同一个 `loadPromise` 后再提交 |
+| 初始加载返回 404 且业务允许默认配置 | 标记 loaded，允许保存默认状态 |
+| 初始加载失败且非允许错误 | 不标记 loaded，`save()` 返回 false，不调用 update API |
+
+### 5. Good/Base/Bad Cases
+
+- Good: 用户在页面刚打开时立即点击保存，子组件 `save()` 等待远端配置返回，然后提交远端配置派生出的状态。
+- Base: 用户等待页面加载完成后保存，`save()` 不重复请求，直接使用已加载状态。
+- Bad: 子组件默认 `enabled=false, providers=[]`，`onMounted(load)` 尚未完成时父页面调用 `save()`，
+  直接把空配置 PUT 到后端。
+
+### 6. Tests Required
+
+组件测试必须覆盖：
+
+- API 延迟返回时调用 `save()`，断言 update API 在加载完成前未被调用。
+- 加载完成后 `save()` 使用远端返回数据提交，而不是默认空状态。
+- 加载失败时 `save()` 返回 false，且不调用 update API。
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+onMounted(() => {
+  void load()
+})
+
+async function save(): Promise<boolean> {
+  await updateConfig(localState)
+  return true
+}
+```
+
+问题：父页面保存按钮和子组件加载请求之间存在竞态，可能用默认状态覆盖远端配置。
+
+#### Correct
+
+```ts
+onMounted(() => {
+  void load()
+})
+
+async function save(): Promise<boolean> {
+  if (!(await ensureLoaded())) return false
+  await updateConfig(localState)
+  return true
+}
+```
+
+`save()` 是子组件的稳定边界，必须保证提交前本地状态已经代表远端当前配置。
+
+---
+
 ## Common Mistakes
 
 - 不要把 API 原始响应 envelope 存进 store；`apiClient` 返回的已经是 `data`。

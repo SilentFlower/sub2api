@@ -1,0 +1,5 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查 Web Search 设置逻辑是否迁出共享大页面，只保留稳定薄调用。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查新增 Vue 组件类型、i18n、可访问性和 Tailwind 约定。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"检查 feature 目录、API import 和测试落点是否符合前端结构规范。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查 AnySearch 规则、provider 校验和 payload 清洗没有重复实现。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 API 类型、snake_case payload、保存链路和前端状态往返未漂移。"}

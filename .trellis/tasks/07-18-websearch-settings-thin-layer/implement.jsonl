@@ -1,0 +1,5 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"约束 build 私有功能迁入领域 owner，SettingsView 只保留薄接入。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"约束 build 前端能力放入 src/features/<domain>/，API payload 保持 snake_case。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束 Vue 组件 props/emits、i18n、Tailwind、测试和大页面拆分方式。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"避免复制 Web Search provider 校验、AnySearch 规则和 payload 清洗逻辑。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"确保 SettingsView、feature 组件、admin API 类型和后端 Web Search payload 合约一致。"}

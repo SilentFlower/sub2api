@@ -53,4 +53,35 @@ describe('SettingsView AnySearch provider', () => {
       ]
     })
   })
+
+  it('Web Search 配置校验失败时不显示整页保存成功', async () => {
+    settingsViewBuildFeatureMocks.getWebSearchEmulationConfig.mockResolvedValue({
+      enabled: true,
+      providers: [
+        {
+          type: 'brave',
+          api_key: '',
+          api_key_configured: false,
+          quota_limit: 1000,
+          subscribed_at: null,
+          proxy_id: null,
+          expires_at: null
+        }
+      ]
+    })
+
+    const wrapper = mountSettingsViewBuildFeature()
+    await flushPromises()
+    await openSettingsGatewayTab(wrapper)
+
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(settingsViewBuildFeatureMocks.updateSettings).toHaveBeenCalled()
+    expect(settingsViewBuildFeatureMocks.updateWebSearchEmulationConfig).not.toHaveBeenCalled()
+    expect(settingsViewBuildFeatureMocks.showSuccess).not.toHaveBeenCalledWith('admin.settings.settingsSaved')
+    expect(settingsViewBuildFeatureMocks.showError).toHaveBeenCalledWith(
+      'admin.settings.webSearchEmulation.apiKeyRequired'
+    )
+  })
 })
