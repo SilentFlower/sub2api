@@ -714,6 +714,55 @@ test('未提交密码前 Device Flow 页面会先提交设备码并保留密码'
   assert.equal(harness.values.has(core.CONFIG.sharedKeys.event), false)
 })
 
+test('未提交密码前 Device Flow 已预填设备码时直接点击继续并保留密码', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1',
+    title: 'Device Sign-in | SpaceXAI Accounts',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: '登录 Grok Build。输入终端中显示的代码。',
+    button: { textContent: '继续' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.timers.runDelay(150), true)
+
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.task).password, 'fake-password')
+  assert.equal(harness.values.has(core.CONFIG.sharedKeys.event), false)
+})
+
+test('登录态 Device Flow 已预填设备码时删除密码并点击继续', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device#grok-bulk-login=tab-1',
+    title: 'Device Sign-in | SpaceXAI Accounts',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: '登录 Grok Build 输入终端中显示的代码。FAKE - CODE 退出登录',
+    button: { textContent: '继续' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(Object.prototype.hasOwnProperty.call(harness.values.get(core.CONFIG.sharedKeys.task), 'password'), false)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'user_code_filled')
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+})
+
 test('未提交密码前 Device Flow 页面没有设备码或登录控件才回邮箱登录入口', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',

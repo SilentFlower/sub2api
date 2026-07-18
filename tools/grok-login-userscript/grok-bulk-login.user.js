@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.13
+// @version      0.2.14
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -555,14 +555,56 @@
   }
 
   /**
+   * 规范化设备码，兼容页面把短横线渲染为空格或分组文本。
+   * @param {unknown} value 原始设备码或页面文本。
+   * @return {string} 仅保留大写字母和数字的设备码。
+   */
+  function normalizeDeviceUserCode(value) {
+    return String(value || '').toUpperCase().replace(/[^A-Z0-9]+/g, '')
+  }
+
+  /**
+   * 判断当前 Device 页是否已经包含本任务的设备码。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {string} pageText 页面可见文本。
+   * @param {Array<string>} inputValues 输入框当前值。
+   * @return {boolean} 是否已经存在当前设备码。
+   */
+  function pageContainsDeviceUserCode(task, currentHref, pageText = '', inputValues = []) {
+    const expected = normalizeDeviceUserCode(task && task.user_code)
+    if (!expected) return false
+    try {
+      const current = new URL(String(currentHref || ''))
+      if (normalizeDeviceUserCode(current.searchParams.get('user_code')) === expected) return true
+    } catch {
+      // URL 异常时继续用页面文本判断，避免低置信页面直接误点。
+    }
+    return [pageText, ...inputValues]
+      .map(normalizeDeviceUserCode)
+      .some(text => text.includes(expected))
+  }
+
+  /**
+   * 判断页面文本是否显示当前浏览器已经登录 xAI。
+   * @param {string} pageText 页面可见文本。
+   * @return {boolean} 是否存在登录态提示。
+   */
+  function hasAuthenticatedSessionText(pageText) {
+    const text = String(pageText || '').toLowerCase()
+    return /\b(sign out|log out|logout)\b/.test(text) || text.includes('退出登录')
+  }
+
+  /**
    * 判断当前 Device 页是否可以提交本批次的用户代码。
    * @param {object|null} task 当前共享任务。
    * @param {string} currentHref 当前页面地址。
    * @param {object|null} descriptor 设备码输入框描述。
+   * @param {boolean} pageHasUserCode 页面或 URL 是否已经包含当前设备码。
    * @return {boolean} 是否允许提交设备码。
    */
-  function canSubmitDeviceUserCode(task, currentHref, descriptor) {
-    if (!task || !task.user_code || !descriptor) return false
+  function canSubmitDeviceUserCode(task, currentHref, descriptor, pageHasUserCode = false) {
+    if (!task || !task.user_code || (!descriptor && !pageHasUserCode)) return false
     try {
       const current = new URL(String(currentHref || ''))
       return current.protocol === 'https:'
@@ -1102,6 +1144,9 @@
     isDeviceVerificationPath,
     hasPasswordBeenSubmitted,
     shouldReturnToLoginBeforePassword,
+    normalizeDeviceUserCode,
+    pageContainsDeviceUserCode,
+    hasAuthenticatedSessionText,
     canSubmitDeviceUserCode,
     shouldNavigateToVerification,
     isAuthenticatedAccountLanding,
@@ -1504,6 +1549,7 @@
       ariaLabel: element.getAttribute('aria-label') || '',
       label: getLabelText(element),
       nearbyText: getNearbyInputText(element),
+      value: element.value || '',
       disabled: element.disabled,
       readOnly: element.readOnly,
       hidden: !isVisible(element)
@@ -1968,8 +2014,12 @@
       const userCode = chooseBestDescriptor(descriptors, 'user_code')
       const consentButton = findActionButton('consent')
       const emailMethod = findActionButton('email_method')
-      const canSubmitUserCode = canSubmitDeviceUserCode(task, location.href, userCode)
-      if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod || canSubmitUserCode))) {
+      const pageText = String(document.body && document.body.innerText || '')
+      const pageHasUserCode = pageContainsDeviceUserCode(task, location.href, pageText, descriptors.map(descriptor => descriptor.value))
+      const canSubmitUserCode = canSubmitDeviceUserCode(task, location.href, userCode, pageHasUserCode)
+      const userCodeButton = canSubmitUserCode ? findActionButton('login', { includeDisabled: true }) : null
+      const canActOnUserCode = Boolean(canSubmitUserCode && (userCode || userCodeButton))
+      if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod || canActOnUserCode))) {
         location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
         return
       }
@@ -2000,12 +2050,15 @@
         return
       }
 
-      if (canSubmitUserCode) {
-        setInputValue(userCode.element, task.user_code)
+      if (canActOnUserCode) {
+        if (task.password && hasAuthenticatedSessionText(pageText)) {
+          task = removeSharedPassword(task) || stripTaskPassword(task)
+          reportOnce('password_submitted', 'AUTHENTICATED_DEVICE')
+        }
+        if (userCode) setInputValue(userCode.element, task.user_code)
         if (hasPasswordBeenSubmitted(task)) reportOnce('user_code_filled', 'USER_CODE_FILLED')
-        const button = findActionButton('login')
         const stage = hasPasswordBeenSubmitted(task) ? 'user-code' : 'user-code-prelogin'
-        submitFilledInput(userCode.element, button, `${stage}:${location.href}`, undefined, 'login')
+        submitFilledInput(userCode ? userCode.element : null, userCodeButton, `${stage}:${location.href}`, undefined, 'login')
         return
       }
 
@@ -2024,7 +2077,7 @@
       }
 
       const hasRecognizedControls = Boolean(password || email || emailMethod
-        || canSubmitUserCode
+        || canActOnUserCode
         || (hasPasswordBeenSubmitted(task) && consentButton))
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
         location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)

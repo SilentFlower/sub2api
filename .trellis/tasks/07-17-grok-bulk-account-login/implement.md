@@ -33,6 +33,7 @@
 - [x] 修复 xAI 自然跳转链路的计时与状态错位：URL 变化时重置页面计时，`/account` 先等待自然跳转后兜底，密码提交后控制台进入“进入授权页”，设备码填入后进入“等待授权结果”。
 - [x] 修复 Device Flow 上下文丢失问题：登录标签首次打开 `verification_uri_complete`，未登录 Device 页优先点击官方邮箱登录入口，只有没有登录控件且等待窗口耗尽时才兜底 `sign-in`。
 - [x] 修复 Device Flow 前置设备码步骤：未提交密码前在可信 `/oauth2/device` 页识别设备码输入框并提交当前 `user_code`，保留共享密码等待后续邮箱登录；只有没有设备码或登录控件时才兜底 `sign-in`。
+- [x] 修复 Device Flow 已预填设备码末步：当 `verification_uri_complete` 已让页面显示当前设备码时，即使没有可编辑输入框也能点击“继续”；若页面已是登录态但共享密码仍残留，先删除密码并推进授权状态。
 
 ## 重点风险
 
@@ -60,7 +61,8 @@ git diff --check
 - 同时打开 HTTP/HTTP、HTTPS/HTTPS 和 HTTP/HTTPS 控制台，第二个批次必须被控制台锁拒绝；关闭首个页面并等待租约过期后可以恢复。
 - 使用虚构/专用测试账号先跑单号，确认控制台显示、自动填表、CF 暂停和 Token 轮询状态。
 - 点击 Cloudflare 后若页面显示“成功!”但仍停留在登录表单，确认脚本会等待约 5 秒后自动点击“登录”；如果 Cloudflare 消失后页面短暂空白或登录控件尚未恢复，脚本应继续等待约 60 秒并复扫，不应立刻显示“无法识别当前 xAI 页面”；如果第一次点击后仍停在已填写密码的登录表单，脚本应重按“登录”。
-- 确认登录标签首先进入 xAI 返回的 `verification_uri_complete`（URL 含当前 `user_code`）；若未登录 Device 页显示设备码输入框，脚本应填入当前 `user_code` 并点击继续，同时保留共享密码等待后续邮箱登录；若显示 `Login with email`，脚本应点击该入口；若没有设备码或登录控件，等待窗口耗尽后才回到 `https://accounts.x.ai/sign-in`。
+- 确认登录标签首先进入 xAI 返回的 `verification_uri_complete`（URL 含当前 `user_code`）；若未登录 Device 页显示设备码输入框，脚本应填入当前 `user_code` 并点击继续；若页面已预填当前设备码，脚本应直接点击“继续”；这两种情况都保留共享密码等待后续邮箱登录。若显示 `Login with email`，脚本应点击该入口；若没有设备码、继续按钮或登录控件，等待窗口耗尽后才回到 `https://accounts.x.ai/sign-in`。
+- 如果 Device 页右上角已显示“退出登录”但控制台仍停在“填写密码”，脚本应先删除共享密码、上报“进入授权页”，再点击“继续”并进入 Token 轮询。
 - 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应显示“进入授权页”，不点击账户页 “Email” 设置按钮；如果 xAI 自己继续跳到 Device Flow，脚本应跟随自然跳转并填写设备码；如果账户页长时间不动，脚本再兜底跳到官方 Device Flow 验证页。
 - 密码提交后若进入 `accounts.x.ai/oauth2/device` 的中文 Device Sign-in 页，脚本才应通过附近文案识别设备码输入框并点击“继续”。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。

@@ -47,4 +47,4 @@
 
 ## Next Step
 
-- 继续验证 0.2.13 Cloudflare 成功后 5 秒稳定等待、challenge 消失但页面未恢复时 60 秒后置等待、按钮可用后再提交、密码已消费但页面仍停在密码表单时重按登录、首次打开 `verification_uri_complete`、未登录 Device 页先提交当前 `user_code` 并保留密码、xAI 自然 `/account` -> `/oauth2/device` 跳转链路、授权中状态推进和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。
+- 继续验证 0.2.14 Cloudflare 成功后 5 秒稳定等待、challenge 消失但页面未恢复时 60 秒后置等待、按钮可用后再提交、密码已消费但页面仍停在密码表单时重按登录、首次打开 `verification_uri_complete`、未登录 Device 页先提交/点击已预填当前 `user_code` 并保留密码、登录态 Device 页补删共享密码并点击“继续”、xAI 自然 `/account` -> `/oauth2/device` 跳转链路、授权中状态推进和悬浮球 UI；检查通过后再进入 Phase 3.3/3.4。

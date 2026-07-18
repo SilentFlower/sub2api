@@ -270,9 +270,21 @@ test('未提交密码前进入 Device 页时允许先提交当前设备码', () 
   assert.equal(core.shouldReturnToLoginBeforePassword(submittedTask, 'https://accounts.x.ai/oauth2/device'), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(task, 'http://accounts.x.ai/oauth2/device'), false)
   assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/oauth2/device', descriptor), true)
+  assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE', null, true), true)
   assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/sign-in', descriptor), false)
   assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'http://accounts.x.ai/oauth2/device', descriptor), false)
   assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/oauth2/device', null), false)
+  assert.equal(core.pageContainsDeviceUserCode(
+    { ...task, user_code: 'VZVA-E9VE' },
+    'https://accounts.x.ai/oauth2/device?user_code=VZVA-E9VE',
+    ''
+  ), true)
+  assert.equal(core.pageContainsDeviceUserCode(
+    { ...task, user_code: 'VZVA-E9VE' },
+    'https://accounts.x.ai/oauth2/device',
+    '登录 Grok Build 输入终端中显示的代码 VZVA - E9VE'
+  ), true)
+  assert.equal(core.hasAuthenticatedSessionText('右上角 退出登录'), true)
 })
 
 test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
@@ -808,7 +820,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.13'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.14'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)

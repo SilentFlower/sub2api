@@ -99,10 +99,10 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - 登录/授权标签和站点存储清理标签必须使用不同的 URL fragment / `window.name` marker key。登录标签使用 `grok-bulk-login`，清理标签使用 `grok-bulk-cleanup`；清理 ACK 只接受 cleanup marker，不能接受 login marker，即使 `tab_marker` 值相同。
 - 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
-- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。登录标签首次必须打开 `verification_launch_url`，保留官方 Device Flow 上下文；未登录时如果该页展示设备码输入框，必须先提交当前任务的 `user_code` 以建立设备授权上下文，再跟随 xAI 进入邮箱登录；如果该页直接展示 `Login with email` / 邮箱登录入口则点击入口，只有没有设备码和登录控件且等待窗口耗尽时才兜底回 `https://accounts.x.ai/sign-in`。如果 xAI 登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，先给 xAI 自然跳转窗口，超时后才兜底跳转 Device Flow，不得点击账户页里的 Email 等设置控件；不要把清理标签、根路径页面或未登录 Device 页当作登录页证据。
+- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。登录标签首次必须打开 `verification_launch_url`，保留官方 Device Flow 上下文；未登录时如果该页展示设备码输入框，或 URL / 页面文本已经包含当前 `user_code`，必须提交当前任务的 `user_code` / 点击“继续”以建立设备授权上下文，再跟随 xAI 进入邮箱登录；如果该页直接展示 `Login with email` / 邮箱登录入口则点击入口，只有没有设备码、继续按钮和登录控件且等待窗口耗尽时才兜底回 `https://accounts.x.ai/sign-in`。如果 xAI 登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动必须把它视为已登录中间态，先给 xAI 自然跳转窗口，超时后才兜底跳转 Device Flow，不得点击账户页里的 Email 等设置控件；不要把清理标签、根路径页面或未登录 Device 页当作登录页证据。
 - 登录驱动中基于页面停留时间的判断必须在 URL 变化时重置计时。xAI 自己从密码页跳到账户页、再跳到 Device Flow 页时，脚本不得沿用上一页的 `firstSeenAt` 提前触发未知页或兜底跳转。
 - 控制台状态必须跟随关键自动化阶段推进：密码实际提交并删除共享密码后不得继续显示“填写密码”，应进入授权页等待状态；Device Code 输入页填入 `user_code` 后应进入 Token 轮询/等待授权结果状态，即使页面没有单独的 consent 按钮。
-- xAI 未登录状态若先展示 Device Sign-in 设备码输入页，登录驱动必须通过 input 自身属性、label、placeholder 或输入框附近短文本识别中文/英文设备码输入框，填入当前任务的 `user_code` 并提交；这一步不删除共享密码，也不把控制台切到 Token 轮询。不得把通用 OTP/验证码页误识别为设备码页。
+- xAI 未登录状态若先展示 Device Sign-in 设备码输入页，登录驱动必须通过 input 自身属性、label、placeholder、输入框附近短文本、URL `user_code` 参数或页面已渲染的当前设备码识别中文/英文设备码表单，填入当前任务的 `user_code` 或直接点击“继续”；这一步不删除共享密码，也不把控制台切到 Token 轮询。不得把通用 OTP/验证码页误识别为设备码页。
 - xAI 设备授权路径判断必须兼容 `/oauth2/device` 基础路径和其子路径，禁止只匹配 `/oauth2/device/`。官方验证页路径变化时，低置信度页面仍应停机或等待人工，不得猜测点击。
 - Cloudflare、验证码、2FA 和未知安全确认只切换为人工等待状态。Cloudflare / Turnstile 显示“成功 / Success / Verified”后仍可能需要短暂写入验证结果，驱动必须等待稳定窗口再恢复提交；如果曾经检测到 challenge，但 challenge DOM 消失后登录/授权控件尚未恢复，必须在有限后置窗口内继续等待并复扫，不得立刻按普通未知页停机；人工处理结束且页面重新成为高置信度登录/授权阶段后，驱动可以继续。
 - 填表后的延迟动作必须按以下顺序执行：记录任务归属和调度 URL -> 等待有限延迟 -> 重新校验共享任务、标签、URL 和非 challenge 状态 -> 占用动作门禁次数 -> 点击高置信度按钮或派发 Enter。
@@ -138,7 +138,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | Device Flow 只返回 `verification_uri` 或返回当前 `/oauth2/device` 基础路径 | 使用可信验证页继续流程 |
 | 密码提交后进入 `accounts.x.ai/account` 账户页 | 视为登录成功中间态，删除共享密码，等待 xAI 自然跳转；超时后兜底跳转官方 Device Flow 验证页，不点击账户设置控件 |
 | xAI 自己从密码页跳到 `/account` 再跳到 `/oauth2/device` | URL 变化重置页面计时，不用上一页等待时间提前兜底跳转；控制台状态从“填写密码”推进到授权/轮询阶段 |
-| 未提交密码前进入 Device Sign-in 页 | 若识别到设备码输入框，先提交当前 `user_code` 且保留密码；若只有邮箱登录入口则点击入口；若没有设备码或登录控件且等待窗口耗尽，才回到 `https://accounts.x.ai/sign-in` |
+| 未提交密码前进入 Device Sign-in 页 | 若识别到设备码输入框、URL 参数或页面已预填当前 `user_code`，先填码或直接点“继续”且保留密码；若只有邮箱登录入口则点击入口；若没有设备码、继续按钮或登录控件且等待窗口耗尽，才回到 `https://accounts.x.ai/sign-in` |
 | 密码提交后 Device Sign-in 中文页只在输入框附近显示“输入设备代码” | 通过近邻文本识别设备码输入框，填入 `user_code` 并提交 |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
 | 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败；`auth.x.ai` 不得使用根路径承载 |
@@ -159,7 +159,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：xAI Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，任务保存基础验证页和带 `user_code` 的启动页，登录标签先打开 `verification_uri_complete`；未登录时先在该页提交设备码，或在该页已有邮箱登录入口时点击入口，没有设备码或登录控件时才兜底回 `accounts.x.ai/sign-in`。
 - Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮；驱动忽略该按钮，确认共享密码已删除，给 xAI 自然后续跳转窗口，窗口耗尽后才兜底跳转 `verification_url`。
 - Good：密码页停留数秒后 xAI 自己跳到 `/account`，再自己跳到 `/oauth2/device`；驱动在每次 URL 变化时重置页面计时，控制台不继续显示“填写密码”，并在设备码填入后进入等待授权结果。
-- Good：未提交密码前进入 `accounts.x.ai/oauth2/device` 中文页时，驱动通过附近容器“输入设备代码”填入当前 `user_code` 并点击“继续”，但保留共享密码等待后续邮箱登录；密码提交后再进入 Device 页时同样可以提交当前 `user_code` 或点击授权。
+- Good：未提交密码前进入 `accounts.x.ai/oauth2/device` 中文页时，驱动通过附近容器“输入设备代码”填入当前 `user_code` 并点击“继续”；如果 `verification_uri_complete` 已经让页面预填设备码，则直接点击“继续”。这两种情况都保留共享密码等待后续邮箱登录；密码提交后再进入 Device 页时同样可以提交当前 `user_code` 或点击授权。
 - Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
@@ -186,7 +186,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
   - 未提交密码时登录入口无表单不会提前跳转官方设备验证页；密码提交并写入 `password_consumed_at` 后，才会在有限延迟后跳转官方设备验证页并保留标签归属。
   - 密码提交后落到 `accounts.x.ai/account` 时，即使页面存在 “Email” 等账户设置按钮，也不会点击账户页控件；先等待自然跳转，窗口耗尽后才跳转官方设备验证页。
   - 完整模拟密码页 -> xAI 自然 `/account` -> xAI 自然 `/oauth2/device`，断言 URL 变化重置页面计时、账户页不提前接管、设备码填入后状态事件继续推进。
-  - 未提交密码前进入 Device Sign-in 页时，若有设备码输入框则提交当前 `user_code` 且保留密码；若页面已有邮箱登录入口则点击；若没有设备码或登录控件且等待窗口耗尽才回邮箱登录入口；密码提交后中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
+  - 未提交密码前进入 Device Sign-in 页时，若有设备码输入框、URL 参数或页面已预填当前 `user_code`，则填码或直接点击“继续”且保留密码；若页面已有邮箱登录入口则点击；若没有设备码、继续按钮或登录控件且等待窗口耗尽才回邮箱登录入口；密码提交后中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
   - URL 变化或 challenge 出现后，按钮和 Enter 都不触发，密码不标记为已提交。
