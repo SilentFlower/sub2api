@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-18T02:12:18Z",
+    "updatedAt": "2026-07-18T02:30:22Z",
     "completedSteps": [
       "Phase 2.1 0.2.13 Device Flow 前置设备码修复：未提交密码前在可信 /oauth2/device 页提交当前 user_code 并保留密码，避免跳 sign-in 丢失设备授权上下文",
       "Phase 2.2 0.2.13 检查：node --check、Node 测试 75/75、git diff --check 全部通过，且旧错误假设扫描无敏感凭据残留",
@@ -45,10 +45,14 @@
       "Phase 2.1 0.2.17 最终授权稳定窗口修复：设备码提交或 Grok Build 授权提交后，Token 成功时补足约 5 秒稳定窗口，再关闭登录标签和清理 Session",
       "Phase 2.2 0.2.17 检查：node --check、Node 测试 82/82、git diff --check 和敏感信息扫描全部通过",
       "Phase 3.3 0.2.17 规范：同步浏览器认证自动化 spec、任务设计/实施说明与 README",
-      "Phase 3.4 0.2.17 最终授权稳定窗口修复已提交并推送到 origin/build"
+      "Phase 3.4 0.2.17 最终授权稳定窗口修复已提交并推送到 origin/build",
+      "Phase 2.1 0.2.18 /oauth2/device/approve 授权页修复：Grok Build 授权页优先于设备码页识别，允许“继续”/Continue 作为最终授权按钮，并避免点击 GET approve 伪按钮导致 Invalid action",
+      "Phase 2.2 0.2.18 检查：node --check、Node 测试 84/84、git diff --check 和敏感信息扫描全部通过",
+      "Phase 3.3 0.2.18 规范：同步浏览器认证自动化 spec、任务设计/实施说明与 README",
+      "Phase 3.4 0.2.18 approve 授权页误提交修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "在 Violentmonkey 中替换为 0.2.17 脚本后重测；确认最终设备码/授权提交后，即使 RT 很快返回，授权页也会保留约 5 秒再关闭并清理 Session。",
-    "notes": "0.2.17 只延后成功后的关闭/清理，不改变登录、Cloudflare、Device Flow 和 Token 轮询顺序；停止/跳过仍可立即取消。"
+    "nextStep": "在 Violentmonkey 中替换为 0.2.18 脚本后重测；确认 /oauth2/device/approve 上的 Grok Build 授权页会点击“允许/继续”，不再显示 Invalid action，并在 RT 返回后按稳定窗口清理 Session。",
+    "notes": "0.2.18 只调整最终授权页识别和按钮选择顺序；不改变登录、Cloudflare、Device Flow、Token 轮询和 Session 清理顺序。"
   }
 }
