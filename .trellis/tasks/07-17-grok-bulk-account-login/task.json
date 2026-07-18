@@ -24,7 +24,7 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-18T01:56:17Z",
+    "updatedAt": "2026-07-18T02:12:18Z",
     "completedSteps": [
       "Phase 2.1 0.2.13 Device Flow 前置设备码修复：未提交密码前在可信 /oauth2/device 页提交当前 user_code 并保留密码，避免跳 sign-in 丢失设备授权上下文",
       "Phase 2.2 0.2.13 检查：node --check、Node 测试 75/75、git diff --check 全部通过，且旧错误假设扫描无敏感凭据残留",
@@ -41,10 +41,14 @@
       "Phase 2.1 0.2.16 标签归属恢复修复：登录跳转丢失 URL hash/window.name 后使用同标签 sessionStorage 恢复 tab_marker，确保 /account 写入 authenticated_at 并继续 Device Flow",
       "Phase 2.2 0.2.16 检查：node --check、Node 测试 81/81、git diff --check 和敏感信息扫描全部通过",
       "Phase 3.3 0.2.16 规范：同步浏览器认证自动化 spec、任务设计/实施说明与 README",
-      "Phase 3.4 0.2.16 标签归属恢复修复已提交并推送到 origin/build"
+      "Phase 3.4 0.2.16 标签归属恢复修复已提交并推送到 origin/build",
+      "Phase 2.1 0.2.17 最终授权稳定窗口修复：设备码提交或 Grok Build 授权提交后，Token 成功时补足约 5 秒稳定窗口，再关闭登录标签和清理 Session",
+      "Phase 2.2 0.2.17 检查：node --check、Node 测试 82/82、git diff --check 和敏感信息扫描全部通过",
+      "Phase 3.3 0.2.17 规范：同步浏览器认证自动化 spec、任务设计/实施说明与 README",
+      "Phase 3.4 0.2.17 最终授权稳定窗口修复已提交并推送到 origin/build"
     ],
     "partialStep": null,
-    "nextStep": "在 Violentmonkey 中替换为 0.2.16 脚本后，打开 http://www.havefun.eu.cc:8080/admin/accounts 重测；确认登录进入 https://accounts.x.ai/account 后即使地址栏没有 #grok-bulk-login，也会自动创建 Device Flow 并跳转设备码页。",
-    "notes": "0.2.16 修复真实浏览器登录跳转后标签归属丢失：只在同标签 sessionStorage 保存随机 tab_marker，不保存邮箱、密码或 token；仍需 run_id/account_id/tab_marker 匹配才自动动作。"
+    "nextStep": "在 Violentmonkey 中替换为 0.2.17 脚本后重测；确认最终设备码/授权提交后，即使 RT 很快返回，授权页也会保留约 5 秒再关闭并清理 Session。",
+    "notes": "0.2.17 只延后成功后的关闭/清理，不改变登录、Cloudflare、Device Flow 和 Token 轮询顺序；停止/跳过仍可立即取消。"
   }
 }
