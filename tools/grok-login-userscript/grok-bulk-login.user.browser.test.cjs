@@ -684,7 +684,7 @@ test('未提交密码前 Device Flow 页面有邮箱登录入口时优先点击�
   assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'email_method_selected')
 })
 
-test('未提交密码前误入 Device Flow 页面会回到邮箱登录入口', () => {
+test('未提交密码前 Device Flow 页面会先提交设备码并保留密码', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',
     pathname: '/oauth2/device',
@@ -707,15 +707,36 @@ test('未提交密码前误入 Device Flow 页面会回到邮箱登录入口', (
 
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
   assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
-  assert.equal(harness.input.value, '')
-  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.input.value, 'FAKE-CODE')
+  assert.equal(harness.timers.runDelay(150), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.task).password, 'fake-password')
+  assert.equal(harness.values.has(core.CONFIG.sharedKeys.event), false)
+})
+
+test('未提交密码前 Device Flow 页面没有设备码或登录控件才回邮箱登录入口', () => {
+  const harness = createDriverHarness({
+    hostname: 'accounts.x.ai',
+    pathname: '/oauth2/device',
+    href: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1',
+    title: 'Device Sign-in | SpaceXAI Accounts',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createActiveTask({
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: '正在准备设备登录'
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.location.href, 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE#grok-bulk-login=tab-1')
 
   harness.advanceTime(core.CONFIG.loginToVerificationDelayMs + 1)
   harness.triggerMutation()
   assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
   assert.equal(harness.location.href, 'https://accounts.x.ai/sign-in#grok-bulk-login=tab-1')
-  assert.equal(harness.input.value, '')
-  assert.equal(harness.button.clickCalls, 0)
 })
 
 test('密码提交后中文 Device Flow 页面通过附近文案填入设备码并提交', () => {

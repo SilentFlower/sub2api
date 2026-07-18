@@ -256,9 +256,10 @@ test('授权中状态覆盖密码提交后到设备码提交的自然跳转阶�
   assert.equal(core.canTransition('authorizing', 'filling_password'), true)
 })
 
-test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
+test('未提交密码前进入 Device 页时允许先提交当前设备码', () => {
   const task = { verification_url: 'https://accounts.x.ai/oauth2/device', password: 'fake-password' }
   const submittedTask = { verification_url: 'https://accounts.x.ai/oauth2/device', password_consumed_at: 123 }
+  const descriptor = { element: {}, type: 'text' }
 
   assert.equal(core.hasPasswordBeenSubmitted(task), false)
   assert.equal(core.hasPasswordBeenSubmitted(submittedTask), true)
@@ -268,6 +269,10 @@ test('未提交密码前进入 Device 页时回到邮箱登录入口', () => {
   assert.equal(core.shouldReturnToLoginBeforePassword(task, 'https://accounts.x.ai/sign-in'), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(submittedTask, 'https://accounts.x.ai/oauth2/device'), false)
   assert.equal(core.shouldReturnToLoginBeforePassword(task, 'http://accounts.x.ai/oauth2/device'), false)
+  assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/oauth2/device', descriptor), true)
+  assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/sign-in', descriptor), false)
+  assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'http://accounts.x.ai/oauth2/device', descriptor), false)
+  assert.equal(core.canSubmitDeviceUserCode({ ...task, user_code: 'FAKE-CODE' }, 'https://accounts.x.ai/oauth2/device', null), false)
 })
 
 test('控制台地址精确允许 havefun HTTP 和 HTTPS', () => {
@@ -803,7 +808,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.12'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.13'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)

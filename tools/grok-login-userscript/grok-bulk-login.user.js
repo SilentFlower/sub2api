@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.12
+// @version      0.2.13
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -555,6 +555,25 @@
   }
 
   /**
+   * 判断当前 Device 页是否可以提交本批次的用户代码。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {object|null} descriptor 设备码输入框描述。
+   * @return {boolean} 是否允许提交设备码。
+   */
+  function canSubmitDeviceUserCode(task, currentHref, descriptor) {
+    if (!task || !task.user_code || !descriptor) return false
+    try {
+      const current = new URL(String(currentHref || ''))
+      return current.protocol === 'https:'
+        && (current.hostname === 'x.ai' || current.hostname.endsWith('.x.ai'))
+        && isDeviceVerificationPath(current.pathname)
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * 判断登录入口在无可识别控件时是否应进入官方 Device Flow 验证页。
    * @param {object|null} task 当前共享任务。
    * @param {string} currentHref 当前页面地址。
@@ -1083,6 +1102,7 @@
     isDeviceVerificationPath,
     hasPasswordBeenSubmitted,
     shouldReturnToLoginBeforePassword,
+    canSubmitDeviceUserCode,
     shouldNavigateToVerification,
     isAuthenticatedAccountLanding,
     shouldNavigateFromAuthenticatedLanding,
@@ -1948,7 +1968,8 @@
       const userCode = chooseBestDescriptor(descriptors, 'user_code')
       const consentButton = findActionButton('consent')
       const emailMethod = findActionButton('email_method')
-      if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod))) {
+      const canSubmitUserCode = canSubmitDeviceUserCode(task, location.href, userCode)
+      if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod || canSubmitUserCode))) {
         location.href = appendDriverMarker(CONFIG.loginStartUrl, task.tab_marker)
         return
       }
@@ -1979,11 +2000,12 @@
         return
       }
 
-      if (userCode && task.user_code && hasPasswordBeenSubmitted(task)) {
+      if (canSubmitUserCode) {
         setInputValue(userCode.element, task.user_code)
-        reportOnce('user_code_filled', 'USER_CODE_FILLED')
+        if (hasPasswordBeenSubmitted(task)) reportOnce('user_code_filled', 'USER_CODE_FILLED')
         const button = findActionButton('login')
-        submitFilledInput(userCode.element, button, `user-code:${location.href}`, undefined, 'login')
+        const stage = hasPasswordBeenSubmitted(task) ? 'user-code' : 'user-code-prelogin'
+        submitFilledInput(userCode.element, button, `${stage}:${location.href}`, undefined, 'login')
         return
       }
 
@@ -2002,7 +2024,8 @@
       }
 
       const hasRecognizedControls = Boolean(password || email || emailMethod
-        || (hasPasswordBeenSubmitted(task) && (userCode || consentButton)))
+        || canSubmitUserCode
+        || (hasPasswordBeenSubmitted(task) && consentButton))
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
         location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)
         return
