@@ -870,6 +870,59 @@ test('可信 Grok Build 授权页会点击允许', () => {
   assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'authorization_submitted')
 })
 
+test('Device approve 授权页会把继续按钮当作最终授权提交', () => {
+  const harness = createDriverHarness({
+    hostname: 'auth.x.ai',
+    pathname: '/oauth2/device/approve',
+    href: 'https://auth.x.ai/oauth2/device/approve#grok-bulk-login=tab-1',
+    title: 'Authorize Grok Build',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+        user_code: 'FAKE-CODE',
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: 'Authorize Grok Build Continue FAKE-CODE',
+    button: { textContent: '继续' }
+  })
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.button.clickCalls, 1)
+  assert.equal(harness.values.get(core.CONFIG.sharedKeys.event).type, 'authorization_submitted')
+})
+
+test('Device approve 授权页不会点击会 GET approve 的链接伪按钮', () => {
+  const harness = createDriverHarness({
+    hostname: 'auth.x.ai',
+    pathname: '/oauth2/device/approve',
+    href: 'https://auth.x.ai/oauth2/device/approve#grok-bulk-login=tab-1',
+    title: 'Authorize Grok Build',
+    windowName: 'grok-bulk-login:tab-1',
+    values: {
+      [core.CONFIG.sharedKeys.task]: createPasswordSubmittedTask({
+        user_code: 'FAKE-CODE',
+        verification_url: 'https://accounts.x.ai/oauth2/device',
+        verification_launch_url: 'https://accounts.x.ai/oauth2/device?user_code=FAKE-CODE'
+      })
+    },
+    bodyText: 'Authorize Grok Build Continue FAKE-CODE',
+    button: {
+      textContent: '继续',
+      attributes: {
+        href: '/oauth2/device/approve',
+        role: 'button'
+      }
+    }
+  })
+  harness.button.tagName = 'A'
+
+  assert.equal(harness.timers.runDelay(core.CONFIG.scanDebounceMs), true)
+  assert.equal(harness.button.clickCalls, 0)
+  assert.equal(harness.values.has(core.CONFIG.sharedKeys.event), false)
+})
+
 test('未提交密码前 Device Flow 页面没有设备码或登录控件才回邮箱登录入口', () => {
   const harness = createDriverHarness({
     hostname: 'accounts.x.ai',

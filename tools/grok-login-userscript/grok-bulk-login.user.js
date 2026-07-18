@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grok 批量登录助手
 // @namespace    https://www.havefun.eu.cc/
-// @version      0.2.17
+// @version      0.2.18
 // @description  在指定控制台页面串行登录 Grok/xAI 账号，通过官方 Device Flow 导出 refresh token。
 // @author       silentflower
 // @homepageURL  https://www.havefun.eu.cc/
@@ -543,6 +543,27 @@
   }
 
   /**
+   * 判断页面文本是否明确表示正在授权 Grok Build。
+   * @param {string} pageText 页面可见文本。
+   * @return {boolean} 是否包含 Grok Build 授权语义。
+   */
+  function pageHasGrokBuildConsentPrompt(pageText) {
+    const text = String(pageText || '').toLowerCase()
+    const hasConsentVerb = text.includes('authorize')
+      || text.includes('allow')
+      || text.includes('grant')
+      || text.includes('授权')
+      || text.includes('允许')
+      || text.includes('同意')
+      || text.includes('批准')
+    const hasOAuthScopeText = text.includes('use the xai api')
+      || text.includes('read your email address')
+      || text.includes('权限')
+    return text.includes('grok build')
+      && (hasConsentVerb || hasOAuthScopeText)
+  }
+
+  /**
    * 判断密码是否已经提交并从共享任务删除。
    * @param {object|null} task 当前共享任务。
    * @return {boolean} 密码是否已提交。
@@ -676,6 +697,20 @@
   }
 
   /**
+   * 判断当前页面是否应作为设备码输入页处理。
+   * @param {object|null} task 当前共享任务。
+   * @param {string} currentHref 当前页面地址。
+   * @param {object|null} descriptor 设备码输入框描述。
+   * @param {boolean} pageHasUserCode 页面或 URL 是否已经包含当前设备码。
+   * @param {string} pageText 页面可见文本。
+   * @return {boolean} 是否允许按设备码阶段提交。
+   */
+  function canActOnDeviceUserCode(task, currentHref, descriptor, pageHasUserCode = false, pageText = '') {
+    if (isTrustedDeviceConsentPage(task, currentHref, pageText)) return false
+    return canSubmitDeviceUserCode(task, currentHref, descriptor, pageHasUserCode)
+  }
+
+  /**
    * 判断登录入口在无可识别控件时是否应进入官方 Device Flow 验证页。
    * @param {object|null} task 当前共享任务。
    * @param {string} currentHref 当前页面地址。
@@ -754,10 +789,9 @@
           || current.hostname === 'grok.com'
           || current.hostname.endsWith('.grok.com'))
       if (!hostAllowed) return false
-      if (isDeviceVerificationPath(current.pathname)) return true
-      const text = String(pageText || '').toLowerCase()
-      return /^\/oauth2\/(?:authorize|consent|device)(?:\/|$)/.test(current.pathname)
-        && (text.includes('授权 grok build') || text.includes('authorize grok build'))
+      if (!pageHasGrokBuildConsentPrompt(pageText)) return false
+      return isDeviceVerificationPath(current.pathname)
+        || /^\/oauth2\/(?:authorize|consent|device)(?:\/|$)/.test(current.pathname)
     } catch {
       return false
     }
@@ -1248,6 +1282,7 @@
     taskVerificationUrl,
     attachDeviceFlowToTask,
     isDeviceVerificationPath,
+    pageHasGrokBuildConsentPrompt,
     hasPasswordBeenSubmitted,
     hasAuthenticatedLogin,
     shouldRequestDeviceFlowAfterLogin,
@@ -1257,6 +1292,7 @@
     pageContainsDeviceUserCode,
     hasAuthenticatedSessionText,
     canSubmitDeviceUserCode,
+    canActOnDeviceUserCode,
     shouldNavigateToVerification,
     isAuthenticatedAccountLanding,
     shouldNavigateFromAuthenticatedLanding,
@@ -1706,6 +1742,25 @@
   }
 
   /**
+   * 计算动作元素可信优先级。
+   * @param {Element} element 候选动作元素。
+   * @param {'login'|'consent'|'email_method'} kind 动作类型。
+   * @return {number} 优先级，负数表示该类型下禁止自动点击。
+   */
+  function actionElementPriority(element, kind) {
+    const tagName = String(element && element.tagName || '').toLowerCase()
+    const href = typeof element.getAttribute === 'function' ? element.getAttribute('href') : ''
+    if (kind === 'consent' && href) {
+      // xAI 的 approve 端点需要页面表单携带 action；直接点链接会变成 GET 并返回 Invalid action。
+      return -1
+    }
+    if (tagName === 'button') return element.form ? 40 : 30
+    if (tagName === 'input') return element.form ? 38 : 28
+    if (element && element.getAttribute && element.getAttribute('role') === 'button') return 10
+    return 0
+  }
+
+  /**
    * 查找高置信度动作按钮。
    * @param {'login'|'consent'|'email_method'} kind 动作类型。
    * @param {{includeDisabled?: boolean}} [options] 是否包含 disabled 按钮用于等待可用。
@@ -1717,12 +1772,17 @@
       .filter(element => options.includeDisabled || !isDisabledActionElement(element))
     const patterns = {
       login: /^(continue|next|sign in|log in|login|submit|继续|下一步|登录|登入)$/i,
-      consent: /^(allow|approve|authorize|grant access|同意|允许|授权|批准)$/i,
+      consent: /^(allow|approve|authorize|grant access|continue|next|同意|允许|授权|批准|继续|下一步)$/i,
       email_method: /^(email|login with email|continue with email|sign in with email|log in with email|使用邮箱|使用邮箱登录|使用电子邮件登录|邮箱登录|电子邮件登录)$/i
     }
     const pattern = patterns[kind]
-    const exact = candidates.filter(element => pattern.test(getButtonText(element)))
-    if (exact.length === 1) return exact[0]
+    const exact = candidates
+      .map(element => ({ element, priority: actionElementPriority(element, kind) }))
+      .filter(item => item.priority >= 0 && pattern.test(getButtonText(item.element)))
+    if (!exact.length) return null
+    const highestPriority = Math.max(...exact.map(item => item.priority))
+    const best = exact.filter(item => item.priority === highestPriority)
+    if (best.length === 1) return best[0].element
     return null
   }
 
@@ -2148,11 +2208,12 @@
       const password = chooseBestDescriptor(descriptors, 'password')
       const email = chooseBestDescriptor(descriptors, 'email')
       const userCode = chooseBestDescriptor(descriptors, 'user_code')
-      const consentButton = findActionButton('consent')
+      const pageText = `${document.title || ''} ${String(document.body && document.body.innerText || '')}`
+      const trustedConsentPage = isTrustedDeviceConsentPage(task, location.href, pageText)
+      const consentButton = trustedConsentPage ? findActionButton('consent') : null
       const emailMethod = findActionButton('email_method')
-      const pageText = String(document.body && document.body.innerText || '')
       const pageHasUserCode = pageContainsDeviceUserCode(task, location.href, pageText, descriptors.map(descriptor => descriptor.value))
-      const canSubmitUserCode = canSubmitDeviceUserCode(task, location.href, userCode, pageHasUserCode)
+      const canSubmitUserCode = canActOnDeviceUserCode(task, location.href, userCode, pageHasUserCode, pageText)
       const userCodeButton = canSubmitUserCode ? findActionButton('login', { includeDisabled: true }) : null
       const canActOnUserCode = Boolean(canSubmitUserCode && (userCode || userCodeButton))
       if (shouldReturnToLoginBeforePassword(task, location.href, Date.now(), firstSeenAt, Boolean(password || email || emailMethod || canActOnUserCode))) {
@@ -2186,6 +2247,13 @@
         return
       }
 
+      if (consentButton && trustedConsentPage) {
+        if (clickOnce(consentButton, `consent:${location.href}`)) {
+          reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
+        }
+        return
+      }
+
       if (canActOnUserCode) {
         if ((task.password || !task.authenticated_at) && hasAuthenticatedSessionText(pageText)) {
           task = markSharedTaskAuthenticated(task) || markTaskAuthenticated(task)
@@ -2198,13 +2266,6 @@
         return
       }
 
-      if (consentButton && isTrustedDeviceConsentPage(task, location.href, pageText)) {
-        if (clickOnce(consentButton, `consent:${location.href}`)) {
-          reportOnce('authorization_submitted', 'CONSENT_SUBMITTED')
-        }
-        return
-      }
-
       if (emailMethod) {
         if (clickOnce(emailMethod, `email-method:${location.href}`)) {
           reportOnce('email_method_selected', 'EMAIL_METHOD_SELECTED')
@@ -2214,7 +2275,7 @@
 
       const hasRecognizedControls = Boolean(password || email || emailMethod
         || canActOnUserCode
-        || (consentButton && isTrustedDeviceConsentPage(task, location.href, pageText)))
+        || (consentButton && trustedConsentPage))
       if (shouldNavigateToVerification(task, location.href, Date.now(), firstSeenAt, hasRecognizedControls)) {
         location.href = appendDriverMarker(taskVerificationUrl(task), task.tab_marker)
         return

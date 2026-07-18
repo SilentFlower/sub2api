@@ -352,6 +352,40 @@ test('可信 Grok Build 授权页允许点击 consent', () => {
   ), true)
   assert.equal(core.isTrustedDeviceConsentPage(
     task,
+    'https://auth.x.ai/oauth2/device/approve',
+    'Authorize Grok Build Continue'
+  ), true)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://auth.x.ai/oauth2/device/approve',
+    'Grok Build Use the xAI API Read your email address Continue'
+  ), true)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://accounts.x.ai/oauth2/device/approve',
+    '授权 Grok Build 继续'
+  ), true)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
+    'https://accounts.x.ai/oauth2/device',
+    '登录 Grok Build 输入终端中显示的代码 FAKE-CODE 继续'
+  ), false)
+  assert.equal(core.canActOnDeviceUserCode(
+    task,
+    'https://auth.x.ai/oauth2/device/approve',
+    null,
+    true,
+    'Authorize Grok Build Continue'
+  ), false)
+  assert.equal(core.canActOnDeviceUserCode(
+    task,
+    'https://accounts.x.ai/oauth2/device',
+    null,
+    true,
+    '登录 Grok Build 输入终端中显示的代码 FAKE-CODE 继续'
+  ), true)
+  assert.equal(core.isTrustedDeviceConsentPage(
+    task,
     'https://accounts.x.ai/oauth2/authorize?client_id=fake',
     'Authorize Unknown App'
   ), false)
@@ -900,7 +934,7 @@ test('resolveAccountFailure 覆盖跳过、停止和标签关闭', () => {
 })
 
 test('控制台允许 HTTP/HTTPS 且 Shadow DOM 不向页面开放', () => {
-  assert.equal(scriptSource.includes('// @version      0.2.17'), true)
+  assert.equal(scriptSource.includes('// @version      0.2.18'), true)
   assert.equal(scriptSource.includes('// @match        http://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @match        https://www.havefun.eu.cc/*'), true)
   assert.equal(scriptSource.includes('// @include      http://www.havefun.eu.cc:8080/*'), true)

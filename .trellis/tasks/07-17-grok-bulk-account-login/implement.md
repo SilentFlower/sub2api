@@ -37,6 +37,7 @@
 - [x] 修复 0.2.15 实测主流程：登录标签先打开 `https://accounts.x.ai/sign-in` 完成邮箱密码登录；驱动确认 `/account` 或登录态后写入 `authenticated_at`；控制台随后创建 Device Flow 并写入 `device_ready_at`；登录标签再跳转官方设备码页、点击“继续”和 Grok Build 授权页“允许”。已取消或过期任务不得在登录后继续创建 Device Flow。
 - [x] 修复 0.2.16 `/account` 后不继续授权的问题：登录标签首次读到 `#grok-bulk-login=...` 时把随机 `tab_marker` 写入同标签 `sessionStorage`，xAI 跳转到 `https://accounts.x.ai/account` 后即使 URL hash / `window.name` 丢失，驱动仍能识别当前任务并写入 `authenticated_at`，触发控制台后续 Device Flow。
 - [x] 修复 0.2.17 最终设备授权后过快清理的问题：设备码提交或 Grok Build 授权提交后，Token 成功时按最近提交时间补足约 5 秒稳定窗口；没有捕获提交事件时从 Token 成功后等待约 5 秒，再关闭登录标签和清理 Session。
+- [x] 修复 0.2.18 `/oauth2/device/approve` 被误当成设备码页的问题：Grok Build 授权页优先于设备码页识别，允许“继续”/`Continue` 作为最终授权按钮，且不会点击会 GET approve 并返回 `Invalid action` 的链接式伪按钮。
 
 ## 重点风险
 
@@ -67,7 +68,7 @@ git diff --check
 - 确认登录标签首先进入 `https://accounts.x.ai/sign-in`，而不是先进入 `verification_uri_complete`；脚本应自动填写邮箱和密码，Cloudflare/验证码仍由人工处理。
 - 密码提交后如果页面进入 `https://accounts.x.ai/account`，脚本应显示“进入授权页”，不点击账户页 “Email” 设置按钮；即使地址栏已不带 `#grok-bulk-login=...`、`window.name` 也为空，脚本仍应通过同标签 `sessionStorage` 识别当前登录标签。此时控制台才创建 Device Flow 并把设备码写回共享任务。
 - 控制台写入 Device Flow 后，登录标签应跳转到 `accounts.x.ai/oauth2/device` 或 xAI 返回的等价验证页；若显示设备码输入框，脚本应填入当前 `user_code` 并点击“继续”；若页面已预填当前设备码，脚本应直接点击“继续”。
-- 若后续出现 “授权 Grok Build” / “Authorize Grok Build” 页面，脚本应点击“允许”/“Allow”，随后控制台进入 Token 轮询；如果 RT 很快返回，控制台应显示授权稳定等待并保留页面约 5 秒后再进入成功和清理。
+- 若后续出现 “授权 Grok Build” / “Authorize Grok Build” 页面，脚本应点击“允许”/“Allow”/“继续”/“Continue”，随后控制台进入 Token 轮询；如果 RT 很快返回，控制台应显示授权稳定等待并保留页面约 5 秒后再进入成功和清理。授权页位于 `/oauth2/device/approve` 时不得再显示 `Invalid action`。
 - 验证成功后检查 refresh token 导出格式，并确认控制台、日志和共享值中不存在密码。
 - 检查目标域 Cookie 二次枚举为空；故意关闭权限时队列必须在清理阶段停止。
 - 使用两个测试账号串行运行，确认第二号不会继承第一号登录态。

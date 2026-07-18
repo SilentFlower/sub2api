@@ -102,7 +102,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - 站点存储清理标签必须使用目标 origin 下可稳定加载脚本文档的承载 URL。已知 `auth.x.ai` 根路径会在真实 Chrome 中显示 404/403 并造成误判，必须使用同源非根承载页，例如 `https://auth.x.ai/oauth2/authorize`。
 - Device Flow 只请求受信任的 HTTPS xAI 端点，处理 `authorization_pending`、`slow_down`、拒绝、过期、网络错误、超时和取消。业务结果只保留 refresh token，不持久化完整 Token 响应。
 - 控制台主流程必须先打开 `https://accounts.x.ai/sign-in` 并完成邮箱密码登录；仅当登录驱动确认真实 xAI 登录态并写入 `authenticated_at` 后，控制台才允许调用 Device Flow。`password_consumed_at` 只表示密码已提交，不等于登录完成；已取消、过期或缺少 `authenticated_at` 的任务不得创建或合并 Device Flow。
-- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。控制台创建 Device Flow 后把 `user_code`、`verification_url`、`verification_launch_url` 和 `device_ready_at` 合并回当前共享任务；登录标签看到 `device_ready_at` 后应立即跳转可信验证页。设备码页必须提交当前任务的 `user_code` 或点击已预填当前码的“继续”；授权页必须确认是当前任务可信的 Grok Build OAuth 授权页后才允许点击“允许”/“Allow”。控制台收到 Token 成功后，如果最近一次设备码提交或最终授权提交距当前不足稳定窗口，必须等待剩余窗口后再关闭登录标签并进入 Session 清理；若未捕获提交事件，也应在 Token 成功后保留授权页一个固定短窗口。停止、跳过和取消信号仍必须立即中断该等待。如果登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动只把它视为已登录中间态并写入 `authenticated_at`，不得点击账户页里的 Email 等设置控件；后续由控制台创建 Device Flow 后再跳转官方验证页。
+- Device Flow 响应的验证页必须从可信 xAI HTTPS 字段中选择：标准验证页 `verification_url` 优先使用 `verification_uri`、缺失时回退 `verification_uri_complete`；浏览器启动页 `verification_launch_url` 优先使用带 `user_code` 的 `verification_uri_complete`、缺失时回退 `verification_uri`。控制台创建 Device Flow 后把 `user_code`、`verification_url`、`verification_launch_url` 和 `device_ready_at` 合并回当前共享任务；登录标签看到 `device_ready_at` 后应立即跳转可信验证页。设备码页必须提交当前任务的 `user_code` 或点击已预填当前码的“继续”；授权页必须确认是当前任务可信的 Grok Build OAuth 授权页后才允许点击“允许”/“Allow”/“继续”/“Continue”，且授权页识别优先级必须高于设备码页识别，避免 `/oauth2/device/approve` 被当成设备码页重复提交。自动点击 consent 时必须优先真实表单按钮，禁止点击会直接 GET `/oauth2/device/approve` 的链接式伪按钮。控制台收到 Token 成功后，如果最近一次设备码提交或最终授权提交距当前不足稳定窗口，必须等待剩余窗口后再关闭登录标签并进入 Session 清理；若未捕获提交事件，也应在 Token 成功后保留授权页一个固定短窗口。停止、跳过和取消信号仍必须立即中断该等待。如果登录成功后先落到 `https://accounts.x.ai/account` 账户页，驱动只把它视为已登录中间态并写入 `authenticated_at`，不得点击账户页里的 Email 等设置控件；后续由控制台创建 Device Flow 后再跳转官方验证页。
 - 登录驱动中基于页面停留时间的判断必须在 URL 变化时重置计时。xAI 自己从密码页跳到账户页、再跳到 Device Flow 页时，脚本不得沿用上一页的 `firstSeenAt` 提前触发未知页或兜底跳转。
 - 控制台状态必须跟随关键自动化阶段推进：密码实际提交并确认登录态后不得继续显示“填写密码”，应进入授权页等待状态；Device Code 输入页填入 `user_code` 后应进入 Token 轮询/等待授权结果状态，即使页面没有单独的 consent 按钮。
 - 只有共享任务已经写入当前 `user_code` 时，登录驱动才允许把 Device Sign-in 识别为设备码页。设备码识别必须通过 input 自身属性、label、placeholder、输入框附近短文本、URL `user_code` 参数或页面已渲染的当前设备码确认中文/英文设备码表单，填入当前任务的 `user_code` 或直接点击“继续”；不得把通用 OTP/验证码页误识别为设备码页。
@@ -146,6 +146,8 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 | 控制台写入 `device_ready_at` 后登录标签仍停在 `/account` 或登录后页面 | 立即跳转当前任务可信 Device Flow 验证页 |
 | Device Sign-in 页 | 仅当共享任务已有当前 `user_code` 时，才通过输入框、URL 参数或页面已预填当前码提交/点击“继续” |
 | 密码提交后 Device Sign-in 中文页只在输入框附近显示“输入设备代码” | 通过近邻文本识别设备码输入框，填入 `user_code` 并提交 |
+| `/oauth2/device/approve` 页面显示 Grok Build 授权且按钮文案是“继续”/`Continue` | 按最终授权页处理，点击高置信表单按钮并上报 `authorization_submitted`，不得走设备码提交分支 |
+| `/oauth2/device/approve` 候选按钮是带 `href` 的链接式伪按钮 | 不自动点击，避免 GET approve 导致 `Invalid action`；继续等待真实表单按钮或进入低置信停机 |
 | Token 成功时距最近一次设备码提交或 Grok Build 授权提交不足稳定窗口 | 等待剩余时间，保持授权页可见，然后再成功、关闭登录标签和清理 Session |
 | Token 成功但缺少 refresh token | 当前账号失败，不导出 access token |
 | 初始 Session 清理标签显示 403/404 或 Cloudflare 页面 | 只作为清理标签状态处理，不得向用户描述为登录页失败；`auth.x.ai` 不得使用根路径承载 |
@@ -166,7 +168,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Good：控制台先打开 `accounts.x.ai/sign-in`；驱动自动填写邮箱密码，确认进入 `/account` 或其它登录态页面后写入 `authenticated_at`；控制台随后创建 Device Flow 并把 `user_code` / 验证页写回共享任务。
 - Good：密码提交后 xAI 跳到 `https://accounts.x.ai/account`，页面有 “Email” 账户设置按钮，且跳转已清掉 URL hash / `window.name`；驱动通过同标签 `sessionStorage` 恢复 `tab_marker`，忽略账户设置按钮，只写入登录态确认；控制台写入 `device_ready_at` 后登录标签立即跳转可信 Device Flow 验证页。
 - Good：Device Flow 返回 `verification_uri: "https://accounts.x.ai/oauth2/device"` 与 `verification_uri_complete` 时，控制台在登录完成后保存基础验证页和带 `user_code` 的启动页；登录标签随后在设备码页填入当前码或点击已预填当前码的“继续”。
-- Good：授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径是可信 xAI OAuth 路径时，驱动点击“允许”/“Allow”；Token 很快成功时，控制台补足约 5 秒稳定窗口后再关闭标签和清理 Session；未知 OAuth 页面或非 xAI HTTPS 页面不点击。
+- Good：授权页显示 “授权 Grok Build” / “Authorize Grok Build” 且路径是可信 xAI OAuth 路径时，驱动点击“允许”/“Allow”/“继续”/“Continue”；若页面落在 `/oauth2/device/approve`，也必须先按授权页处理而不是设备码页处理；Token 很快成功时，控制台补足约 5 秒稳定窗口后再关闭标签和清理 Session；未知 OAuth 页面、非 xAI HTTPS 页面或只会 GET approve 的链接式伪按钮不点击。
 - Good：初始 Session 清理打开 `https://auth.x.ai/oauth2/authorize#grok-bulk-cleanup=...`，避免 `auth.x.ai` 根路径在真实 Chrome 中显示找不到网页。
 - Base：普通邮箱页或密码页在 URL、任务和标签稳定时自动提交一次。
 - Base：页面结构低置信度时仅上报未知页面，用户可停止、跳过或人工处理。
@@ -174,6 +176,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
 - Bad：只接受 `verification_uri_complete` 或只匹配 `/oauth2/device/complete`，导致当前官方 `/oauth2/device` 基础路径被误判为未知/验证页面。
 - Bad：密码提交后只看到 `password_consumed_at` 就创建 Device Flow；应等登录驱动确认 `/account` 或登录态并写入 `authenticated_at`。
 - Bad：清理标签也使用 `#grok-bulk-login=...`，或继续使用 `https://auth.x.ai/#grok-bulk-cleanup=...` 根路径，导致手工验收时被误认为授权页或错误页。
+- Bad：把所有 `/oauth2/device/*` 都优先当成设备码页，导致 `/oauth2/device/approve` 上的“继续”被错误提交并返回 `Invalid action`。
 - Bad：创建延迟定时器时立即占用动作次数，导致守卫拒绝后无法恢复。
 - Bad：只删除当前 URL 可见 Cookie，遗漏其它 path、子域、HttpOnly 或分区 Cookie。
 - Bad：把整批账号密码写入 localStorage、GM 共享值、页面 DOM 属性、URL 或日志。
@@ -195,6 +198,7 @@ xAI Device Flow 契约以 `backend/internal/pkg/xai/oauth.go` 和
   - 密码提交后落到 `accounts.x.ai/account` 时，即使页面存在 “Email” 等账户设置按钮，也不会点击账户页控件；只写入登录态确认，待 `device_ready_at` 写入后才跳转官方设备验证页。
   - 完整模拟密码页 -> `/account` 登录态确认 -> 控制台写入 Device Flow -> `/oauth2/device`，断言 URL 变化重置页面计时、账户页不提前点击设置控件、设备码填入后状态事件继续推进。
   - 共享任务已有当前 `user_code` 后进入 Device Sign-in 页时，若有设备码输入框、URL 参数或页面已预填当前码，则填码或直接点击“继续”；中文 Device Sign-in 页仍可通过输入框附近文本识别设备码输入框，并提交当前任务 `user_code`。
+  - `/oauth2/device/approve` 上的 Grok Build 授权页如果按钮文案是“继续”/`Continue`，必须上报 `authorization_submitted`，不得上报 `user_code_filled`；带 `href=/oauth2/device/approve` 的链接式伪按钮不得被点击。
   - 最终设备授权提交后的稳定窗口计算：Token 成功早于固定窗口时补足剩余等待，已超过窗口时不额外等待；无提交事件时也在 Token 成功后保留一个短窗口。
   - 密码填入并提交一次，提交后共享密码删除。
   - 共享任务取消后待执行动作被取消。
