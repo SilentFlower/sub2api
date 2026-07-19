@@ -24,12 +24,12 @@
   "notes": "",
   "meta": {},
   "progress": {
-    "updatedAt": "2026-07-18T13:11:59+08:00",
+    "updatedAt": "2026-07-19T13:46:20+08:00",
     "completedSteps": [
       "抽离 Web Search Emulation 设置薄层并通过 Check-All"
     ],
     "partialStep": null,
     "nextStep": "归档任务 / finish-work",
-    "notes": ""
+    "notes": "已将 flower-trellis 同步至 0.5.0-beta.2"
   }
 }
