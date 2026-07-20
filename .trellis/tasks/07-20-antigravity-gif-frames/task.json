@@ -35,15 +35,16 @@
     }
   },
   "progress": {
-    "updatedAt": "2026-07-21T00:30:33+08:00",
+    "updatedAt": "2026-07-21T01:05:15+08:00",
     "completedSteps": [
       "完成反重力 GIF 多帧 PNG 转换、资源限制和双入口薄接入",
       "完成全局设置、管理 API 与前端设置组件",
       "完成单层 base64: 包装 GIF data URI 生产问题修复及完整复检",
-      "完成 Full Check-All 和可执行规范沉淀"
+      "修复 Gemini 原生 model fallback 与 thoughtSignature 重试二次请求绕过 GIF 转换",
+      "完成反重力 GIF 重试路径回归测试、service 全包测试和 spec 防复发更新"
     ],
     "partialStep": null,
-    "nextStep": "等待用户明确要求后执行 Phase 3.5 收尾",
-    "notes": "wrapped data URI 回归测试、反重力领域单测、相关 service/handler/routes 测试、前端功能测试与类型检查均通过；未执行全仓 go test ./...，当前环境未安装 golangci-lint。"
+    "nextStep": "上线新 build 镜像后核对生产容器版本，并用日志确认 image/gif 不再打到 Gemini 上游",
+    "notes": "新增 Gemini model fallback 和 thoughtSignature retry 回归，断言每次上游请求体均不含 image/gif；已通过 go test -tags=unit ./internal/pkg/antigravity ./internal/service -count=1、handler/admin GIF 定向测试和 git diff --check。服务器 SSH 当前连接超时，尚未完成线上容器部署/验证。"
   }
 }
