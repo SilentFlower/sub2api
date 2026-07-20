@@ -29,6 +29,14 @@ func (s *AntigravityGatewayService) applyAntigravityGIFCompatibility(ctx context
 	return antigravity.TransformGIFInlineData(body, settings.MaxFramesPerGIF)
 }
 
+func (s *AntigravityGatewayService) wrapV1InternalRequestWithGIFCompatibility(ctx context.Context, projectID, model string, originalBody []byte) ([]byte, error) {
+	wrappedBody, err := s.wrapV1InternalRequest(projectID, model, originalBody)
+	if err != nil {
+		return nil, err
+	}
+	return s.applyAntigravityGIFCompatibility(ctx, wrappedBody)
+}
+
 func (s *AntigravityGatewayService) transformClaudeRequestWithGIFCompatibility(
 	ctx context.Context,
 	request *antigravity.ClaudeRequest,

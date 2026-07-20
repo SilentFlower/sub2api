@@ -40,6 +40,71 @@ func TestAntigravityGatewayService_ForwardGemini_ConvertsGIFBeforeUpstream(t *te
 	require.Contains(t, string(upstream.requestBodies[0]), "image/png")
 }
 
+func TestAntigravityGatewayService_ForwardGemini_ModelFallbackRetryConvertsGIFBeforeUpstream(t *testing.T) {
+	repository := newMockSettingRepo()
+	repository.data[SettingKeyEnableModelFallback] = "true"
+	repository.data[SettingKeyFallbackModelAntigravity] = "gemini-2.5-pro"
+	body := serviceGIFRequestBody(t, serviceTestGIFBase64(t))
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{
+		antigravityGIFErrorResponse(http.StatusNotFound, "model not found"),
+		successfulAntigravityGIFResponse(),
+	}}
+	service := newAntigravityGIFGatewayService(repository, upstream)
+	ginContext := antigravityGIFGinContext(t, "/antigravity/v1beta/models/gemini-missing:streamGenerateContent", body)
+
+	result, err := service.ForwardGemini(
+		context.Background(),
+		ginContext,
+		antigravityGIFTestAccount("gemini-missing", "gemini-missing-upstream"),
+		"gemini-missing",
+		"streamGenerateContent",
+		true,
+		body,
+		false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requestBodies, 2)
+	for _, requestBody := range upstream.requestBodies {
+		require.NotContains(t, string(requestBody), "image/gif")
+		require.Contains(t, string(requestBody), "image/png")
+	}
+	require.Contains(t, string(upstream.requestBodies[1]), `"model":"gemini-2.5-pro"`)
+}
+
+func TestAntigravityGatewayService_ForwardGemini_SignatureRetryConvertsGIFBeforeUpstream(t *testing.T) {
+	body := serviceGIFRequestBodyWithThoughtSignature(t, serviceTestGIFBase64(t))
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{
+		antigravityGIFWrappedErrorResponse(http.StatusBadRequest, "Corrupted thought signature."),
+		successfulAntigravityGIFResponse(),
+	}}
+	service := newAntigravityGIFGatewayService(&antigravitySettingRepoStub{}, upstream)
+	ginContext := antigravityGIFGinContext(t, "/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent", body)
+
+	result, err := service.ForwardGemini(
+		context.Background(),
+		ginContext,
+		antigravityGIFTestAccount("gemini-2.5-flash", "gemini-2.5-flash"),
+		"gemini-2.5-flash",
+		"streamGenerateContent",
+		true,
+		body,
+		false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requestBodies, 2)
+	for _, requestBody := range upstream.requestBodies {
+		require.NotContains(t, string(requestBody), "image/gif")
+		require.Contains(t, string(requestBody), "image/png")
+	}
+	require.Contains(t, string(upstream.requestBodies[0]), `"thoughtSignature":"sig_bad"`)
+	require.Contains(t, string(upstream.requestBodies[1]), `"thoughtSignature":"skip_thought_signature_validator"`)
+	require.NotContains(t, string(upstream.requestBodies[1]), `"thoughtSignature":"sig_bad"`)
+}
+
 func TestAntigravityGatewayService_Forward_ConvertsGIFBeforeUpstream(t *testing.T) {
 	body := antigravityGIFClaudeRequestBody(t, nil)
 	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{successfulAntigravityGIFResponse()}}
@@ -226,6 +291,23 @@ func antigravityGIFErrorResponse(status int, message string) *http.Response {
 	}
 }
 
+func antigravityGIFWrappedErrorResponse(status int, message string) *http.Response {
+	body, _ := json.Marshal(map[string]any{
+		"response": map[string]any{
+			"error": map[string]any{
+				"code":    status,
+				"message": message,
+				"status":  "INVALID_ARGUMENT",
+			},
+		},
+	})
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+}
+
 func successfulClaudeUpstreamGIFResponse() *http.Response {
 	body := []byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
 	return &http.Response{
@@ -261,6 +343,37 @@ func antigravityGIFClaudeRequestBody(t *testing.T, patch map[string]any) []byte 
 		request[key] = value
 	}
 	body, err := json.Marshal(request)
+	require.NoError(t, err)
+	return body
+}
+
+func serviceGIFRequestBodyWithThoughtSignature(t *testing.T, data string) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"contents": []any{
+			map[string]any{
+				"role": "model",
+				"parts": []any{
+					map[string]any{
+						"text":             "thinking",
+						"thought":          true,
+						"thoughtSignature": "sig_bad",
+					},
+				},
+			},
+			map[string]any{
+				"role": "user",
+				"parts": []any{
+					map[string]any{
+						"inlineData": map[string]any{
+							"mimeType": "image/gif",
+							"data":     data,
+						},
+					},
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	return body
 }

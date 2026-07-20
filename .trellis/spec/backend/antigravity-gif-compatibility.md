@@ -66,7 +66,8 @@ function updateAntigravityGIFCompatibilitySettings(
 - 单 GIF 配置上限为 `1..16`，单请求转换生成的 PNG part 总数固定不超过 `16`。多个 GIF 使用稳定轮转公平分配；名额大于 1 时保留首尾帧。
 - GIF 合成必须在完整逻辑画布上处理透明局部帧以及 `DisposalNone`、`DisposalBackground`、`DisposalPrevious`，不能直接把局部帧编码为最终 PNG。
 - 资源上限固定为：单 GIF 解码后 `20 MiB`、画布单边 `4096`、画布 `16,777,216` 像素、原始帧 `1000`、累计帧矩形 `134,217,728` 像素、最终包装后的 Gemini JSON `20 MiB`。PNG 编码过程中必须同步扣减累计 base64 预算。
-- Claude 路径的初始转换、signature 修复重试和 budget 修复重试必须统一经过 `transformClaudeRequestWithGIFCompatibility`。Gemini 原生路径必须先完成身份注入、schema 清理和 `wrapV1InternalRequest`，再对最终 `wrappedBody` 应用兼容转换。
+- Claude 路径的初始转换、signature 修复重试和 budget 修复重试必须统一经过 `transformClaudeRequestWithGIFCompatibility`。
+- Gemini 原生路径的每个上游请求体构建点都必须统一经过 `wrapV1InternalRequestWithGIFCompatibility` 或等价 helper：初始请求、模型 fallback 重试、`thoughtSignature` 清理重试都必须在 `wrapV1InternalRequest` 后立刻应用 GIF 兼容转换，禁止重新包装后直接 `NewAPIRequest` 或 `antigravityRetryLoop`。
 
 ### 4. Validation & Error Matrix
 
@@ -90,10 +91,12 @@ function updateAntigravityGIFCompatibilitySettings(
 
 - Good: 透明局部更新 GIF 经画布合成后均匀输出 8 张 PNG，包含首帧和末帧，文本和普通图片 part 保持原位置与字段。
 - Good: 两个多帧 GIF 在总预算 16 内稳定、公平分配，重复输入得到相同帧索引。
+- Good: Gemini 原生请求首次上游返回 model-not-found 或 thought-signature 400 后，fallback / 签名清理重试发送的请求体仍只包含 `image/png`，不重新出现 `image/gif`。
 - Good: 管理设置加载失败时控件保持禁用，不能把组件内默认值误写回服务端；保存期间开关和保存按钮均禁用。
 - Base: 不含 GIF 的反重力请求不查设置、不解析 JSON，并保持原始字节。
 - Base: 管理员关闭开关后，损坏 GIF 也按旧链路透传，不在本地返回 400。
 - Bad: 在共享 gateway 中直接扫描 JSON、解码 GIF 或复制默认值，导致重试路径遗漏并增加 `main -> build` 合并冲突。
+- Bad: Gemini 原生 signature 或 fallback 重试重新调用 `wrapV1InternalRequest` 后直接发送上游，导致首次请求已转换但二次请求重新携带 `image/gif`。
 - Bad: 在全部 PNG 已进入内存后才检查 20 MiB，无法阻止编码阶段的内存膨胀。
 - Bad: GET 失败后仍允许保存，会把 UI 的默认开启和 8 帧覆盖未知的服务端状态。
 
@@ -113,7 +116,7 @@ cd frontend && pnpm typecheck
 
 - 纯转换：无 GIF 字节不变；纯 base64、data URI 和单层 `base64:` 包装均可解码；默认 8 帧包含首尾；多 GIF 公平预算；snake/camel 与根/包装结构；未知字段保留；透明和三类 disposal 像素正确；所有资源边界返回可分类错误。
 - service：无候选跳过设置；关闭时透传；设置读取失败使用默认值；配置帧数实际控制输出。
-- gateway：Claude 初始与两类 rectifier 重试、Gemini 最终包装请求都只发送 PNG；转换错误不上游；`AccountTypeUpstream` 保持原 body。
+- gateway：Claude 初始与两类 rectifier 重试、Gemini 初始包装请求、Gemini model fallback 重试和 Gemini `thoughtSignature` 清理重试都只发送 PNG；转换错误不上游；`AccountTypeUpstream` 保持原 body。
 - handler/frontend：默认值、合法边界 1/16、越界拒绝、GET/PUT 失败、加载与保存期间禁用交互。
 
 ### 7. Wrong vs Correct
@@ -140,3 +143,23 @@ if err != nil {
 ```
 
 转换、设置读取、错误分类和资源限制由反重力 GIF 领域文件拥有；共享 gateway 只调用一次并映射协议错误。前端同理，`SettingsView.vue` 只挂载 `AntigravityGIFSettings`。
+
+#### Wrong
+
+```go
+// antigravity_gateway_gemini.go
+retryWrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody)
+retryResult, err := s.antigravityRetryLoop(antigravityRetryLoopParams{body: retryWrappedBody})
+```
+
+问题：Gemini 原生重试会重新从 `injectedBody` 或清理后的 body 构建上游 JSON；如果只在首次请求转换 GIF，二次请求会把 `image/gif` 重新送到 Gemini。
+
+#### Correct
+
+```go
+// antigravity_gateway_gemini.go
+retryWrappedBody, err := s.wrapV1InternalRequestWithGIFCompatibility(ctx, projectID, mappedModel, cleanedInjectedBody)
+retryResult, err := s.antigravityRetryLoop(antigravityRetryLoopParams{body: retryWrappedBody})
+```
+
+每个重新包装并发送上游的 Gemini 原生请求都必须经过同一个包装兼容 helper；测试应捕获全部上游请求体，而不只断言首次请求。

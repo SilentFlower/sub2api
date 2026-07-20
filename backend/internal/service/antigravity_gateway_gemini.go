@@ -130,16 +130,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
 	}
 
-	// 包装请求
-	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
-	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
-	}
-
 	// GIF 兼容逻辑由独立领域 helper 拥有，并在最终包装后校验完整上游请求大小。
-	wrappedBody, err = s.applyAntigravityGIFCompatibility(ctx, wrappedBody)
+	wrappedBody, err := s.wrapV1InternalRequestWithGIFCompatibility(ctx, projectID, mappedModel, injectedBody)
 	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, antigravityGIFClientErrorMessage(err, "Invalid request"))
+		if antigravity.IsGIFCompatibilityError(err) {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, antigravityGIFClientErrorMessage(err, "Invalid request"))
+		}
+		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent
@@ -201,7 +198,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			if fallbackModel != "" && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
 
-				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody)
+				fallbackWrapped, err := s.wrapV1InternalRequestWithGIFCompatibility(ctx, projectID, fallbackModel, injectedBody)
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
@@ -244,7 +241,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
 			cleanedInjectedBody := CleanGeminiNativeThoughtSignatures(injectedBody)
-			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody)
+			retryWrappedBody, wrapErr := s.wrapV1InternalRequestWithGIFCompatibility(ctx, projectID, mappedModel, cleanedInjectedBody)
 			if wrapErr == nil {
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 					ctx:             ctx,
