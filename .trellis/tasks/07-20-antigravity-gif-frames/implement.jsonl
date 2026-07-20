@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"约束 Claude/Gemini 协议转换、字段保真、重试路径与适配器边界。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"约束 Go 领域实现、可测试性、复杂逻辑注释和资源边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"约束 GIF 非法与超限错误在 Claude、Gemini 和管理 API 中的稳定映射。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束全局设置 API 与 Vue 组件使用精确 snake_case 类型，避免 any 和不安全断言。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束独立设置组件的状态、交互、加载与保存行为。"}
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"要求 GIF 规则和 UI 由功能目录拥有，网关与 SettingsView 只保留薄接入。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核对设置持久化、管理 API、前端类型和运行时转换的跨层数据契约。"}

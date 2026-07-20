@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查两条反重力入口、全部 Claude 重试和非 GIF 字段是否保持协议兼容。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查 GIF 预检、帧合成、预算算法与测试是否达到后端质量要求。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查非法 GIF、资源超限和设置错误是否返回正确 4xx 且不泄露敏感数据。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查管理 API 类型、组件状态和 payload 是否严格匹配后端 DTO。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查设置组件交互、边界校验、loading/saving 与错误反馈是否完整。"}
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查 build 私有 GIF 逻辑没有散落到共享网关或巨型设置页。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"反向核对设置默认值从仓储、service、API 到前端和请求热路径的一致性。"}

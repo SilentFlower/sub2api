@@ -1,0 +1,48 @@
+{
+  "id": "antigravity-gif-frames",
+  "name": "antigravity-gif-frames",
+  "title": "反重力渠道 GIF 多帧兼容",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-07-20",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-07-20T13:42:24Z",
+      "contextKey": "codex_019f7fb6-18ef-79c3-9d82-c415515318de",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "23fa6cd4df1ed4f72a6f55cb102e191b9caa0be6",
+        "status": []
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-07-20T23:40:45+08:00",
+    "completedSteps": [
+      "完成反重力 GIF 多帧 PNG 转换、资源限制和双入口薄接入",
+      "完成全局设置、管理 API 与前端设置组件",
+      "完成 Full Check-All 和可执行规范沉淀"
+    ],
+    "partialStep": null,
+    "nextStep": "等待用户明确要求后执行 Phase 3.5 收尾",
+    "notes": "相关后端、前端测试与静态检查通过；未执行全仓 go test ./...，当前环境未安装 golangci-lint。"
+  }
+}
