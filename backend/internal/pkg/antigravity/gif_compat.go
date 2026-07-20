@@ -393,6 +393,13 @@ func decodeGIFBase64(value string) ([]byte, error) {
 
 func gifBase64Payload(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
+	if hasASCIIPrefixFold(trimmed, "base64:") {
+		// 部分客户端会把 data URI 再包装为 base64: URL；只剥离一层，避免接受无界嵌套格式。
+		trimmed = strings.TrimSpace(trimmed[len("base64:"):])
+		if trimmed == "" {
+			return "", newGIFCompatibilityError("Invalid GIF base64 data")
+		}
+	}
 	if !hasASCIIPrefixFold(trimmed, "data:") {
 		return trimmed, nil
 	}

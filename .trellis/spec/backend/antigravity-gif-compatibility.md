@@ -62,7 +62,7 @@ function updateAntigravityGIFCompatibilitySettings(
 - 设置缺失、空值或损坏 JSON时返回完整默认值；持久化帧数越界时只把帧数回退为 `8`。管理 API 写入越界值必须返回 `400`，reason 为 `ANTIGRAVITY_GIF_MAX_FRAMES_INVALID`，且不得写入仓储。
 - 热路径没有 `image/gif` 候选时必须返回原 `[]byte` 且不读取设置；读取设置失败时按默认开启和 8 帧继续；设置关闭时必须原字节透传，不解析、不拒绝 GIF。
 - 纯转换同时支持根 `contents[].parts[]`、包装后的 `request.contents[].parts[]`、`inlineData.mimeType/data` 和 `inline_data.mime_type/data`。MIME 只在 trim 后大小写不敏感地精确匹配 `image/gif`。
-- 输入支持纯 base64 和 `data:image/gif;base64,`；输出必须是按时间顺序排列、无 data URI 前缀的 `image/png` base64 part。非 GIF part、未知字段和相对顺序必须保留。
+- 输入支持纯 base64、`data:image/gif;base64,`，以及部分客户端产生的单层 `base64:data:image/gif;base64,` 包装；解析器最多剥离一层外部 `base64:` 标记，再校验内部 data URI。输出必须是按时间顺序排列、无任何前缀的 `image/png` base64 part。非 GIF part、未知字段和相对顺序必须保留。
 - 单 GIF 配置上限为 `1..16`，单请求转换生成的 PNG part 总数固定不超过 `16`。多个 GIF 使用稳定轮转公平分配；名额大于 1 时保留首尾帧。
 - GIF 合成必须在完整逻辑画布上处理透明局部帧以及 `DisposalNone`、`DisposalBackground`、`DisposalPrevious`，不能直接把局部帧编码为最终 PNG。
 - 资源上限固定为：单 GIF 解码后 `20 MiB`、画布单边 `4096`、画布 `16,777,216` 像素、原始帧 `1000`、累计帧矩形 `134,217,728` 像素、最终包装后的 Gemini JSON `20 MiB`。PNG 编码过程中必须同步扣减累计 base64 预算。
@@ -78,6 +78,7 @@ function updateAntigravityGIFCompatibilitySettings(
 | PUT 缺少或无法绑定请求 | HTTP 400，reason 为 `ANTIGRAVITY_GIF_SETTINGS_INVALID_REQUEST` |
 | PUT `max_frames_per_gif` 不在 `1..16` | HTTP 400，reason 为 `ANTIGRAVITY_GIF_MAX_FRAMES_INVALID`，不写仓储 |
 | base64、data URI、GIF 结构或 disposal 数据非法 | 返回 `GIFCompatibilityError`；Claude 映射为 `400 invalid_request_error`，Gemini 映射为 Google/Gemini 400 |
+| `base64:data:image/gif;base64,...` | 剥离单层外部标记后按 GIF data URI 解码并转换 |
 | 输入字节、尺寸、帧数、累计像素或输出请求超限 | 返回安全的 `GIFCompatibilityError`，不包含原始 base64 或完整请求体 |
 | 单请求 GIF 数量超过 16 | 本地 400，不调用上游 |
 | 转换成功 | 上游请求不得再包含 `image/gif`，转换 part 的 MIME 必须为 `image/png` |
@@ -110,7 +111,7 @@ cd frontend && pnpm typecheck
 
 断言点：
 
-- 纯转换：无 GIF 字节不变；默认 8 帧包含首尾；多 GIF 公平预算；snake/camel 与根/包装结构；未知字段保留；透明和三类 disposal 像素正确；所有资源边界返回可分类错误。
+- 纯转换：无 GIF 字节不变；纯 base64、data URI 和单层 `base64:` 包装均可解码；默认 8 帧包含首尾；多 GIF 公平预算；snake/camel 与根/包装结构；未知字段保留；透明和三类 disposal 像素正确；所有资源边界返回可分类错误。
 - service：无候选跳过设置；关闭时透传；设置读取失败使用默认值；配置帧数实际控制输出。
 - gateway：Claude 初始与两类 rectifier 重试、Gemini 最终包装请求都只发送 PNG；转换错误不上游；`AccountTypeUpstream` 保持原 body。
 - handler/frontend：默认值、合法边界 1/16、越界拒绝、GET/PUT 失败、加载与保存期间禁用交互。

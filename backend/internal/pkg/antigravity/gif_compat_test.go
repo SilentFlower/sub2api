@@ -47,6 +47,27 @@ func TestTransformGIFInlineData_SingleFrameDataURI(t *testing.T) {
 	require.Equal(t, color.RGBA{R: 255, A: 255}, pngPixel(t, inline["data"].(string), 0, 0))
 }
 
+func TestTransformGIFInlineData_SupportsBase64WrappedDataURI(t *testing.T) {
+	gifData := encodeSolidTestGIF(t, []color.RGBA{{G: 255, A: 255}})
+	body := buildGIFRequestBody(t, []any{
+		map[string]any{
+			"inlineData": map[string]any{
+				"mimeType": "image/gif",
+				"data":     "base64:data:image/gif;base64," + base64.StdEncoding.EncodeToString(gifData),
+			},
+		},
+	})
+
+	transformed, err := TransformGIFInlineData(body, 1)
+
+	require.NoError(t, err)
+	parts := requestParts(t, transformed)
+	require.Len(t, parts, 1)
+	inline := parts[0]["inlineData"].(map[string]any)
+	require.Equal(t, "image/png", inline["mimeType"])
+	require.Equal(t, color.RGBA{G: 255, A: 255}, pngPixel(t, inline["data"].(string), 0, 0))
+}
+
 func TestTransformGIFInlineData_DefaultSamplingKeepsFirstAndLast(t *testing.T) {
 	colors := make([]color.RGBA, 10)
 	for index := range colors {
