@@ -13,7 +13,6 @@ import (
 	"image/gif"
 	"image/png"
 	"io"
-	"net/url"
 	"strings"
 )
 
@@ -56,21 +55,18 @@ func (e *GIFCompatibilityError) Error() string {
 
 // GIFCompatibilityDiagnostics 表示不包含原始图片数据的 GIF 兼容转换诊断信息。
 type GIFCompatibilityDiagnostics struct {
-	Stage                   string
-	InputLength             int
-	TrimmedLength           int
-	PayloadLength           int
-	NormalizedPayloadLength int
-	HasOuterBase64Prefix    bool
-	HasDataURI              bool
-	DataURIMime             string
-	DataURIHasBase64        bool
-	HadURLEscape            bool
-	URLUnescapeFailed       bool
-	RemovedWhitespace       bool
-	HasURLSafeAlphabet      bool
-	PaddingRemainder        int
-	DecodeError             string
+	Stage                string
+	InputLength          int
+	TrimmedLength        int
+	PayloadLength        int
+	HasOuterBase64Prefix bool
+	HasDataURI           bool
+	DataURIMime          string
+	DataURIHasBase64     bool
+	HadURLEscape         bool
+	HasURLSafeAlphabet   bool
+	PaddingRemainder     int
+	DecodeError          string
 }
 
 // IsGIFCompatibilityError 判断错误是否来自 GIF 兼容转换。
@@ -114,13 +110,6 @@ type gifMetadata struct {
 type gifBase64PayloadInfo struct {
 	payload    string
 	diagnostic GIFCompatibilityDiagnostics
-}
-
-type gifBase64Normalization struct {
-	payload           string
-	hadURLEscape      bool
-	urlUnescapeFailed bool
-	removedWhitespace bool
 }
 
 type gifOutputBudget struct {
@@ -423,22 +412,21 @@ func decodeGIFBase64(value string) ([]byte, error) {
 	}
 	diagnostic := payloadInfo.diagnostic
 
-	normalized := normalizeGIFBase64Payload(payloadInfo.payload)
 	diagnostic.PayloadLength = len(payloadInfo.payload)
-	diagnostic.NormalizedPayloadLength = len(normalized.payload)
-	diagnostic.HadURLEscape = normalized.hadURLEscape
-	diagnostic.URLUnescapeFailed = normalized.urlUnescapeFailed
-	diagnostic.RemovedWhitespace = normalized.removedWhitespace
-	diagnostic.HasURLSafeAlphabet = hasGIFBase64URLSafeAlphabet(normalized.payload)
-	diagnostic.PaddingRemainder = len(normalized.payload) % 4
+	diagnostic.HadURLEscape = strings.Contains(payloadInfo.payload, "%")
+	diagnostic.HasURLSafeAlphabet = hasGIFBase64URLSafeAlphabet(payloadInfo.payload)
+	diagnostic.PaddingRemainder = len(payloadInfo.payload) % 4
 
 	maxEncodedLength := base64.StdEncoding.EncodedLen(maxGIFDecodedBytes)
-	if len(normalized.payload) > maxEncodedLength+2 {
+	if len(payloadInfo.payload) > maxEncodedLength+2 {
 		diagnostic.Stage = "input_limit"
 		return nil, newGIFCompatibilityErrorWithDiagnostics("GIF image exceeds the 20 MiB input limit", diagnostic)
 	}
 
-	decoded, decodeErr := decodeGIFBase64Payload(normalized.payload)
+	decoded, decodeErr := base64.StdEncoding.DecodeString(payloadInfo.payload)
+	if decodeErr != nil {
+		decoded, decodeErr = base64.RawStdEncoding.DecodeString(payloadInfo.payload)
+	}
 	if decodeErr != nil {
 		diagnostic.Stage = "base64_decode"
 		diagnostic.DecodeError = decodeErr.Error()
@@ -449,61 +437,6 @@ func decodeGIFBase64(value string) ([]byte, error) {
 		return nil, newGIFCompatibilityErrorWithDiagnostics("GIF image exceeds the 20 MiB input limit", diagnostic)
 	}
 	return decoded, nil
-}
-
-func decodeGIFBase64Payload(payload string) ([]byte, error) {
-	encodings := []*base64.Encoding{
-		base64.StdEncoding,
-		base64.RawStdEncoding,
-		base64.URLEncoding,
-		base64.RawURLEncoding,
-	}
-	var lastErr error
-	for _, encoding := range encodings {
-		decoded, err := encoding.DecodeString(payload)
-		if err == nil {
-			return decoded, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
-}
-
-func normalizeGIFBase64Payload(payload string) gifBase64Normalization {
-	result := gifBase64Normalization{payload: payload}
-	if strings.Contains(payload, "%") {
-		if unescaped, err := url.PathUnescape(payload); err == nil {
-			result.payload = unescaped
-			result.hadURLEscape = true
-		} else {
-			result.urlUnescapeFailed = true
-		}
-	}
-	withoutWhitespace, removedWhitespace := removeGIFBase64Whitespace(result.payload)
-	result.payload = withoutWhitespace
-	result.removedWhitespace = removedWhitespace
-	return result
-}
-
-func removeGIFBase64Whitespace(value string) (string, bool) {
-	for index := 0; index < len(value); index++ {
-		switch value[index] {
-		case ' ', '\n', '\r', '\t':
-			var builder strings.Builder
-			builder.Grow(len(value))
-			builder.WriteString(value[:index])
-			for ; index < len(value); index++ {
-				switch value[index] {
-				case ' ', '\n', '\r', '\t':
-					continue
-				default:
-					builder.WriteByte(value[index])
-				}
-			}
-			return builder.String(), true
-		}
-	}
-	return value, false
 }
 
 func hasGIFBase64URLSafeAlphabet(value string) bool {

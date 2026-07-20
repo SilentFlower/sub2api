@@ -11,8 +11,6 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,49 +66,6 @@ func TestTransformGIFInlineData_SupportsBase64WrappedDataURI(t *testing.T) {
 	inline := parts[0]["inlineData"].(map[string]any)
 	require.Equal(t, "image/png", inline["mimeType"])
 	require.Equal(t, color.RGBA{G: 255, A: 255}, pngPixel(t, inline["data"].(string), 0, 0))
-}
-
-func TestTransformGIFInlineData_SupportsEscapedAndURLSafeBase64(t *testing.T) {
-	gifData := encodeSolidTestGIF(t, []color.RGBA{{B: 255, A: 255}})
-	tests := []struct {
-		name string
-		data string
-	}{
-		{
-			name: "URL 转义 data URI",
-			data: "data:image/gif;base64," + url.PathEscape(base64.StdEncoding.EncodeToString(gifData)),
-		},
-		{
-			name: "URL-safe base64",
-			data: "data:image/gif;base64," + base64.RawURLEncoding.EncodeToString(gifData),
-		},
-		{
-			name: "带空白的 base64",
-			data: "base64:data:image/gif;base64," + spacedGIFBase64(base64.StdEncoding.EncodeToString(gifData)),
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			body := buildGIFRequestBody(t, []any{
-				map[string]any{
-					"inlineData": map[string]any{
-						"mimeType": "image/gif",
-						"data":     test.data,
-					},
-				},
-			})
-
-			transformed, err := TransformGIFInlineData(body, 1)
-
-			require.NoError(t, err)
-			parts := requestParts(t, transformed)
-			require.Len(t, parts, 1)
-			inline := parts[0]["inlineData"].(map[string]any)
-			require.Equal(t, "image/png", inline["mimeType"])
-			require.Equal(t, color.RGBA{B: 255, A: 255}, pngPixel(t, inline["data"].(string), 0, 0))
-		})
-	}
 }
 
 func TestTransformGIFInlineData_DefaultSamplingKeepsFirstAndLast(t *testing.T) {
@@ -282,7 +237,7 @@ func TestTransformGIFInlineData_InvalidBase64ExposesSafeDiagnostics(t *testing.T
 	require.True(t, diagnostic.HasDataURI)
 	require.Equal(t, "image/gif", diagnostic.DataURIMime)
 	require.True(t, diagnostic.DataURIHasBase64)
-	require.True(t, diagnostic.URLUnescapeFailed)
+	require.True(t, diagnostic.HadURLEscape)
 	require.True(t, diagnostic.HasURLSafeAlphabet)
 	require.NotEmpty(t, diagnostic.DecodeError)
 	require.NotContains(t, diagnostic.DecodeError, "%%%---")
@@ -505,13 +460,6 @@ func encodeTestGIF(t *testing.T, width, height int, palette color.Palette, frame
 	})
 	require.NoError(t, err)
 	return buffer.Bytes()
-}
-
-func spacedGIFBase64(encoded string) string {
-	if len(encoded) < 8 {
-		return encoded
-	}
-	return strings.Join([]string{encoded[:4], encoded[4:8], encoded[8:]}, " \n\t")
 }
 
 func requestParts(t *testing.T, body []byte) []map[string]any {
