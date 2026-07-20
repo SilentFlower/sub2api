@@ -1,6 +1,7 @@
 import openAIImageGenerationMessages from './settingsOpenAIImageGeneration'
 import responsesLiteMessages from './settingsResponsesLite'
 import webSearchAnySearchMessages from './settingsWebSearchAnySearch'
+import antigravityGIFMessages from './settingsAntigravityGif'
 
 export default {
     settings: {
@@ -362,6 +363,7 @@ export default {
         openaiCodexUserAgentHint: 'Used to bypass Cloudflare browser-UA challenges on the OpenAI upstream. Only applies when the client User-Agent is detected as a browser (Mozilla/...). Leave empty to use the built-in default.',
         ...openAIImageGenerationMessages,
         ...responsesLiteMessages,
+        ...antigravityGIFMessages,
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:

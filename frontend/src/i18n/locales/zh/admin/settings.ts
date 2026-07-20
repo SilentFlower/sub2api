@@ -1,6 +1,7 @@
 import openAIImageGenerationMessages from './settingsOpenAIImageGeneration'
 import responsesLiteMessages from './settingsResponsesLite'
 import webSearchAnySearchMessages from './settingsWebSearchAnySearch'
+import antigravityGIFMessages from './settingsAntigravityGif'
 
 export default {
     settings: {
@@ -356,6 +357,7 @@ export default {
         openaiCodexUserAgentHint: '用于规避 OpenAI 上游 Cloudflare 对浏览器 UA 的访问质询。仅在检测到客户端 User-Agent 为浏览器（Mozilla/...）时生效，其他客户端原样透传。留空使用内置默认值。',
         ...openAIImageGenerationMessages,
         ...responsesLiteMessages,
+        ...antigravityGIFMessages,
         codexHardeningTitle: 'Codex 设置',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:

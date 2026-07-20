@@ -515,6 +515,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 请求整流器配置
 		adminSettings.GET("/rectifier", h.Admin.Setting.GetRectifierSettings)
 		adminSettings.PUT("/rectifier", h.Admin.Setting.UpdateRectifierSettings)
+		// 反重力 GIF 多帧兼容配置
+		adminSettings.GET("/antigravity-gif", h.Admin.Setting.GetAntigravityGIFCompatibilitySettings)
+		adminSettings.PUT("/antigravity-gif", h.Admin.Setting.UpdateAntigravityGIFCompatibilitySettings)
 		// Beta 策略配置
 		adminSettings.GET("/beta-policy", h.Admin.Setting.GetBetaPolicySettings)
 		adminSettings.PUT("/beta-policy", h.Admin.Setting.UpdateBetaPolicySettings)

@@ -136,6 +136,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
+	// GIF 兼容逻辑由独立领域 helper 拥有，并在最终包装后校验完整上游请求大小。
+	wrappedBody, err = s.applyAntigravityGIFCompatibility(ctx, wrappedBody)
+	if err != nil {
+		return nil, s.writeGoogleError(c, http.StatusBadRequest, antigravityGIFClientErrorMessage(err, "Invalid request"))
+	}
+
 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent
 	// 如果客户端请求非流式，在响应处理阶段会收集完整流式响应后返回
 	upstreamAction := "streamGenerateContent"

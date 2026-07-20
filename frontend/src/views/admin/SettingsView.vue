@@ -4685,6 +4685,8 @@
             </div>
           </div>
 
+          <AntigravityGIFSettings />
+
           <WebSearchEmulationSettings ref="webSearchEmulationSettingsRef" />
 
         <!-- Usage Records Settings -->
@@ -7087,6 +7089,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import OpenAIImageGenerationSettings from "@/features/openAIImageGeneration/OpenAIImageGenerationSettings.vue";
 import ResponsesLiteBlockedModelsSettings from "@/features/responsesLite/ResponsesLiteBlockedModelsSettings.vue";
+import AntigravityGIFSettings from "@/features/antigravityGif/AntigravityGIFSettings.vue";
 import {
   defaultResponsesLiteBlockedModels,
   normalizeResponsesLiteBlockedModelRules,
