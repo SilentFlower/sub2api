@@ -13,7 +13,7 @@
    - 定义转换选项、资源限制常量和可分类错误。
    - 实现请求结构扫描，支持 camelCase、snake_case、根请求和 `request` 包装。
    - 保证无 GIF 时返回原字节，非 GIF part 不被重建或改写。
-   - 实现纯 base64 与 `data:image/gif;base64,` 输入兼容、GIF 结构预检、帧数发现和资源限制。
+   - 实现纯 base64、`data:image/gif;base64,` 与单层 `base64:data:image/gif;base64,` 输入兼容、GIF 结构预检、帧数发现和资源限制。
    - 在 PNG 编码过程中限制累计 base64 输出，并将最终 Gemini JSON 请求体限制为 20 MiB。
    - 实现总预算 16 的公平分配与稳定均匀采样。
    - 实现 disposal 正确的完整画布合成和 PNG 编码。

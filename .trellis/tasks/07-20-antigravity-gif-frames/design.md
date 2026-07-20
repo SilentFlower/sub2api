@@ -72,7 +72,7 @@ service helper 先对请求体做不分配大对象的 `image/gif` 候选检查�
 
 扫描和替换使用通用 JSON 结构，保留未知字段。每个 GIF part 被连续的 PNG part 替换；非 GIF part 的内容和相对顺序不变。MIME 比较忽略大小写并清理首尾空白，但只匹配精确的 `image/gif`。
 
-GIF 数据优先按纯 base64 解码，同时兼容常见的 `data:image/gif;base64,` 前缀；前缀中的 MIME 必须同样为 `image/gif`。转换后的 `data` 始终写入不带 data URI 前缀的纯 PNG base64。
+GIF 数据优先按纯 base64 解码，同时兼容常见的 `data:image/gif;base64,` 前缀，以及部分客户端产生的 `base64:data:image/gif;base64,` 外层传输标记。解析时最多剥离一层 `base64:`，再按纯 base64 或 data URI 校验；data URI 中的 MIME 必须同样为 `image/gif`。转换后的 `data` 始终写入不带前缀的纯 PNG base64。
 
 ## 4. Frame Budget and Sampling
 
@@ -171,6 +171,7 @@ Gemini 原生入口在 schema 清理和 `wrapV1InternalRequest` 后转换最终 
 - GIF 与 PNG/JPEG/文本混合时非 GIF 内容保持不变。
 - 透明、局部帧和三种 disposal 的像素级结果。
 - 非法 base64、损坏 GIF 和各资源上限边界。
+- `base64:data:image/gif;base64,...` 外层标记可正常解码。
 - PNG/base64 累计输出与最终请求体超过 20 MiB 时返回领域错误。
 
 service / handler 测试：

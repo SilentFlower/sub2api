@@ -14,7 +14,7 @@
 
 ## Requirements
 
-- 识别反重力请求中的 `image/gif` 内联数据，并在请求发送至上游前完成转换。
+- 识别反重力请求中的 `image/gif` 内联数据，并在请求发送至上游前完成转换；输入兼容纯 base64、`data:image/gif;base64,` 和外层带 `base64:` 标记的 data URI。
 - 解码 GIF 动画并从完整时间序列中均匀抽取多帧，至少保留首帧和末帧。
 - 正确合成 GIF 的增量帧与 disposal 行为，不能直接把局部帧当成完整画面。
 - 将每个抽取结果编码为独立的 `image/png` Gemini `inlineData` part，并保持原内容块的相对位置。
@@ -39,6 +39,7 @@
 - [ ] 带透明、局部更新和 disposal 的 GIF 输出为正确合成后的完整 PNG 帧。
 - [ ] Claude 兼容入口和原生 Gemini 入口均不再向反重力上游发送 `image/gif`。
 - [ ] 多个 GIF、GIF 与普通图片混合时，各内容块顺序稳定，普通图片保持原数据与 MIME 类型。
+- [ ] `base64:data:image/gif;base64,...` 输入可正常转换，不返回 `Invalid GIF base64 data`。
 - [ ] 非法或超限 GIF 返回稳定、可识别的 4xx 错误，测试验证上游未被调用。
 - [ ] `AccountTypeUpstream` 账号继续走 `ForwardUpstream`，请求体和现有上游响应行为不变。
 - [ ] 相关单元测试通过，且现有反重力请求转换与 Gemini 网关测试无回归。
