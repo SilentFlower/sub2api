@@ -25,6 +25,7 @@
 func ContainsGIFInlineDataCandidate(body []byte) bool
 func TransformGIFInlineData(body []byte, maxFramesPerGIF int) ([]byte, error)
 func IsGIFCompatibilityError(err error) bool
+func GIFCompatibilityDiagnosticsFromError(err error) (GIFCompatibilityDiagnostics, bool)
 ```
 
 全局设置边界：
@@ -62,12 +63,13 @@ function updateAntigravityGIFCompatibilitySettings(
 - 设置缺失、空值或损坏 JSON时返回完整默认值；持久化帧数越界时只把帧数回退为 `8`。管理 API 写入越界值必须返回 `400`，reason 为 `ANTIGRAVITY_GIF_MAX_FRAMES_INVALID`，且不得写入仓储。
 - 热路径没有 `image/gif` 候选时必须返回原 `[]byte` 且不读取设置；读取设置失败时按默认开启和 8 帧继续；设置关闭时必须原字节透传，不解析、不拒绝 GIF。
 - 纯转换同时支持根 `contents[].parts[]`、包装后的 `request.contents[].parts[]`、`inlineData.mimeType/data` 和 `inline_data.mime_type/data`。MIME 只在 trim 后大小写不敏感地精确匹配 `image/gif`。
-- 输入支持纯 base64、`data:image/gif;base64,`，以及部分客户端产生的单层 `base64:data:image/gif;base64,` 包装；解析器最多剥离一层外部 `base64:` 标记，再校验内部 data URI。输出必须是按时间顺序排列、无任何前缀的 `image/png` base64 part。非 GIF part、未知字段和相对顺序必须保留。
+- 输入支持纯 base64、`data:image/gif;base64,`，以及部分客户端产生的单层 `base64:data:image/gif;base64,` 包装；解析器最多剥离一层外部 `base64:` 标记，再校验内部 data URI。base64 payload 需兼容 URL 转义后的 `%2B/%2F/%3D`、URL-safe base64 和中间 ASCII 空白。输出必须是按时间顺序排列、无任何前缀的 `image/png` base64 part。非 GIF part、未知字段和相对顺序必须保留。
 - 单 GIF 配置上限为 `1..16`，单请求转换生成的 PNG part 总数固定不超过 `16`。多个 GIF 使用稳定轮转公平分配；名额大于 1 时保留首尾帧。
 - GIF 合成必须在完整逻辑画布上处理透明局部帧以及 `DisposalNone`、`DisposalBackground`、`DisposalPrevious`，不能直接把局部帧编码为最终 PNG。
 - 资源上限固定为：单 GIF 解码后 `20 MiB`、画布单边 `4096`、画布 `16,777,216` 像素、原始帧 `1000`、累计帧矩形 `134,217,728` 像素、最终包装后的 Gemini JSON `20 MiB`。PNG 编码过程中必须同步扣减累计 base64 预算。
 - Claude 路径的初始转换、signature 修复重试和 budget 修复重试必须统一经过 `transformClaudeRequestWithGIFCompatibility`。
 - Gemini 原生路径的每个上游请求体构建点都必须统一经过 `wrapV1InternalRequestWithGIFCompatibility` 或等价 helper：初始请求、模型 fallback 重试、`thoughtSignature` 清理重试都必须在 `wrapV1InternalRequest` 后立刻应用 GIF 兼容转换，禁止重新包装后直接 `NewAPIRequest` 或 `antigravityRetryLoop`。
+- 转换失败时 service helper 必须记录一次结构化日志 `antigravity_gif_transform_failed`，并只输出安全诊断字段：阶段、输入/trim/payload/归一化长度、是否外层 `base64:`、是否 data URI、data URI MIME、是否 base64、是否 URL 转义、URL 反转义是否失败、是否移除空白、是否含 base64url 字符、padding 余数和 base64 解码错误类别。禁止记录原始 base64、完整 data URI 或完整请求体。
 
 ### 4. Validation & Error Matrix
 
@@ -80,7 +82,9 @@ function updateAntigravityGIFCompatibilitySettings(
 | PUT `max_frames_per_gif` 不在 `1..16` | HTTP 400，reason 为 `ANTIGRAVITY_GIF_MAX_FRAMES_INVALID`，不写仓储 |
 | base64、data URI、GIF 结构或 disposal 数据非法 | 返回 `GIFCompatibilityError`；Claude 映射为 `400 invalid_request_error`，Gemini 映射为 Google/Gemini 400 |
 | `base64:data:image/gif;base64,...` | 剥离单层外部标记后按 GIF data URI 解码并转换 |
+| data URI payload 包含 `%2B/%2F/%3D`、base64url 字符或 ASCII 空白 | 归一化后解码并转换，不返回 `Invalid GIF base64 data` |
 | 输入字节、尺寸、帧数、累计像素或输出请求超限 | 返回安全的 `GIFCompatibilityError`，不包含原始 base64 或完整请求体 |
+| 仍然无法解码 GIF base64 | 本地 400，同时日志包含 `gif_stage=base64_decode` 等安全诊断字段，便于判别是 URL 转义、base64url、空白、padding 还是真实损坏 |
 | 单请求 GIF 数量超过 16 | 本地 400，不调用上游 |
 | 转换成功 | 上游请求不得再包含 `image/gif`，转换 part 的 MIME 必须为 `image/png` |
 | `AccountTypeUpstream` | 不进入兼容 helper，请求体保持原样 |
@@ -114,8 +118,8 @@ cd frontend && pnpm typecheck
 
 断言点：
 
-- 纯转换：无 GIF 字节不变；纯 base64、data URI 和单层 `base64:` 包装均可解码；默认 8 帧包含首尾；多 GIF 公平预算；snake/camel 与根/包装结构；未知字段保留；透明和三类 disposal 像素正确；所有资源边界返回可分类错误。
-- service：无候选跳过设置；关闭时透传；设置读取失败使用默认值；配置帧数实际控制输出。
+- 纯转换：无 GIF 字节不变；纯 base64、data URI、单层 `base64:` 包装、URL 转义 payload、URL-safe base64 和中间空白均可解码；默认 8 帧包含首尾；多 GIF 公平预算；snake/camel 与根/包装结构；未知字段保留；透明和三类 disposal 像素正确；所有资源边界返回可分类错误。
+- service：无候选跳过设置；关闭时透传；设置读取失败使用默认值；配置帧数实际控制输出；转换失败时只打安全诊断日志，不泄露原始图片 payload。
 - gateway：Claude 初始与两类 rectifier 重试、Gemini 初始包装请求、Gemini model fallback 重试和 Gemini `thoughtSignature` 清理重试都只发送 PNG；转换错误不上游；`AccountTypeUpstream` 保持原 body。
 - handler/frontend：默认值、合法边界 1/16、越界拒绝、GET/PUT 失败、加载与保存期间禁用交互。
 

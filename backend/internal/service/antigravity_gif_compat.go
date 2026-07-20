@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
 func (s *AntigravityGatewayService) applyAntigravityGIFCompatibility(ctx context.Context, body []byte) ([]byte, error) {
@@ -26,7 +28,11 @@ func (s *AntigravityGatewayService) applyAntigravityGIFCompatibility(ctx context
 		return body, nil
 	}
 
-	return antigravity.TransformGIFInlineData(body, settings.MaxFramesPerGIF)
+	transformed, err := antigravity.TransformGIFInlineData(body, settings.MaxFramesPerGIF)
+	if err != nil {
+		logAntigravityGIFCompatibilityError(ctx, err)
+	}
+	return transformed, err
 }
 
 func (s *AntigravityGatewayService) wrapV1InternalRequestWithGIFCompatibility(ctx context.Context, projectID, model string, originalBody []byte) ([]byte, error) {
@@ -56,4 +62,31 @@ func antigravityGIFClientErrorMessage(err error, fallback string) string {
 		return err.Error()
 	}
 	return fallback
+}
+
+func logAntigravityGIFCompatibilityError(ctx context.Context, err error) {
+	if !antigravity.IsGIFCompatibilityError(err) {
+		return
+	}
+	fields := []zap.Field{zap.Error(err)}
+	if diagnostic, ok := antigravity.GIFCompatibilityDiagnosticsFromError(err); ok {
+		fields = append(fields,
+			zap.String("gif_stage", diagnostic.Stage),
+			zap.Int("gif_input_length", diagnostic.InputLength),
+			zap.Int("gif_trimmed_length", diagnostic.TrimmedLength),
+			zap.Int("gif_payload_length", diagnostic.PayloadLength),
+			zap.Int("gif_normalized_payload_length", diagnostic.NormalizedPayloadLength),
+			zap.Bool("gif_has_outer_base64_prefix", diagnostic.HasOuterBase64Prefix),
+			zap.Bool("gif_has_data_uri", diagnostic.HasDataURI),
+			zap.String("gif_data_uri_mime", diagnostic.DataURIMime),
+			zap.Bool("gif_data_uri_has_base64", diagnostic.DataURIHasBase64),
+			zap.Bool("gif_had_url_escape", diagnostic.HadURLEscape),
+			zap.Bool("gif_url_unescape_failed", diagnostic.URLUnescapeFailed),
+			zap.Bool("gif_removed_whitespace", diagnostic.RemovedWhitespace),
+			zap.Bool("gif_has_url_safe_alphabet", diagnostic.HasURLSafeAlphabet),
+			zap.Int("gif_padding_remainder", diagnostic.PaddingRemainder),
+			zap.String("gif_decode_error", diagnostic.DecodeError),
+		)
+	}
+	logger.FromContext(ctx).Warn("antigravity_gif_transform_failed", fields...)
 }
