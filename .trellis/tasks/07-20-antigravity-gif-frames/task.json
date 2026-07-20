@@ -35,17 +35,17 @@
     }
   },
   "progress": {
-    "updatedAt": "2026-07-21T01:40:11+08:00",
+    "updatedAt": "2026-07-21T03:17:33+08:00",
     "completedSteps": [
       "完成反重力 GIF 多帧 PNG 转换、资源限制和双入口薄接入",
       "完成全局设置、管理 API 与前端设置组件",
       "完成单层 base64: 包装 GIF data URI 生产问题修复及完整复检",
       "修复 Gemini 原生 model fallback 与 thoughtSignature 重试二次请求绕过 GIF 转换",
       "完成反重力 GIF 重试路径回归测试、service 全包测试和 spec 防复发更新",
-      "修复 GIF base64 变体归一化并新增安全结构化诊断日志"
+      "回收过宽 GIF base64 变体兼容并完成定向验证"
     ],
     "partialStep": null,
-    "nextStep": "等待 GitHub Actions 构建新镜像，部署后通过 antigravity_gif_transform_failed 日志确认生产 GIF 输入真实形态",
-    "notes": "支持 URL 转义 payload、base64url 和 ASCII 空白归一化；转换失败日志只记录安全诊断字段，不记录原始 base64/data URI/请求体。已通过 antigravity、service、handler/admin 相关单元测试和 git diff --check。"
+    "nextStep": "部署新镜像；OpenAI Chat 经 new-api 的 GIF 拒绝需在 new-api 改造或改用原生 Gemini 格式请求",
+    "notes": "已移除 URL 反转义、base64url 和中间空白自动归一化；保留标准 padded/raw base64、data URI、单层 base64: 包装和安全诊断日志。验证通过：go test -tags=unit ./internal/pkg/antigravity；go test -tags=unit ./internal/service -run 'Test.*Antigravity.*GIF|Test.*GIF'；go test -tags=unit ./internal/handler/admin -run 'Test.*Antigravity.*GIF|Test.*GIF'；git diff --check。"
   }
 }
