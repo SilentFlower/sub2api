@@ -13,6 +13,7 @@ import (
 	"image/gif"
 	"image/png"
 	"io"
+	"net/url"
 	"strings"
 )
 
@@ -412,20 +413,21 @@ func decodeGIFBase64(value string) ([]byte, error) {
 	}
 	diagnostic := payloadInfo.diagnostic
 
+	payload := decodeEscapedGIFBase64Payload(payloadInfo.payload)
 	diagnostic.PayloadLength = len(payloadInfo.payload)
 	diagnostic.HadURLEscape = strings.Contains(payloadInfo.payload, "%")
-	diagnostic.HasURLSafeAlphabet = hasGIFBase64URLSafeAlphabet(payloadInfo.payload)
-	diagnostic.PaddingRemainder = len(payloadInfo.payload) % 4
+	diagnostic.HasURLSafeAlphabet = hasGIFBase64URLSafeAlphabet(payload)
+	diagnostic.PaddingRemainder = len(payload) % 4
 
 	maxEncodedLength := base64.StdEncoding.EncodedLen(maxGIFDecodedBytes)
-	if len(payloadInfo.payload) > maxEncodedLength+2 {
+	if len(payload) > maxEncodedLength+2 {
 		diagnostic.Stage = "input_limit"
 		return nil, newGIFCompatibilityErrorWithDiagnostics("GIF image exceeds the 20 MiB input limit", diagnostic)
 	}
 
-	decoded, decodeErr := base64.StdEncoding.DecodeString(payloadInfo.payload)
+	decoded, decodeErr := base64.StdEncoding.DecodeString(payload)
 	if decodeErr != nil {
-		decoded, decodeErr = base64.RawStdEncoding.DecodeString(payloadInfo.payload)
+		decoded, decodeErr = base64.RawStdEncoding.DecodeString(payload)
 	}
 	if decodeErr != nil {
 		diagnostic.Stage = "base64_decode"
@@ -437,6 +439,18 @@ func decodeGIFBase64(value string) ([]byte, error) {
 		return nil, newGIFCompatibilityErrorWithDiagnostics("GIF image exceeds the 20 MiB input limit", diagnostic)
 	}
 	return decoded, nil
+}
+
+func decodeEscapedGIFBase64Payload(payload string) string {
+	if !strings.Contains(payload, "%") {
+		return payload
+	}
+	// 只反转义 payload，随后仍按标准 base64 解码；避免把 data URI 元数据或任意 URL 格式放宽。
+	unescaped, err := url.PathUnescape(payload)
+	if err != nil {
+		return payload
+	}
+	return unescaped
 }
 
 func hasGIFBase64URLSafeAlphabet(value string) bool {
