@@ -648,3 +648,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: 修复反重力 GIF base64 兼容
+
+**Date**: 2026-07-21
+**Task**: 修复反重力 GIF base64 兼容
+**Branch**: `build`
+
+### Summary
+
+定位生产反重力 GIF 本地 400：先修 URL 转义标准 base64，再通过服务器安全诊断确认真实输入为 base64url，补充标准/base64url 解码兼容、回归测试和 GIF 兼容 spec，并推送 build。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `90342b15` | (see git log) |
+| `73f1612a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
