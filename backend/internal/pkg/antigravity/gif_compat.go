@@ -429,6 +429,12 @@ func decodeGIFBase64(value string) ([]byte, error) {
 	if decodeErr != nil {
 		decoded, decodeErr = base64.RawStdEncoding.DecodeString(payload)
 	}
+	if decodeErr != nil && hasGIFBase64URLSafeAlphabet(payload) {
+		decoded, decodeErr = base64.URLEncoding.DecodeString(payload)
+		if decodeErr != nil {
+			decoded, decodeErr = base64.RawURLEncoding.DecodeString(payload)
+		}
+	}
 	if decodeErr != nil {
 		diagnostic.Stage = "base64_decode"
 		diagnostic.DecodeError = decodeErr.Error()

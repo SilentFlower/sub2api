@@ -239,11 +239,27 @@ func TestTransformGIFInlineData_RejectsInvalidBase64(t *testing.T) {
 	require.Equal(t, "Invalid GIF base64 data", err.Error())
 }
 
-func TestDecodeGIFBase64_RejectsURLSafeBase64(t *testing.T) {
-	_, err := decodeGIFBase64("R0lGODlh-_8")
+func TestTransformGIFInlineData_SupportsURLSafeBase64(t *testing.T) {
+	gifData := appendGIFCommentExtension(encodeSolidTestGIF(t, []color.RGBA{{B: 255, A: 255}}))
+	urlSafeEncoded := base64.RawURLEncoding.EncodeToString(gifData)
+	require.Contains(t, urlSafeEncoded, "_")
+	body := buildGIFRequestBody(t, []any{
+		map[string]any{
+			"inlineData": map[string]any{
+				"mimeType": "image/gif",
+				"data":     urlSafeEncoded,
+			},
+		},
+	})
 
-	require.Error(t, err)
-	require.Equal(t, "Invalid GIF base64 data", err.Error())
+	transformed, err := TransformGIFInlineData(body, 1)
+
+	require.NoError(t, err)
+	parts := requestParts(t, transformed)
+	require.Len(t, parts, 1)
+	inline := parts[0]["inlineData"].(map[string]any)
+	require.Equal(t, "image/png", inline["mimeType"])
+	require.Equal(t, color.RGBA{B: 255, A: 255}, pngPixel(t, inline["data"].(string), 0, 0))
 }
 
 func TestTransformGIFInlineData_InvalidBase64ExposesSafeDiagnostics(t *testing.T) {
@@ -489,6 +505,13 @@ func encodeTestGIF(t *testing.T, width, height int, palette color.Palette, frame
 	})
 	require.NoError(t, err)
 	return buffer.Bytes()
+}
+
+func appendGIFCommentExtension(data []byte) []byte {
+	comment := []byte{0x21, 0xFE, 0x03, 0xFB, 0xFF, 0xFF, 0x00}
+	result := append([]byte(nil), data[:len(data)-1]...)
+	result = append(result, comment...)
+	return append(result, data[len(data)-1])
 }
 
 func requestParts(t *testing.T, body []byte) []map[string]any {
