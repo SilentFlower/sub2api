@@ -682,3 +682,39 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: 更新 Flower 至 0.5.6-beta.1
+
+**Date**: 2026-08-01
+**Task**: 更新 Flower 至 0.5.6-beta.1
+**Branch**: `build`
+
+### Summary
+
+将项目 Flower skill-garden 从 0.5.6-beta.0 更新至 0.5.6-beta.1，并完成版本锁定文件提交与远端推送。
+
+### Main Changes
+
+- 执行项目级 Flower 自更新。
+- 更新 `.flower/plugin-lock.json` 与 `.flower/plugins.json`。
+- 提交 `dec43babc` 并推送至 `origin/build`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dec43babc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
