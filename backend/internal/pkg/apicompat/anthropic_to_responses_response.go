@@ -132,7 +132,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	out.Output = outputs
 
 	// Map stop_reason → status
-	out.Status = anthropicStopReasonToResponsesStatus(resp.StopReason, resp.Content)
+	out.Status = anthropicStopReasonToResponsesStatus(AnthropicStopReasonString(resp.StopReason), resp.Content)
 	if searchFailed {
 		out.Status = "failed"
 		out.Error = &ResponsesError{
@@ -203,6 +203,9 @@ type AnthropicEventToResponsesState struct {
 
 	// For message output: accumulate text parts
 	ContentIndex int
+	// TextAccum accumulates the current text part so that output_text.done and
+	// content_part.done can carry the full text (deltas carry increments only).
+	TextAccum string
 
 	// For function_call: track per-output info
 	CurrentCallID           string
@@ -213,9 +216,21 @@ type AnthropicEventToResponsesState struct {
 	CurrentSearchResultSeen bool
 	CurrentText             string
 	CurrentAnnotationIndex  int
+	CurrentAnnotations      []ResponsesAnnotation
 	PendingCitations        []AnthropicCitation
 	SearchFailed            bool
 	SearchErrorCode         string
+
+	// Content of the currently open item, folded into Outputs when it closes.
+	CurrentContent []ResponsesContentPart // message
+	CurrentArgs    string                 // function_call
+	CurrentSummary string                 // reasoning
+
+	// Outputs accumulates every closed output item so that response.completed
+	// can carry the full output list. The OpenAI SDK's get_final_response()
+	// parses the terminal event's response directly; without this, clients see
+	// an empty output_text.
+	Outputs []ResponsesOutput
 
 	// Usage from message_start / message_delta. InputTokens here follows
 	// Anthropic semantics (excludes cached tokens); they are added back when
@@ -359,6 +374,17 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 		}
 		state.CurrentText = ""
 		state.CurrentAnnotationIndex = 0
+		state.CurrentAnnotations = nil
+
+		// 文本增量到来前必须先声明 content part，否则 OpenAI SDK 的流式累积器
+		// 无法为 output_text.delta 找到对应的 content 索引。
+		events = append(events, makeResponsesEvent(state, "response.content_part.added", &ResponsesStreamEvent{
+			OutputIndex:  state.OutputIndex,
+			ContentIndex: state.ContentIndex,
+			ItemID:       state.CurrentItemID,
+			Part:         &ResponsesContentPart{Type: "output_text", Text: ""},
+		}))
+		state.TextAccum = ""
 
 	case "server_tool_use":
 		if evt.ContentBlock.Name != "web_search" {
@@ -432,6 +458,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 			return nil
 		}
 		state.CurrentText += evt.Delta.Text
+		state.TextAccum += evt.Delta.Text
 		events := []ResponsesStreamEvent{makeResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
 			OutputIndex:  state.OutputIndex,
 			ContentIndex: state.ContentIndex,
@@ -445,6 +472,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 		if evt.Delta.Thinking == "" {
 			return nil
 		}
+		state.CurrentSummary += evt.Delta.Thinking
 		return []ResponsesStreamEvent{makeResponsesEvent(state, "response.reasoning_summary_text.delta", &ResponsesStreamEvent{
 			OutputIndex:  state.OutputIndex,
 			SummaryIndex: 0,
@@ -460,6 +488,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 			state.CurrentSearchInputJSON += evt.Delta.PartialJSON
 			return nil
 		}
+		state.CurrentArgs += evt.Delta.PartialJSON
 		return []ResponsesStreamEvent{makeResponsesEvent(state, "response.function_call_arguments.delta", &ResponsesStreamEvent{
 			OutputIndex: state.OutputIndex,
 			Delta:       evt.Delta.PartialJSON,
@@ -524,13 +553,32 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 	case "message":
 		// 文本块结束时再兜底发送没有 cited_text 或无法精确匹配的引用。
 		events := flushPendingResponsesCitations(state, true)
+		text := state.TextAccum
+		state.TextAccum = ""
+		part := ResponsesContentPart{
+			Type:        "output_text",
+			Text:        text,
+			Annotations: append([]ResponsesAnnotation(nil), state.CurrentAnnotations...),
+		}
+		state.CurrentContent = append(state.CurrentContent, part)
 		events = append(events,
 			makeResponsesEvent(state, "response.output_text.done", &ResponsesStreamEvent{
 				OutputIndex:  state.OutputIndex,
 				ContentIndex: state.ContentIndex,
 				ItemID:       state.CurrentItemID,
+				Text:         text,
+			}),
+			makeResponsesEvent(state, "response.content_part.done", &ResponsesStreamEvent{
+				OutputIndex:  state.OutputIndex,
+				ContentIndex: state.ContentIndex,
+				ItemID:       state.CurrentItemID,
+				Part:         &part,
 			}),
 		)
+		state.CurrentText = ""
+		state.CurrentAnnotations = nil
+		state.CurrentAnnotationIndex = 0
+		state.ContentIndex++
 		return events
 	}
 
@@ -589,13 +637,23 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	}
 
 	itemType := state.CurrentItemType
-	itemID := state.CurrentItemID
 	events := make([]ResponsesStreamEvent, 0, 2)
 	if itemType == "message" {
 		events = append(events, flushPendingResponsesCitations(state, true)...)
+		// 上游异常结束且缺少 content_block_stop 时，仍需把已收到的文本折叠进终止事件。
+		if state.TextAccum != "" || state.CurrentText != "" {
+			text := state.TextAccum
+			if text == "" {
+				text = state.CurrentText
+			}
+			state.CurrentContent = append(state.CurrentContent, ResponsesContentPart{
+				Type:        "output_text",
+				Text:        text,
+				Annotations: append([]ResponsesAnnotation(nil), state.CurrentAnnotations...),
+			})
+		}
 	}
 	status := "completed"
-	var action *WebSearchAction
 	if itemType == "web_search_call" {
 		if !state.CurrentSearchResultSeen {
 			status = "failed"
@@ -604,13 +662,39 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 		} else if state.CurrentSearchStatus != "" {
 			status = state.CurrentSearchStatus
 		}
-		action = &WebSearchAction{
+	}
+
+	// output_item.done 与终止事件都必须携带完整 item，SDK 才能从终止事件还原最终结果。
+	item := ResponsesOutput{
+		Type:   itemType,
+		ID:     state.CurrentItemID,
+		Status: status,
+	}
+	switch itemType {
+	case "message":
+		item.Role = "assistant"
+		item.Content = state.CurrentContent
+	case "function_call":
+		item.CallID = state.CurrentCallID
+		item.Name = state.CurrentName
+		args := state.CurrentArgs
+		if args == "" {
+			args = "{}"
+		}
+		item.Arguments = args
+	case "reasoning":
+		if state.CurrentSummary != "" {
+			item.Summary = []ResponsesSummary{{Type: "summary_text", Text: state.CurrentSummary}}
+		}
+	case "web_search_call":
+		item.Action = &WebSearchAction{
 			Type:  "search",
 			Query: anthropicWebSearchQuery(json.RawMessage(state.CurrentSearchInputJSON)),
 		}
 	}
+	state.Outputs = append(state.Outputs, item)
 
-	// Reset
+	// 当前 item 已折叠进 Outputs，清空所有逐项累积状态。
 	state.CurrentItemType = ""
 	state.CurrentItemID = ""
 	state.CurrentCallID = ""
@@ -621,20 +705,20 @@ func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []Response
 	state.CurrentSearchResultSeen = false
 	state.CurrentText = ""
 	state.CurrentAnnotationIndex = 0
+	state.CurrentAnnotations = nil
 	if itemType == "message" {
 		state.PendingCitations = nil
 	}
+	state.CurrentContent = nil
+	state.CurrentArgs = ""
+	state.CurrentSummary = ""
+	state.TextAccum = ""
 	state.OutputIndex++
 	state.ContentIndex = 0
 
 	events = append(events, makeResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
-		OutputIndex: state.OutputIndex - 1, // Use the index before increment
-		Item: &ResponsesOutput{
-			Type:   itemType,
-			ID:     itemID,
-			Status: status,
-			Action: action,
-		},
+		OutputIndex: state.OutputIndex - 1,
+		Item:        &item,
 	}))
 	return events
 }
@@ -739,6 +823,7 @@ func flushPendingResponsesCitations(state *AnthropicEventToResponsesState, fallb
 		annotationIndex := state.CurrentAnnotationIndex
 		state.CurrentAnnotationIndex++
 		annotation := anthropicCitationToResponses(citation, state.CurrentText)
+		state.CurrentAnnotations = append(state.CurrentAnnotations, annotation)
 		events = append(events, makeResponsesEvent(state, "response.output_text.annotation.added", &ResponsesStreamEvent{
 			OutputIndex:     state.OutputIndex,
 			ContentIndex:    state.ContentIndex,
@@ -806,6 +891,14 @@ func makeResponsesCompletedEvent(
 		responseError = &ResponsesError{Code: code, Message: "Upstream web search failed: " + code}
 	}
 
+	// Carry the output items accumulated over the stream. The SDK's
+	// get_final_response() reads them straight from the terminal event, so an
+	// empty list leaves clients with an empty result.
+	outputs := state.Outputs
+	if outputs == nil {
+		outputs = []ResponsesOutput{}
+	}
+
 	return ResponsesStreamEvent{
 		Type:           eventType,
 		SequenceNumber: seq,
@@ -814,7 +907,7 @@ func makeResponsesCompletedEvent(
 			Object:            "response",
 			Model:             state.Model,
 			Status:            status,
-			Output:            []ResponsesOutput{},
+			Output:            outputs,
 			Usage:             usage,
 			IncompleteDetails: incompleteDetails,
 			Error:             responseError,

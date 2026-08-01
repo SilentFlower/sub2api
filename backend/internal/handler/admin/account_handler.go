@@ -62,13 +62,21 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
-	grokImportProber        grokUsageProber
+	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
+	ollamaCloudUsage        *service.OllamaCloudUsageService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe
+}
+
+// SetOllamaCloudUsageService 注入 Ollama Cloud 用量服务。
+//
+// @param usage Ollama Cloud 用量服务。
+func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
+	h.ollamaCloudUsage = usage
 }
 
 // NewAccountHandler 创建账号管理处理器。
@@ -78,6 +86,7 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 // @param openaiOAuthService OpenAI OAuth 服务。
 // @param geminiOAuthService Gemini OAuth 服务。
 // @param antigravityOAuthService Antigravity OAuth 服务。
+// @param grokOAuthService Grok OAuth Token 服务。
 // @param rateLimitService 限流服务。
 // @param accountUsageService 账号用量服务。
 // @param accountTestService 账号测试服务。
@@ -140,6 +149,7 @@ type CreateAccountRequest struct {
 	GroupIDs                []int64        `json:"group_ids"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
+	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
@@ -178,6 +188,7 @@ type BulkUpdateAccountsRequest struct {
 	GroupIDs                *[]int64                  `json:"group_ids"`
 	Credentials             map[string]any            `json:"credentials"`
 	Extra                   map[string]any            `json:"extra"`
+	ProbeEnabled            *bool                     `json:"upstream_billing_probe_enabled"`
 	ConfirmMixedChannelRisk *bool                     `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
@@ -225,9 +236,17 @@ type AccountSchedulerGroupScore struct {
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
 
+func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
+	out := dto.AccountFromService(account)
+	if h != nil && h.ollamaCloudUsage != nil && out != nil {
+		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
+	}
+	return out
+}
+
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
-		Account:            dto.AccountFromService(account),
+		Account:            h.accountResponseFromService(account),
 		CurrentConcurrency: 0,
 	}
 	if account == nil {
@@ -540,6 +559,16 @@ func (h *AccountHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.ollamaCloudUsage != nil && len(accounts) > 0 {
+		accountPointers := make([]*service.Account, len(accounts))
+		for index := range accounts {
+			accountPointers[index] = &accounts[index]
+		}
+		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), accountPointers); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	// Get current concurrency counts for all accounts
 	accountIDs := make([]int64, len(accounts))
@@ -643,7 +672,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	for i := range accounts {
 		acc := &accounts[i]
 		item := AccountWithConcurrency{
-			Account:            dto.AccountFromService(acc),
+			Account:            h.accountResponseFromService(acc),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
 			SchedulerScore:     schedulerScores[acc.ID],
 			SchedulerScores:    schedulerGroupScores[acc.ID],
@@ -757,6 +786,12 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.ollamaCloudUsage != nil {
+		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), []*service.Account{account}); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
@@ -847,6 +882,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			GroupIDs:              req.GroupIDs,
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
+			ProbeEnabled:          req.ProbeEnabled,
 			SkipMixedChannelCheck: skipCheck,
 		})
 		if execErr != nil {
@@ -1926,7 +1962,8 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		req.Schedulable != nil ||
 		req.GroupIDs != nil ||
 		len(req.Credentials) > 0 ||
-		len(req.Extra) > 0
+		len(req.Extra) > 0 ||
+		req.ProbeEnabled != nil
 
 	if !hasUpdates {
 		response.BadRequest(c, "No updates provided")
@@ -1947,6 +1984,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		GroupIDs:              req.GroupIDs,
 		Credentials:           req.Credentials,
 		Extra:                 req.Extra,
+		ProbeEnabled:          req.ProbeEnabled,
 		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {

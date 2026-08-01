@@ -427,7 +427,7 @@ func ChatCompletionsResponseToAnthropic(resp *ChatCompletionsResponse, model str
 		if len(resp.Choices) > 0 {
 			choice := resp.Choices[0]
 			out.Content = chatMessageToAnthropicBlocks(choice.Message)
-			out.StopReason = chatFinishReasonToAnthropicStopReason(choice.FinishReason, out.Content)
+			out.StopReason = AnthropicStopReasonPtr(chatFinishReasonToAnthropicStopReason(choice.FinishReason, out.Content))
 			// Anthropic 只通过 stop_reason 表达 token 上限，不存在 incomplete_details。
 		}
 		if resp.Usage != nil {
@@ -440,8 +440,8 @@ func ChatCompletionsResponseToAnthropic(resp *ChatCompletionsResponse, model str
 	}
 	// 空 choices 或 nil 响应也必须以 end_turn 完成，严格 Anthropic 客户端不接受
 	// 空 stop_reason。
-	if out.StopReason == "" {
-		out.StopReason = chatFinishReasonToAnthropicStopReason("", out.Content)
+	if AnthropicStopReasonString(out.StopReason) == "" {
+		out.StopReason = AnthropicStopReasonPtr(chatFinishReasonToAnthropicStopReason("", out.Content))
 	}
 	// 上游省略响应 ID 时生成兼容 ID，因为客户端把该字段视为必填。
 	if out.ID == "" {
@@ -762,12 +762,13 @@ func ensureCCAnthropicMessageStart(state *ChatCompletionsToAnthropicStreamState)
 	return []AnthropicStreamEvent{{
 		Type: "message_start",
 		Message: &AnthropicResponse{
-			ID:      state.ResponseID,
-			Type:    "message",
-			Role:    "assistant",
-			Content: []AnthropicContentBlock{},
-			Model:   state.Model,
-			Usage:   AnthropicUsage{InputTokens: 0, OutputTokens: 0},
+			ID:         state.ResponseID,
+			Type:       "message",
+			Role:       "assistant",
+			Content:    []AnthropicContentBlock{},
+			Model:      state.Model,
+			StopReason: nil, // JSON null; never ""
+			Usage:      AnthropicUsage{InputTokens: 0, OutputTokens: 0},
 		},
 	}}
 }
@@ -1101,7 +1102,7 @@ func ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, mo
 		Role:       "assistant",
 		Model:      model,
 		Content:    blocks,
-		StopReason: ccFinishReasonToAnthropicStopReason(finishReason, hasTool),
+		StopReason: AnthropicStopReasonPtr(ccFinishReasonToAnthropicStopReason(finishReason, hasTool)),
 		Usage:      chatUsageToAnthropicUsage(usage),
 	}
 }

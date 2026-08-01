@@ -77,7 +77,7 @@ func TestAnthropicToResponsesResponseMapsWebSearchAndCitations(t *testing.T) {
 	resp := &AnthropicResponse{
 		ID:         "msg_1",
 		Model:      "deepseek-v4-pro",
-		StopReason: "end_turn",
+		StopReason: AnthropicStopReasonPtr("end_turn"),
 		Content: []AnthropicContentBlock{
 			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: json.RawMessage(`{"query":"latest"}`)},
 			{Type: "web_search_tool_result", ToolUseID: "srvtoolu_1", Content: json.RawMessage(`[{"type":"web_search_result","url":"https://example.com"}]`)},
@@ -101,7 +101,7 @@ func TestAnthropicToResponsesResponseMarksWebSearchFailure(t *testing.T) {
 	resp := &AnthropicResponse{
 		ID:         "msg_1",
 		Model:      "deepseek-v4-pro",
-		StopReason: "end_turn",
+		StopReason: AnthropicStopReasonPtr("end_turn"),
 		Content: []AnthropicContentBlock{
 			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: json.RawMessage(`{"query":"latest"}`)},
 			{Type: "web_search_tool_result", ToolUseID: "srvtoolu_1", Content: json.RawMessage(`{"type":"web_search_tool_result_error","error_code":"max_uses_exceeded"}`)},
@@ -118,7 +118,7 @@ func TestAnthropicToResponsesResponseMarksMissingWebSearchResultAsFailure(t *tes
 	resp := &AnthropicResponse{
 		ID:         "msg_1",
 		Model:      "deepseek-v4-pro",
-		StopReason: "end_turn",
+		StopReason: AnthropicStopReasonPtr("end_turn"),
 		Content: []AnthropicContentBlock{
 			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: json.RawMessage(`{"query":"latest"}`)},
 		},
@@ -164,7 +164,9 @@ func TestAnthropicStreamMapsWebSearchAndCitation(t *testing.T) {
 
 	textIndex := 2
 	messageAdded := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "content_block_start", Index: &textIndex, ContentBlock: &AnthropicContentBlock{Type: "text"}}, state)
-	require.Len(t, messageAdded, 1)
+	require.Len(t, messageAdded, 2)
+	require.Equal(t, "response.output_item.added", messageAdded[0].Type)
+	require.Equal(t, "response.content_part.added", messageAdded[1].Type)
 	require.NotEmpty(t, messageAdded[0].Item.ID)
 	textEvents := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "content_block_delta", Delta: &AnthropicDelta{Type: "text_delta", Text: "See Answer now"}}, state)
 	require.Len(t, textEvents, 2)
@@ -173,6 +175,13 @@ func TestAnthropicStreamMapsWebSearchAndCitation(t *testing.T) {
 	require.Equal(t, messageAdded[0].Item.ID, textEvents[1].ItemID)
 	require.Equal(t, 4, textEvents[1].Annotation.StartIndex)
 	require.Equal(t, 10, textEvents[1].Annotation.EndIndex)
+	AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "content_block_stop"}, state)
+	terminal := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "message_stop"}, state)
+	require.Len(t, terminal, 2)
+	require.Equal(t, "response.completed", terminal[1].Type)
+	require.Len(t, terminal[1].Response.Output, 2)
+	require.Len(t, terminal[1].Response.Output[1].Content[0].Annotations, 1)
+	require.Equal(t, "https://example.com", terminal[1].Response.Output[1].Content[0].Annotations[0].URL)
 }
 
 func TestAnthropicStreamMarksWebSearchFailure(t *testing.T) {

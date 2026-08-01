@@ -64,6 +64,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
+	chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
 
 	// 部分 OpenAI-compatible 上游只实现 SSE 响应；这里始终向上游请求流式，
 	// 非流式客户端由本地折叠，避免同一路径出现 JSON/SSE 两种上游形态。

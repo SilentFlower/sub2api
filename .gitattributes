@@ -20,3 +20,6 @@ backend/migrations/*.sql text eol=lf
 
 # Dockerfile
 Dockerfile text eol=lf
+
+# source-freeze 补丁必须逐字保留，补丁中的空白差异不作为仓库文件告警。
+openspec/**/source-freeze/*.patch -whitespace

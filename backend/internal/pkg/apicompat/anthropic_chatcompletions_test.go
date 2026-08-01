@@ -507,7 +507,7 @@ func TestChatCompletionsStreamToAnthropicResponse_BlockOrderAndUsage(t *testing.
 	assert.Equal(t, "foo", resp.Content[2].Name)
 	assert.JSONEq(t, `{"a":1}`, string(resp.Content[2].Input))
 
-	assert.Equal(t, "tool_use", resp.StopReason)
+	assert.Equal(t, "tool_use", AnthropicStopReasonString(resp.StopReason))
 	assert.Equal(t, 70, resp.Usage.InputTokens)
 	assert.Equal(t, 30, resp.Usage.CacheReadInputTokens)
 	assert.Equal(t, 20, resp.Usage.OutputTokens)
@@ -548,5 +548,5 @@ func TestChatCompletionsStreamToAnthropicResponse_ReasoningOnlyFallback(t *testi
 	assert.Equal(t, "thinking", resp.Content[0].Type)
 	assert.Equal(t, "text", resp.Content[1].Type)
 	assert.Equal(t, "just thinking", resp.Content[1].Text)
-	assert.Equal(t, "end_turn", resp.StopReason)
+	assert.Equal(t, "end_turn", AnthropicStopReasonString(resp.StopReason))
 }

@@ -6,14 +6,17 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 // UpdateSettingsRequest 更新设置请求
@@ -27,7 +30,9 @@ type UpdateSettingsRequest struct {
 	FrontendURL                      string                       `json:"frontend_url"`
 	InvitationCodeEnabled            bool                         `json:"invitation_code_enabled"`
 	TotpEnabled                      bool                         `json:"totp_enabled"`             // TOTP 双因素认证
-	SessionBindingEnabled            bool                         `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
+	PasskeyEnabled                   *bool                        `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
+	SessionBindingEnabled            *bool                        `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
+	StepUpEnabled                    *bool                        `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
 	AuditLogRetentionDays            int                          `json:"audit_log_retention_days"` // 审计日志保留天数
 	LoginAgreementEnabled            bool                         `json:"login_agreement_enabled"`
 	LoginAgreementMode               string                       `json:"login_agreement_mode"`
@@ -49,7 +54,8 @@ type UpdateSettingsRequest struct {
 	TurnstileSecretKey string `json:"turnstile_secret_key"`
 
 	// API Key IP 访问控制设置
-	APIKeyACLTrustForwardedIP *bool `json:"api_key_acl_trust_forwarded_ip"`
+	APIKeyACLTrustForwardedIP *bool     `json:"api_key_acl_trust_forwarded_ip"`
+	ForwardedClientIPHeaders  *[]string `json:"forwarded_client_ip_headers"`
 
 	// LinuxDo Connect OAuth 登录
 	LinuxDoConnectEnabled      bool   `json:"linuxdo_connect_enabled"`
@@ -136,6 +142,7 @@ type UpdateSettingsRequest struct {
 	ContactInfo                 string                `json:"contact_info"`
 	DocURL                      string                `json:"doc_url"`
 	HomeContent                 string                `json:"home_content"`
+	CompactHomeEnabled          bool                  `json:"compact_home_enabled"`
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled *bool                 `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
@@ -300,6 +307,8 @@ type UpdateSettingsRequest struct {
 
 	// Force Alipay mobile clients to use QR code payment instead of mobile redirect
 	PaymentAlipayForceQRCode *bool `json:"payment_alipay_force_qrcode"`
+	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
+	PaymentAlipayMobilePrecreateDeepLink *bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool `json:"channel_monitor_enabled"`
@@ -307,6 +316,11 @@ type UpdateSettingsRequest struct {
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
+
+	// Model Plaza feature switches + description
+	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
+	ModelPlazaDescription *string `json:"model_plaza_description"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
@@ -338,12 +352,105 @@ type UpdateSettingsRequest struct {
 
 // UpdateSettings 更新系统设置
 // PUT /api/v1/admin/settings
+// ensureActorTotpForStepUp 校验当前操作者具备开启 step-up 门控的条件：
+// 必须是真人管理员会话（admin API key 无法完成 TOTP step-up，拒绝）且本人已启用 TOTP。
+// 校验失败时写入错误响应并返回 false。
+func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
+	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+		response.ErrorWithDetails(c, http.StatusForbidden,
+			"Admin API key cannot enable step-up verification; use an admin session with TOTP enabled",
+			"STEP_UP_ADMIN_API_KEY_FORBIDDEN", nil)
+		return false
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.ErrorWithDetails(c, http.StatusForbidden,
+			"Enabling step-up verification requires an authenticated admin session",
+			"STEP_UP_ENABLE_REQUIRES_TOTP", nil)
+		return false
+	}
+	if h.userService == nil {
+		response.InternalError(c, "Step-up precondition check unavailable")
+		return false
+	}
+	user, err := h.userService.GetByID(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return false
+	}
+	if !user.TotpEnabled {
+		response.ErrorWithDetails(c, http.StatusBadRequest,
+			"Enable two-factor authentication (TOTP) for your account before turning on step-up verification",
+			"STEP_UP_ENABLE_REQUIRES_TOTP", nil)
+		return false
+	}
+	return true
+}
+
+// settingKeyJSONAliases covers the request fields whose JSON name differs from
+// the setting key they persist to. Every other field of UpdateSettingsRequest
+// is named after its setting key.
+var settingKeyJSONAliases = map[string]string{
+	"smtp_from_email": service.SettingKeySMTPFrom,
+}
+
+// settingKeyByJSONName maps the value-typed top-level JSON fields of
+// UpdateSettingsRequest to the setting key each one writes. Resolved once from
+// the struct tags so new fields are covered without touching this file.
+//
+// Pointer-typed fields are deliberately excluded: they already carry their own
+// "omitted = keep the stored value" merge in UpdateSettings, and some of them
+// rely on being rewritten on every save to re-normalize fail-closed security
+// state (see TestUpdateSettingsMalformedForwardedClientIPHeadersRemainFailClosedWhenOmitted).
+// Only the value-typed fields are indistinguishable from a deliberate clear.
+var settingKeyByJSONName = buildSettingKeyByJSONName()
+
+func buildSettingKeyByJSONName() map[string]string {
+	t := reflect.TypeOf(UpdateSettingsRequest{})
+	out := make(map[string]string, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.Type.Kind() == reflect.Ptr {
+			continue
+		}
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		if alias, ok := settingKeyJSONAliases[name]; ok {
+			out[name] = alias
+			continue
+		}
+		out[name] = name
+	}
+	return out
+}
+
+// omittedSettingKeys reports the setting keys this payload never mentioned.
+// Saving settings is a whole-document PUT, so without this a client that sends
+// only the one field it cares about resets every other field to a zero value.
+func omittedSettingKeys(sentFields map[string]json.RawMessage) service.OmittedSettingKeys {
+	omitted := make(service.OmittedSettingKeys, len(settingKeyByJSONName))
+	for jsonName, settingKey := range settingKeyByJSONName {
+		if _, sent := sentFields[jsonName]; !sent {
+			omitted[settingKey] = struct{}{}
+		}
+	}
+	return omitted
+}
+
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
-	var req UpdateSettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var sentFields map[string]json.RawMessage
+	if err := c.ShouldBindBodyWith(&sentFields, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	var req UpdateSettingsRequest
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	omitted := omittedSettingKeys(sentFields)
 
 	previousSettings, err := h.settingService.GetAllSettings(c.Request.Context())
 	if err != nil {
@@ -354,6 +461,49 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
+	// 用不含新字段的全量 payload 保存设置时把安全开关静默重置。
+	sessionBindingEnabled := previousSettings.SessionBindingEnabled
+	if req.SessionBindingEnabled != nil {
+		sessionBindingEnabled = *req.SessionBindingEnabled
+	}
+	stepUpEnabled := previousSettings.StepUpEnabled
+	if req.StepUpEnabled != nil {
+		stepUpEnabled = *req.StepUpEnabled
+	}
+	passkeyEnabled := previousSettings.PasskeyEnabled
+	if req.PasskeyEnabled != nil {
+		passkeyEnabled = *req.PasskeyEnabled
+	}
+	if passkeyEnabled {
+		configured, _, _ := h.settingService.PasskeyConfiguration()
+		if !configured {
+			response.BadRequest(c, "Passkey sign-in requires a valid WebAuthn RP ID and allowed HTTPS origins in the deployment configuration")
+			return
+		}
+	}
+	forwardedClientIPHeaders := append([]string(nil), previousSettings.ForwardedClientIPHeaders...)
+	if req.ForwardedClientIPHeaders != nil {
+		forwardedClientIPHeaders = append([]string(nil), (*req.ForwardedClientIPHeaders)...)
+	}
+
+	// 开启敏感操作 step-up 门控属自锁风险操作：仅允许本人已启用 TOTP 的管理员会话开启，
+	// 否则开启后操作者立即被挡在所有敏感操作之外。仅在 false→true 的开启瞬间校验，
+	// 保持开启状态的常规设置保存不受影响。
+	if stepUpEnabled && !previousSettings.StepUpEnabled {
+		if !h.ensureActorTotpForStepUp(c) {
+			return
+		}
+	}
+	// 关闭 step-up 门控本身就是敏感操作：防止拿到管理员会话的攻击者先关闸再执行导出/备份。
+	// previousSettings 已证实开关处于开启状态，使用无条件门控变体，
+	// 避免门控内部二次读取开关时因存储故障 fail-open（前端捕获 STEP_UP_REQUIRED 弹码重试）。
+	if !stepUpEnabled && previousSettings.StepUpEnabled {
+		if !middleware.EnforceStepUpAlways(c, h.totpService, h.userService) {
+			return
+		}
 	}
 
 	// 验证参数
@@ -1200,7 +1350,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		FrontendURL:                      req.FrontendURL,
 		InvitationCodeEnabled:            req.InvitationCodeEnabled,
 		TotpEnabled:                      req.TotpEnabled,
-		SessionBindingEnabled:            req.SessionBindingEnabled,
+		PasskeyEnabled:                   passkeyEnabled,
+		SessionBindingEnabled:            sessionBindingEnabled,
+		StepUpEnabled:                    stepUpEnabled,
 		AuditLogRetentionDays:            req.AuditLogRetentionDays,
 		LoginAgreementEnabled:            req.LoginAgreementEnabled,
 		LoginAgreementMode:               loginAgreementMode,
@@ -1222,6 +1374,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.APIKeyACLTrustForwardedIP
 		}(),
+		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
 		LinuxDoConnectEnabled:                  req.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                 req.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecret:             req.LinuxDoConnectClientSecret,
@@ -1297,6 +1450,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ContactInfo:                            req.ContactInfo,
 		DocURL:                                 req.DocURL,
 		HomeContent:                            req.HomeContent,
+		CompactHomeEnabled:                     req.CompactHomeEnabled,
 		HideCcsImportButton:                    req.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:            purchaseEnabled,
 		PurchaseSubscriptionURL:                purchaseURL,
@@ -1568,6 +1722,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
+		ModelPlazaEnabled: func() bool {
+			if req.ModelPlazaEnabled != nil {
+				return *req.ModelPlazaEnabled
+			}
+			return previousSettings.ModelPlazaEnabled
+		}(),
+		ModelPlazaRequireAuth: func() bool {
+			if req.ModelPlazaRequireAuth != nil {
+				return *req.ModelPlazaRequireAuth
+			}
+			return previousSettings.ModelPlazaRequireAuth
+		}(),
+		ModelPlazaDescription: func() string {
+			if req.ModelPlazaDescription != nil {
+				return *req.ModelPlazaDescription
+			}
+			return previousSettings.ModelPlazaDescription
+		}(),
 		AffiliateEnabled: func() bool {
 			if req.AffiliateEnabled != nil {
 				return *req.AffiliateEnabled
@@ -1655,9 +1827,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaults(c.Request.Context(), settings, authSourceDefaults); err != nil {
+	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if h.opsService != nil {
+		h.opsService.SetMonitoringEnabled(settings.OpsMonitoringEnabled)
 	}
 
 	// Update OpenAI fast policy (stored under dedicated key, only when provided).
@@ -1672,28 +1847,29 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// Skip if no payment fields were provided (prevents accidental wipe).
 	if h.paymentConfigService != nil && hasPaymentFields(req) {
 		paymentReq := service.UpdatePaymentConfigRequest{
-			Enabled:                   req.PaymentEnabled,
-			MinAmount:                 req.PaymentMinAmount,
-			MaxAmount:                 req.PaymentMaxAmount,
-			DailyLimit:                req.PaymentDailyLimit,
-			OrderTimeoutMin:           req.PaymentOrderTimeoutMin,
-			MaxPendingOrders:          req.PaymentMaxPendingOrders,
-			EnabledTypes:              req.PaymentEnabledTypes,
-			BalanceDisabled:           req.PaymentBalanceDisabled,
-			BalanceRechargeMultiplier: req.PaymentBalanceRechargeMultiplier,
-			SubscriptionUSDToCNYRate:  req.PaymentSubscriptionUSDToCNYRate,
-			RechargeFeeRate:           req.PaymentRechargeFeeRate,
-			LoadBalanceStrategy:       req.PaymentLoadBalanceStrat,
-			ProductNamePrefix:         req.PaymentProductNamePrefix,
-			ProductNameSuffix:         req.PaymentProductNameSuffix,
-			HelpImageURL:              req.PaymentHelpImageURL,
-			HelpText:                  req.PaymentHelpText,
-			CancelRateLimitEnabled:    req.PaymentCancelRateLimitEnabled,
-			CancelRateLimitMax:        req.PaymentCancelRateLimitMax,
-			CancelRateLimitWindow:     req.PaymentCancelRateLimitWindow,
-			CancelRateLimitUnit:       req.PaymentCancelRateLimitUnit,
-			CancelRateLimitMode:       req.PaymentCancelRateLimitMode,
-			AlipayForceQRCode:         req.PaymentAlipayForceQRCode,
+			Enabled:                       req.PaymentEnabled,
+			MinAmount:                     req.PaymentMinAmount,
+			MaxAmount:                     req.PaymentMaxAmount,
+			DailyLimit:                    req.PaymentDailyLimit,
+			OrderTimeoutMin:               req.PaymentOrderTimeoutMin,
+			MaxPendingOrders:              req.PaymentMaxPendingOrders,
+			EnabledTypes:                  req.PaymentEnabledTypes,
+			BalanceDisabled:               req.PaymentBalanceDisabled,
+			BalanceRechargeMultiplier:     req.PaymentBalanceRechargeMultiplier,
+			SubscriptionUSDToCNYRate:      req.PaymentSubscriptionUSDToCNYRate,
+			RechargeFeeRate:               req.PaymentRechargeFeeRate,
+			LoadBalanceStrategy:           req.PaymentLoadBalanceStrat,
+			ProductNamePrefix:             req.PaymentProductNamePrefix,
+			ProductNameSuffix:             req.PaymentProductNameSuffix,
+			HelpImageURL:                  req.PaymentHelpImageURL,
+			HelpText:                      req.PaymentHelpText,
+			CancelRateLimitEnabled:        req.PaymentCancelRateLimitEnabled,
+			CancelRateLimitMax:            req.PaymentCancelRateLimitMax,
+			CancelRateLimitWindow:         req.PaymentCancelRateLimitWindow,
+			CancelRateLimitUnit:           req.PaymentCancelRateLimitUnit,
+			CancelRateLimitMode:           req.PaymentCancelRateLimitMode,
+			AlipayForceQRCode:             req.PaymentAlipayForceQRCode,
+			AlipayMobilePrecreateDeepLink: req.PaymentAlipayMobilePrecreateDeepLink,
 		}
 		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
 			response.ErrorFrom(c, err)
@@ -1735,6 +1911,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if updatedPaymentCfg == nil {
 		updatedPaymentCfg = &service.PaymentConfig{}
 	}
+	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                                    updatedSettings.RegistrationEnabled,
@@ -1746,7 +1923,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		InvitationCodeEnabled:                                  updatedSettings.InvitationCodeEnabled,
 		TotpEnabled:                                            updatedSettings.TotpEnabled,
 		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
+		PasskeyEnabled:                                         updatedSettings.PasskeyEnabled,
+		PasskeyConfigured:                                      passkeyConfigured,
+		PasskeyRPID:                                            passkeyRPID,
+		PasskeyRPOrigins:                                       passkeyRPOrigins,
 		SessionBindingEnabled:                                  updatedSettings.SessionBindingEnabled,
+		StepUpEnabled:                                          updatedSettings.StepUpEnabled,
 		AuditLogRetentionDays:                                  updatedSettings.AuditLogRetentionDays,
 		LoginAgreementEnabled:                                  updatedSettings.LoginAgreementEnabled,
 		LoginAgreementMode:                                     updatedSettings.LoginAgreementMode,
@@ -1763,6 +1945,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TurnstileSiteKey:                                       updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:                           updatedSettings.TurnstileSecretKeyConfigured,
 		APIKeyACLTrustForwardedIP:                              updatedSettings.APIKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:                               updatedSettings.ForwardedClientIPHeaders,
 		LinuxDoConnectEnabled:                                  updatedSettings.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                                 updatedSettings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured:                   updatedSettings.LinuxDoConnectClientSecretConfigured,
@@ -1838,6 +2021,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ContactInfo:                                            updatedSettings.ContactInfo,
 		DocURL:                                                 updatedSettings.DocURL,
 		HomeContent:                                            updatedSettings.HomeContent,
+		CompactHomeEnabled:                                     updatedSettings.CompactHomeEnabled,
 		HideCcsImportButton:                                    updatedSettings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:                            updatedSettings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:                                updatedSettings.PurchaseSubscriptionURL,
@@ -1948,11 +2132,16 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentCancelRateLimitUnit:                             updatedPaymentCfg.CancelRateLimitUnit,
 		PaymentCancelRateLimitMode:                             updatedPaymentCfg.CancelRateLimitMode,
 		PaymentAlipayForceQRCode:                               updatedPaymentCfg.AlipayForceQRCode,
+		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+
+		ModelPlazaEnabled:     updatedSettings.ModelPlazaEnabled,
+		ModelPlazaRequireAuth: updatedSettings.ModelPlazaRequireAuth,
+		ModelPlazaDescription: updatedSettings.ModelPlazaDescription,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
@@ -2001,7 +2190,7 @@ func hasPaymentFields(req UpdateSettingsRequest) bool {
 		req.PaymentHelpText != nil || req.PaymentCancelRateLimitEnabled != nil ||
 		req.PaymentCancelRateLimitMax != nil || req.PaymentCancelRateLimitWindow != nil ||
 		req.PaymentCancelRateLimitUnit != nil || req.PaymentCancelRateLimitMode != nil ||
-		req.PaymentAlipayForceQRCode != nil
+		req.PaymentAlipayForceQRCode != nil || req.PaymentAlipayMobilePrecreateDeepLink != nil
 }
 
 // ensureDingTalkSyncAttributes 在保存 settings 后，按 admin 配置的 (attr key, attr name)

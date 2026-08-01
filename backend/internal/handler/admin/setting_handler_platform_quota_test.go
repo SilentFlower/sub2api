@@ -77,6 +77,18 @@ func TestDiffSettings_DetectsOpenAIResponsesLiteHeaderBlockedModelsChange(t *tes
 	require.Contains(t, changed, service.SettingKeyOpenAIResponsesLiteHeaderBlockedModels)
 }
 
+func TestDiffSettings_DetectsCompactHomeChange(t *testing.T) {
+	changed := diffSettings(
+		&service.SystemSettings{},
+		&service.SystemSettings{CompactHomeEnabled: true},
+		nil,
+		nil,
+		UpdateSettingsRequest{},
+	)
+
+	require.Contains(t, changed, service.SettingKeyCompactHomeEnabled)
+}
+
 func TestEqualNullableFloat(t *testing.T) {
 	five := 5.0
 	five2 := 5.0
