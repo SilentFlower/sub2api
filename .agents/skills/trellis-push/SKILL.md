@@ -13,7 +13,7 @@ description: "按确认的精确文件范围提交普通变更或完成已就绪
 - 普通多仓计划可以包含本地确定性生成命令；生成后没有新增计划外文件时沿用同一次确认。
 - 普通模式把当前任务产物与更新后的 `task.json` 纳入同一次确认下的独立任务记录提交。
 - 用户明确要求“只提交不推送”时使用 `commit-only`。
-- auto-loop 可调用内部 `commit-only`，复用本 skill 的仓库发现、动态多仓计划、确定性本地生成、精确提交和失败保留能力；不再次确认、不 push，也不执行 Step 5 的任务进度写入、进度 commit 或 progress push。Auto-Loop runner 仍按自己的状态契约写入本地 `task.json.progress`。
+- auto-loop 可调用内部 `commit-only`，复用本 skill 的仓库发现、动态多仓计划、确定性本地生成、精确提交和失败保留能力；不再次确认、不 push，也不执行 Step 5 的任务进度写入、进度 commit 或 progress push。Auto-Loop runner 仍按自己的状态契约写入本地 `task.json.progress` 与本地完成态（`status=completed` + `completedAt`）。
 - 不发起、终止或解决分支合并；只允许普通模式完成已经开始、冲突已清零且索引完全可归属的 merge commit。
 - 不处理上线核对、任务归档、会话日志或自动任务队列状态。
 - 不使用 `git add .`、`git add -A`，不要求工作区整体干净，也不提交计划外文件。
@@ -25,7 +25,7 @@ description: "按确认的精确文件范围提交普通变更或完成已就绪
 | --- | --- | --- | --- |
 | 普通 | 展示最小计划并确认一次 | exact commit；已有 merge 就绪时完成双父提交；然后 push | 有活动任务时立即同步 |
 | 用户 `commit-only` | 展示最小计划并确认一次 | exact local commit | 跳过 |
-| auto-loop 内部 `commit-only` | 复用 auto-loop 预授权 | exact local commit chain | 由 Auto-Loop runner 写本地 progress；本 skill 跳过 Step 5 |
+| auto-loop 内部 `commit-only` | 复用 auto-loop 预授权 | exact local commit chain | 由 Auto-Loop runner 写本地 progress 与本地完成态；本 skill 跳过 Step 5 |
 
 内部 `commit-only` 不接受超出当前任务证据、runner owned dirty 和 protected-retained 边界的文件，不执行远端推送或其他附加动作。安全条件不满足时返回失败，由调用方决定后续状态。
 
@@ -33,7 +33,7 @@ description: "按确认的精确文件范围提交普通变更或完成已就绪
 
 除 auto-loop 内部 `commit-only` 外，普通 push 或用户 `commit-only` 已经构成明确 Git 意图。本 skill 在读取 Git 提交计划前只记录当前可用的完成链证据，不补跑、不切换阶段，也不新增确认：
 
-- Check-All：根据当前标准报告与实际 diff 标记为 `通过`、`未运行`、`已失效`、`存在 findings`、`blocked` 或 `部分验证`。没有可验证的当前报告时使用 `未运行`，不得从历史消息、摘要或 dirty 状态猜测通过。
+- Check-All：根据当前标准报告与实际 diff 标记为 `通过`、`通过（已接受风险）`、`未运行`、`已失效`、`存在未处置 findings`、`blocked` 或 `部分验证`。剩余 `CHK-*` 与 `FBK-*` 均为 0 时标记为 `通过`；所有剩余问题都有当前有效的用户风险接受时标记为 `通过（已接受风险）`，并保留问题 ID 与严重度。没有可验证的当前报告时使用 `未运行`，不得从历史消息、摘要或 dirty 状态猜测通过或风险接受。
 - Update-Spec：根据当前 `spec_update_result` 与实际 diff 标记为 `no-op`、`written`、`needs-review`、`未运行` 或 `已失效`。结果缺失或无法证明仍适用于当前 diff 时使用 `未运行` / `已失效`。
 
 上述状态只进入 Step 3 的完成链证据与风险展示，不会阻止读取 Git 状态或生成提交计划。本步骤不得返回 Phase 2.2，不得加载 `trellis-check-all` 或 `trellis-update-spec`，也不得要求用户改写成“跳过检查后 push”。正常 workflow 的 Check-All -> Update-Spec -> Push 顺序仍由 Phase 2.2、Phase 3.3 和各自 owner 推进；`trellis-push` 不反向补做上游阶段。
@@ -132,24 +132,24 @@ auto-loop 内部 `commit-only` 也允许 retained dirty 存在，但每个生成
 ## Trellis Push 计划
 
 [<PUSH / PUSH · MERGE / COMMIT-ONLY>] <N> 个仓库 · <N> 个 commit · <N> 个文件 · 保留未提交 <N> · 风险 <N>
-[无活动 task 时追加：无活动任务；untracked 命中时改为 `Untracked work: <work-id>`]
-顺序：<repo-a> [-> `<local generation command>`] -> <repo-b> [-> task progress]
+
+- **工作**：<任务名 | `Untracked work: <work-id>` | 无活动任务>
+- **顺序**：<repo-a> [-> `<local generation command>`] -> <repo-b> [-> task progress]
 
 ### 完成链证据
-- Check-All：<通过 / 未运行 / 已失效 / 存在 findings / blocked / 部分验证>
-- Update-Spec：<no-op / written / needs-review / 未运行 / 已失效>
+- **Check-All**：<通过 / 通过（已接受风险：CHK-001,FBK-002） / 未运行 / 已失效 / 存在未处置 findings / blocked / 部分验证>
+- **Update-Spec**：<no-op / written / needs-review / 未运行 / 已失效>
 
 ### 1. <repository-name>
 
-`<commit message>`
-分支：`<branch>` -> `<upstream>`
-变更：<N> 个文件 · `+<adds> -<deletes>`
-[已有 merge 时：父提交：`<pre-merge-head>` + `<merge-head>`]
+- **Message**：`<commit message>`
+- **分支**：`<branch>` -> `<upstream>`
+- **变更**：<N> 个文件 · `+<adds> -<deletes>`
+- **父提交**：`<pre-merge-head>` + `<merge-head>`（仅已有 merge 时显示）
+- **Push**：<执行 / 跳过（commit-only）>
 
 计划提交：
 - <exact files 或分组摘要>
-
-Push：<执行 / 跳过（commit-only）>
 
 [生成（多仓需要时显示）：前置仓成功后，在 `<working-directory>` 运行 `<exact local command>`；预计只影响 <后续仓 exact files 或分组摘要>]
 
@@ -161,22 +161,26 @@ Push：<执行 / 跳过（commit-only）>
 ### 风险（仅数量大于 0 时显示）
 - <Check-All / Update-Spec 风险，或 unknown ahead / branch-upstream / attribution risk>
 
-[任务记录（仅普通模式且存在活动任务时显示）：`chore(task): update <task-name> progress` · <N> 个文件]
-[仓库：<repository-name> · 分支：`<branch>` -> `<upstream>`]
-[计划提交：<当前任务 exact files 或分组摘要>]
-任务进度：completed=<...> | partial=<...> | next=<...>
-执行：<commit -> push -> progress commit -> progress push>
+### 任务记录（仅普通模式且存在活动任务时显示）
+
+- **Message**：`chore(task): update <task-name> progress` · <N> 个文件
+- **仓库**：<repository-name> · 分支：`<branch>` -> `<upstream>`
+- **计划提交**：<当前任务 exact files 或分组摘要>
+- **进度**：completed=<...> | partial=<...> | next=<...>
+- **执行**：<commit -> push -> progress commit -> progress push>
 
 确认执行请回复 `确认`。可调整：`只提交`、`修改 message`、`展开文件`。
 ```
 
 展示规则：
 
+- 计划与结果模板中的字段行必须使用 `- **字段**：值` 列表项。这些行在 Markdown 段落内会被折叠成一段，不得改回裸段落行，也不得依赖行尾空格换行。
+- 「任务记录」是与各仓库区平级的独立 `###` 小节，仅普通模式且存在活动任务时整节展示；不再用方括号条件行代替小节标题。
 - 单仓 `planned` 不超过 8 个文件时完整列出。
 - 超过 8 个时按目录归组，最多 12 行；用户要求展开时展示同一 exact set。
 - 顶部仓库/commit/file 总数包含独立任务记录提交所在 Git root、该提交及其 exact files；任务记录文件使用相同的 8 文件展示阈值和展开规则。
 - 保留未提交的变更始终逐项标注 Git 状态；真正风险在独立“风险”区逐项展示。
-- 完成链证据始终显示当前状态，但不重复 Check-All 报告或 Spec review 正文；`未运行`、`已失效`、findings、blocked、部分验证或 `needs-review` 同时计入风险区。
+- 完成链证据始终显示当前状态，但不重复 Check-All 报告或 Spec review 正文；`未运行`、`已失效`、任一未处置 `CHK-*` / `FBK-*`、blocked、部分验证或 `needs-review` 同时计入风险区。已接受风险的问题也必须按 ID、严重度和影响进入风险区，但不得改标为阻断 finding。
 - 无活动 task、untracked 或 `commit-only` 时省略进度动作。
 - 不重复展示检查结果、规范复核、归档或其他阶段的详细信息。
 - 生成前无法确定的内容和增删行写“生成后计算”，不得填预测值。
@@ -276,7 +280,7 @@ python3 ./.trellis/scripts/task_progress.py write \
   --json
 ```
 
-部分成功时调用同一 helper，并写入精确恢复位置。用户 `commit-only`、auto-loop 内部 `commit-only` 和尚未发生任何成功业务 Git 动作的失败都不得请求 complete。helper 写入失败时任务保持原状态，不得继续任务进度提交或报告完成。
+部分成功时调用同一 helper，并写入精确恢复位置。用户 `commit-only`、auto-loop 内部 `commit-only` 和尚未发生任何成功业务 Git 动作的失败都不得由本 skill 请求 complete；auto-loop 的本地完成态由 Auto-Loop runner 自己写入，不经过本步骤。helper 写入失败时任务保持原状态，不得继续任务进度提交或报告完成。
 
 然后只提交并推送首次确认的当前任务 exact files；该集合包含 helper 更新后的 `task.json`，以及首次计划时已存在且可归属的当前任务 dirty/untracked 产物：
 
@@ -313,18 +317,17 @@ untracked 的全部已确认 Git 动作成功后，最后运行 `python3 ./.trel
 
 ### 1. <repository-name>
 
-`<short-hash> <actual commit message>`
-分支：`<branch>` -> `<upstream>`
-状态：<✓ 已推送 / · 仅本地提交 / ❌ 失败>
-
-[生成：`<exact local command>` · <✓ 已完成 / ❌ 失败 / · 未执行>]
+- **Commit**：`<short-hash> <actual commit message>`
+- **分支**：`<branch>` -> `<upstream>`
+- **状态**：<✓ 已推送 / · 仅本地提交 / ❌ 失败>
+- **生成**：`<exact local command>` · <✓ 已完成 / ❌ 失败 / · 未执行>（仅多仓需要时显示）
 
 ### 任务进度
 
-状态：<✓ 已同步并进入 completed · `<progress-hash>` / ✓ partial 已同步且保持 in_progress / · 已跳过 / ❌ 同步失败，不得报告完成>
-记录：<N> 个当前任务文件
-进度：completed=<...> | partial=<...> | next=<...>
-[失败时追加：原因和恢复动作]
+- **状态**：<✓ 已同步并进入 completed · `<progress-hash>` / ✓ partial 已同步且保持 in_progress / · 已跳过 / ❌ 同步失败，不得报告完成>
+- **记录**：<N> 个当前任务文件
+- **进度**：completed=<...> | partial=<...> | next=<...>
+- **失败原因**：<原因和恢复动作>（仅失败时显示）
 
 ### 保留未提交的变更（dirty，仅存在时显示）
 - [untracked] <path>
