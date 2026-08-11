@@ -18,6 +18,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"golang.org/x/net/http2"
 	"golang.org/x/sync/singleflight"
 )
@@ -242,7 +243,12 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 
 	clientVersion = strings.TrimSpace(clientVersion)
 	if clientVersion == "" {
-		clientVersion = openAICodexProbeVersion
+		if s != nil && s.settingService != nil {
+			clientVersion = s.settingService.GetOpenAICodexClientVersion(ctx)
+		}
+		if clientVersion == "" {
+			clientVersion = openAICodexProbeVersion
+		}
 	}
 
 	requestEndpoint := chatgptCodexModelsURL
@@ -304,9 +310,17 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		setOpenAIChatGPTAccountHeaders(headers, credAccount)
 	}
 	headers.Set("Accept", "application/json")
-	headers.Set("Originator", "codex_cli_rs")
+	headers.Set("Originator", openai.CodexDefaultOriginator)
 	headers.Set("Version", clientVersion)
 	headers.Set("User-Agent", codexCLIUserAgent)
+	if !useAPIKeyUpstream {
+		if customUA := strings.TrimSpace(credAccount.GetOpenAIUserAgent()); customUA != "" {
+			headers.Set("User-Agent", customUA)
+		}
+		// 模型目录的 URL 参数保留客户端兼容语义；OAuth 身份头仍必须走统一 resolver，
+		// 避免显式参数或静态兜底绕过管理员覆写与自动同步版本。
+		enforceCodexIdentityHeadersWithUA(headers, s.codexIdentityOverrideUA(credAccount))
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

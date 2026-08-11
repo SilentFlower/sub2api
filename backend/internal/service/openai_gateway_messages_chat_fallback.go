@@ -83,6 +83,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := normalizeOpenAIReasoningEffortForProvider(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
+	if account.Platform == PlatformOpenAI {
+		if policyBody, changed := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, chatBody); changed {
+			chatBody = policyBody
+		}
+	}
 	chatBody, err = s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, chatBody)
 	if err != nil {
 		var blocked *OpenAIFastBlockedError
@@ -107,8 +112,8 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		return nil, err
 	}
 	customUA := account.GetOpenAIUserAgent()
-	if customUA == "" && account.Platform == PlatformGrok {
-		customUA = "sub2api-grok/1.0"
+	if account.Platform == PlatformGrok {
+		customUA = defaultGrokUpstreamUserAgent()
 	}
 	upstreamDebug := map[string]string{
 		"account":        fmt.Sprintf("%d(%s)", account.ID, account.Name),

@@ -232,7 +232,7 @@ func TestForwardAsChatCompletions_GPT56LunaUsesCurrentCodexIdentity(t *testing.T
 	require.Nil(t, result)
 	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Contains(t, upstream.lastReq.Header.Get("User-Agent"), openAICodexClientVersion)
+	require.Contains(t, upstream.lastReq.Header.Get("User-Agent"), codexCLIVersion)
 }
 
 func TestForwardAsChatCompletions_APIKeyPropagatesPromptCacheKeyInResponsesBody(t *testing.T) {

@@ -113,8 +113,6 @@
       <!-- No data yet -->
       <div v-else class="space-y-1">
         <div class="text-xs text-gray-400">-</div>
-        <!-- Always allow on-demand upstream quota probe, even before passive headers exist. -->
-        <GrokQuotaProbeCell :account="account" />
       </div>
     </template>
 
@@ -144,7 +142,7 @@
           refresh button is rendered via the pre-actions slot so the user sees a
           single row of related buttons instead of two stacked rows.
         -->
-        <OpenAIQuotaResetCell :account="account">
+        <OpenAIQuotaResetCell :account="account" @account-updated="handleQuotaResetAccountUpdated">
           <template #pre-actions>
             <button
               type="button"
@@ -186,7 +184,11 @@
       <div v-else>
         <div class="text-xs text-gray-400">-</div>
         <!-- Always allow on-demand upstream quota query, even before local data exists. -->
-        <OpenAIQuotaResetCell :account="account" class="mt-1" />
+        <OpenAIQuotaResetCell
+          :account="account"
+          class="mt-1"
+          @account-updated="handleQuotaResetAccountUpdated"
+        />
       </div>
     </template>
 
@@ -361,26 +363,6 @@
             {{ grokEntitlementLabel }}
           </span>
         </div>
-        <div v-if="grokLocalUsage" class="mb-0.5 flex items-center">
-          <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-              {{ formatWindowRequests(grokLocalUsage) }} req
-            </span>
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-              {{ formatWindowTokens(grokLocalUsage) }}
-            </span>
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
-              A ${{ formatWindowCost(grokLocalUsage) }}
-            </span>
-            <span
-              v-if="grokLocalUsage.user_cost != null"
-              class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-              :title="t('usage.userBilled')"
-            >
-              U ${{ formatWindowUserCost(grokLocalUsage) }}
-            </span>
-          </div>
-        </div>
         <GrokBillingQuotaCell
           :account="account"
           :quota="usageInfo.grok_billing_quota"
@@ -422,9 +404,12 @@
         <div v-if="grokQuotaStatusLine" class="text-[10px] text-gray-500 dark:text-gray-400">
           {{ grokQuotaStatusLine }}
         </div>
-        <GrokQuotaProbeCell :account="account" @probed="handleGrokProbed" />
+        <GrokQuotaProbeCell :account="account" compact @probed="handleGrokProbed" />
       </div>
-      <div v-else class="text-xs text-gray-400">-</div>
+      <div v-else class="space-y-1">
+        <div class="text-xs text-gray-400">-</div>
+        <GrokQuotaProbeCell :account="account" compact @probed="handleGrokProbed" />
+      </div>
     </template>
 
     <!-- Gemini platform: show quota + local usage window -->
@@ -622,8 +607,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
 import {
   hasGrokBillingQuotaProgress,
@@ -643,6 +628,8 @@ import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
 const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+// How long a quota-reset response may suppress the row-patch usage refetch.
+const SUPPRESS_USAGE_REFRESH_WINDOW_MS = 5 * 1000
 
 const props = withDefaults(
   defineProps<{
@@ -650,13 +637,26 @@ const props = withDefaults(
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
     manualRefreshToken?: number
+    batchedUsage?: AccountUsageInfo | null
+    batchedUsageError?: string | null
+    batchedUsageLoading?: boolean
+    requestBatchedUsage?: ((account: Account, options?: { force?: boolean }) => void) | null
   }>(),
   {
     todayStats: null,
     todayStatsLoading: false,
-    manualRefreshToken: 0
+    manualRefreshToken: 0,
+    batchedUsage: null,
+    batchedUsageError: null,
+    batchedUsageLoading: false,
+    requestBatchedUsage: null
   }
 )
+
+const emit = defineEmits<{
+  'account-updated': [account: Account]
+  'usage-loaded': [usage: AccountUsageInfo]
+}>()
 
 const { t } = useI18n()
 const desktopViewportQuery = '(min-width: 768px)'
@@ -668,6 +668,10 @@ const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(null)
+watch(usageInfo, (usage) => {
+  if (usage) emit('usage-loaded', usage)
+})
+const suppressOpenAIUsageRefreshUntil = ref(0)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
   typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches
@@ -705,6 +709,8 @@ const shouldFetchUsage = computed(() => {
   }
   return false
 })
+
+const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
 
 const showGeminiTodayStats = computed(() => {
   return props.account.platform === 'gemini' && props.account.type === 'service_account'
@@ -1080,14 +1086,6 @@ const grokBillingQuota = computed(() => usageInfo.value?.grok_billing_quota || n
 const grokHasOfficialBillingProgress = computed(() => hasGrokBillingQuotaProgress(grokBillingQuota.value))
 const grokIsFree = computed(() => isGrokBillingQuotaFreeAccount(props.account, usageInfo.value))
 const grokFreeQuotaUsage = computed(() => usageInfo.value?.grok_local_usage_24h || null)
-const grokLocalUsage = computed(() => {
-  if (grokIsFree.value) return grokFreeQuotaUsage.value
-  return props.todayStats ||
-    usageInfo.value?.grok_local_usage ||
-    usageInfo.value?.grok_local_usage_7d ||
-    usageInfo.value?.grok_local_usage_monthly ||
-    null
-})
 const grokFreeTokenBar = computed(() => {
   if (!grokIsFree.value || !grokFreeQuotaUsage.value) return null
   const limit = usageInfo.value?.grok_free_token_limit
@@ -1113,18 +1111,14 @@ const grokQuotaStatusLine = computed(() => {
     parts.push(t('admin.accounts.usageWindow.grokLastStatus', { status }))
   }
   if (usageInfo.value?.grok_last_quota_probe_at) {
-    parts.push(
-      t('admin.accounts.usageWindow.grokLastProbe', {
-        time: formatRelativeTime(usageInfo.value.grok_last_quota_probe_at)
-      })
-    )
+    parts.push(t('admin.accounts.usageWindow.grokLastProbe', {
+      time: formatRelativeTime(usageInfo.value.grok_last_quota_probe_at)
+    }))
   }
   if (usageInfo.value?.grok_last_headers_seen_at) {
-    parts.push(
-      t('admin.accounts.usageWindow.grokLastHeadersSeen', {
-        time: formatRelativeTime(usageInfo.value.grok_last_headers_seen_at)
-      })
-    )
+    parts.push(t('admin.accounts.usageWindow.grokLastHeadersSeen', {
+      time: formatRelativeTime(usageInfo.value.grok_last_headers_seen_at)
+    }))
   }
   return parts.length > 0 ? parts.join(' | ') : null
 })
@@ -1139,11 +1133,6 @@ const grokRetryAfterLabel = computed(() => {
   const minutes = Math.ceil(seconds / 60)
   return `${minutes}m`
 })
-
-const formatWindowRequests = (stats: WindowStats) => formatCompactNumber(stats.requests, { allowBillions: false })
-const formatWindowTokens = (stats: WindowStats) => formatCompactNumber(stats.tokens)
-const formatWindowCost = (stats: WindowStats) => stats.cost.toFixed(2)
-const formatWindowUserCost = (stats: WindowStats) => (stats.user_cost ?? 0).toFixed(2)
 
 // 账户类型显示标签
 const antigravityTierLabel = computed(() => {
@@ -1234,8 +1223,24 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
+const requestParentBatchUsage = (options?: { force?: boolean }) => {
+  if (!isBatchManaged.value || !shouldFetchUsage.value) return
+  props.requestBatchedUsage?.(props.account, options)
+}
+
+const syncManagedUsageState = () => {
+  if (!isBatchManaged.value) return
+  usageInfo.value = props.batchedUsage ?? null
+  error.value = props.batchedUsageError ?? null
+  loading.value = props.batchedUsageLoading === true
+}
+
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
+  if (isBatchManaged.value) {
+    requestParentBatchUsage({ force: options?.bypassCache === true })
+    return
+  }
 
   // Check cache
   if (!options?.bypassCache) {
@@ -1251,9 +1256,9 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   error.value = null
 
   try {
-    const fetchFn = () => options?.source
-      ? adminAPI.accounts.getUsage(props.account.id, options.source)
-      : adminAPI.accounts.getUsage(props.account.id)
+		const fetchFn = () => options?.source
+			? adminAPI.accounts.getUsage(props.account.id, options.source, options.bypassCache === true)
+			: adminAPI.accounts.getUsage(props.account.id)
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result
@@ -1330,7 +1335,12 @@ const loadActiveUsage = async () => {
   }
 }
 
-const handleGrokProbed = (result: GrokQuotaProbeResult) => {
+const handleGrokProbed = async (result: GrokQuotaProbeResult) => {
+  if (result.persisted !== false) {
+    await loadUsage({ source: 'active', bypassCache: true })
+    return
+  }
+
   const current = usageInfo.value
   if (!current) return
   const snapshot = result.snapshot
@@ -1450,6 +1460,15 @@ const quotaTotalBar = computed((): QuotaBarInfo | null => {
   return makeQuotaBar(props.account.quota_used ?? 0, limit)
 })
 
+const handleQuotaResetAccountUpdated = (account: Account) => {
+  // The reset response already carries authoritative quota and account data.
+  // Avoid turning the parent patch into a second automatic /usage request.
+  // The suppression is time-boxed so an unhandled emit (parent that ignores
+  // account-updated) cannot latch it and swallow a later, unrelated refresh.
+  suppressOpenAIUsageRefreshUntil.value = Date.now() + SUPPRESS_USAGE_REFRESH_WINDOW_MS
+  emit('account-updated', account)
+}
+
 // ===== Key account today stats formatters =====
 
 const formatKeyRequests = computed(() => {
@@ -1486,14 +1505,61 @@ onMounted(() => {
     }
   }
 
+  if (isBatchManaged.value) {
+    syncManagedUsageState()
+    requestParentBatchUsage()
+    return
+  }
+
   if (!shouldAutoLoadUsageOnMount.value) return
   const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
   requestAutoLoad(source)
 })
 
+watch(
+  () => [props.batchedUsage, props.batchedUsageError, props.batchedUsageLoading, isBatchManaged.value] as const,
+  () => {
+    syncManagedUsageState()
+  },
+  { immediate: true, deep: true }
+)
+
+watch(isBatchManaged, (managed, wasManaged) => {
+  if (managed && !wasManaged) {
+    syncManagedUsageState()
+    requestParentBatchUsage()
+  }
+})
+
+watch(
+  () => [props.account.id, props.account.platform, props.account.type, isBatchManaged.value] as const,
+  ([accountID, platform, accountType, managed], [previousAccountID, previousPlatform, previousAccountType]) => {
+    if (
+      accountID === previousAccountID &&
+      platform === previousPlatform &&
+      accountType === previousAccountType
+    ) {
+      return
+    }
+    if (!managed || !shouldFetchUsage.value) return
+    syncManagedUsageState()
+    requestParentBatchUsage()
+  },
+  { flush: 'post' }
+)
+
 watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
+  if (Date.now() < suppressOpenAIUsageRefreshUntil.value) {
+    suppressOpenAIUsageRefreshUntil.value = 0
+    return
+  }
+
+  if (isBatchManaged.value) {
+    requestParentBatchUsage({ force: true })
+    return
+  }
 
   _usageCache.delete(props.account.id)
   requestAutoLoad()
@@ -1504,6 +1570,11 @@ watch(
   (nextToken, prevToken) => {
     if (nextToken === prevToken) return
     if (!shouldFetchUsage.value) return
+
+    if (isBatchManaged.value) {
+      requestParentBatchUsage({ force: true })
+      return
+    }
 
     const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
     _usageCache.delete(props.account.id)

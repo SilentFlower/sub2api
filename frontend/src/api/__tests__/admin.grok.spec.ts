@@ -9,7 +9,12 @@ vi.mock('@/api/client', () => ({
   apiClient: { get, post },
 }))
 
-import { createFromSSO, getGrokSSOImportTimeout, queryBillingQuota } from '@/api/admin/grok'
+import {
+  authorizePassword,
+  createFromSSO,
+  getGrokSSOImportTimeout,
+  queryBillingQuota
+} from '@/api/admin/grok'
 
 describe('admin Grok SSO import API', () => {
   beforeEach(() => {
@@ -46,6 +51,22 @@ describe('admin Grok SSO import API', () => {
       '/admin/grok/sso-to-oauth',
       expect.objectContaining({ sso_tokens: expect.any(Array) }),
       { timeout: expectedTimeout },
+    )
+  })
+
+  it('preserves password whitespace and applies the authorization timeout', async () => {
+    post.mockResolvedValueOnce({ data: { access_token: 'access-token' } })
+
+    await authorizePassword(' user@example.com ----  password with spaces  ', 7)
+
+    expect(post).toHaveBeenCalledWith(
+      '/admin/grok/oauth/password',
+      {
+        email: 'user@example.com',
+        password: '  password with spaces  ',
+        proxy_id: 7,
+      },
+      { timeout: 120_000 },
     )
   })
 })

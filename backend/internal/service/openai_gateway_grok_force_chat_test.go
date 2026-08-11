@@ -156,7 +156,7 @@ func TestForwardAsAnthropic_GrokOAuthForceChatCompletions(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer grok-access-token", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "sub2api-grok/1.0", upstream.lastReq.Header.Get("User-Agent"))
+	require.Equal(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())

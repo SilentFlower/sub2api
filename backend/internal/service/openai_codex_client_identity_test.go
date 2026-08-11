@@ -4,23 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
-
-func TestOpenAICodexClientIdentity(t *testing.T) {
-	require.Equal(t, "0.144.1", openAICodexClientVersion)
-	require.Equal(t, openAICodexClientVersion, codexCLIVersion)
-	require.Equal(t, openAICodexClientVersion, openAICodexProbeVersion)
-	require.Contains(t, codexCLIUserAgent, "/"+openAICodexClientVersion)
-	require.Equal(t, 2, strings.Count(DefaultOpenAICodexUserAgent, openAICodexClientVersion))
-	require.NotContains(t, codexCLIUserAgent, "0.125.0")
-	require.NotContains(t, DefaultOpenAICodexUserAgent, "0.125.0")
-}
 
 func TestOpenAIGatewayService_BuildOpenAIWSHeadersPreservesUserAgentPriority(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -38,10 +27,10 @@ func TestOpenAIGatewayService_BuildOpenAIWSHeadersPreservesUserAgentPriority(t *
 			wantUserAgent: codexCLIUserAgent,
 		},
 		{
-			name:          "账号自定义 Codex UA 保持优先",
+			name:          "账号自定义 Codex UA 形态保持优先且版本同源",
 			accountUA:     "codex_cli_rs/9.9.9 custom",
 			requestUA:     "curl/8.0",
-			wantUserAgent: "codex_cli_rs/9.9.9 custom",
+			wantUserAgent: "codex_cli_rs/" + codexCLIVersion + " custom",
 		},
 		{
 			name:          "强制 Codex 覆盖账号自定义 UA",
@@ -79,6 +68,8 @@ func TestOpenAIGatewayService_BuildOpenAIWSHeadersPreservesUserAgentPriority(t *
 				"oauth-token",
 				OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2},
 				false,
+				"",
+				"",
 				"",
 				"",
 				"",

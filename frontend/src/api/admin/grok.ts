@@ -22,6 +22,17 @@ export interface GrokAuthUrlRequest {
   redirect_uri?: string
 }
 
+export interface GrokOAuthCapabilities {
+  password_auth_enabled: boolean
+}
+
+const GROK_AUTHORIZATION_TIMEOUT_MS = 120_000
+
+export async function getCapabilities(): Promise<GrokOAuthCapabilities> {
+  const { data } = await apiClient.get<GrokOAuthCapabilities>('/admin/grok/oauth/capabilities')
+  return data
+}
+
 export interface GrokExchangeCodeRequest {
   session_id: string
   state: string
@@ -173,12 +184,46 @@ export async function createFromSSO(payload: GrokSSOToOAuthRequest): Promise<Gro
   return data
 }
 
+/** 校验浏览器 SSO Cookie 并转换为 Build OAuth Token，原始 SSO 不会持久化。 */
+export async function validateSSOToken(
+  ssoToken: string,
+  proxyId?: number | null
+): Promise<GrokTokenInfo> {
+  const payload: Record<string, unknown> = { sso_token: ssoToken }
+  if (proxyId) payload.proxy_id = proxyId
+  const { data } = await apiClient.post<GrokTokenInfo>('/admin/grok/oauth/sso-token', payload, {
+    timeout: GROK_AUTHORIZATION_TIMEOUT_MS
+  })
+  return data
+}
+
+/** 通过密码登录换取临时 SSO，再转换为 Build OAuth；密码只用于本次请求。 */
+export async function authorizePassword(
+  emailAndPassword: string,
+  proxyId?: number | null
+): Promise<GrokTokenInfo> {
+  // Format: email----password (password may contain dashes).
+  const sep = '----'
+  const idx = emailAndPassword.indexOf(sep)
+  const email = (idx >= 0 ? emailAndPassword.slice(0, idx) : emailAndPassword).trim()
+  const password = idx >= 0 ? emailAndPassword.slice(idx + sep.length) : ''
+  const payload: Record<string, unknown> = { email, password }
+  if (proxyId) payload.proxy_id = proxyId
+  const { data } = await apiClient.post<GrokTokenInfo>('/admin/grok/oauth/password', payload, {
+    timeout: GROK_AUTHORIZATION_TIMEOUT_MS
+  })
+  return data
+}
+
 export default {
   generateAuthUrl,
+  getCapabilities,
   exchangeCode,
   refreshGrokToken,
   queryQuota,
   queryBillingQuota,
   resetQuota,
-  createFromSSO
+  createFromSSO,
+  validateSSOToken,
+  authorizePassword,
 }

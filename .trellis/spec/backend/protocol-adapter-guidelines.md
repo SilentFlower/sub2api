@@ -851,110 +851,90 @@ ExpiresAt openAICodexResetOptionalTimestamp `json:"expires_at"`
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 OpenAI Codex 内置客户端版本、HTTP/Chat Completions bridge/compact/OAuth passthrough/WebSocket 请求头、模型目录 `client_version`、账号用量探测、账号测试或后台默认 Codex User-Agent 时，必须按本节检查。
+- Trigger: 修改 OpenAI Codex 客户端版本设置或自动同步、HTTP/Chat Completions bridge/compact/OAuth passthrough/WebSocket 请求头、模型目录 `client_version`、账号用量探测、账号测试或后台 Codex User-Agent 时，必须按本节检查。
 - 适用后端路径：
-  - `backend/internal/service/openai_codex_client_identity.go`
+  - `backend/internal/service/openai_codex_identity.go`
   - `backend/internal/service/openai_gateway_forward.go`
   - `backend/internal/service/openai_gateway_passthrough.go`
   - `backend/internal/service/openai_ws_forwarder_payload.go`
   - `backend/internal/service/openai_codex_models_service.go`
+  - `backend/internal/service/openai_codex_version_sync_service.go`
   - `backend/internal/service/account_usage_service.go`
   - `backend/internal/service/account_test_service.go`
   - `backend/internal/service/setting_gateway_runtime.go`
-- 目标：项目内置 Codex 上游身份只能有一个固定已发布版本源；所有默认 UA、`Version` 和探测版本由它派生，避免新模型因旧客户端身份被上游误判为不存在，并进一步触发现有模型级冷却。
+  - `backend/internal/service/wire.go`
+- 目标：所有 OAuth Codex 出站请求使用同一个运行时生效版本，并让 `User-Agent`、`originator`、`version` 三者自洽；编译期常量只作为设置缺失或读取失败时的兜底，避免某条路径携带陈旧或矛盾身份被上游降载或拒绝。
 
 ### 2. Signatures
 
-唯一身份常量必须保持以下派生关系：
-
 ```go
-const (
-	openAICodexClientVersion = "0.144.1"
-	codexCLIUserAgent        = "codex_cli_rs/" + openAICodexClientVersion + " (Ubuntu 22.4.0; x86_64) xterm-256color"
-	codexCLIVersion          = openAICodexClientVersion
-	openAICodexProbeVersion  = openAICodexClientVersion
-	DefaultOpenAICodexUserAgent = "codex-tui/" + openAICodexClientVersion +
-		" (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; " + openAICodexClientVersion + ")"
-)
-```
-
-相关请求构造入口：
-
-```go
-func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error)
-func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, token string) (*http.Request, error)
-func (s *OpenAIGatewayService) buildOpenAIWSHeaders(ctx context.Context, c *gin.Context, account *Account, token string, decision OpenAIWSProtocolDecision, isCodexCLI bool, turnState string, turnMetadata string, promptCacheKey string) (http.Header, openAIWSSessionHeaderResolution, error)
+func (s *SettingService) GetOpenAICodexClientVersion(ctx context.Context) string
+func (s *SettingService) GetOpenAICodexCanonicalUserAgent(ctx context.Context) string
+func (s *SettingService) InvalidateOpenAICodexClientVersionCache()
+func SetCodexCanonicalUserAgentResolver(resolver func() string)
+func SetCodexIdentityEnforcementEnabled(enabled bool)
+func NormalizeCodexClientVersion(version string) string
+func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string)
 func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*CodexModelsManifest, error)
-func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, account *Account) (map[string]any, error)
-func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string
 ```
 
 ### 3. Contracts
 
-- 生产代码中的内置版本字面量只允许由 `openAICodexClientVersion` 持有；升级版本时只修改该值，不在消费者文件中复制版本字符串。
-- 当前固定版本是 `0.144.1`，满足 GPT-5.6 Sol、Terra、Luna 的最低客户端版本 `0.144.0`。本项目不根据模型目录动态协商、升级或回退版本。
-- 内置身份消费者必须保持以下关系：
-
-| 路径 | 内置身份契约 |
-|---|---|
-| HTTP Responses / Chat Completions bridge | 既有强制或兜底分支使用 `codexCLIUserAgent` |
-| Responses compact | 入站未提供 `Version` 时使用 `codexCLIVersion` |
-| OAuth passthrough | 既有强制分支或非 Codex UA 兜底使用 `codexCLIUserAgent`；compact 缺少 `Version` 时使用 `codexCLIVersion` |
-| WebSocket | 既有强制分支或 OAuth 非 Codex UA 兜底使用 `codexCLIUserAgent` |
-| 模型目录默认请求 | query `client_version` 和 Header `Version` 使用 `openAICodexProbeVersion`，UA 使用 `codexCLIUserAgent` |
-| 账号用量探测 / 账号测试 | 默认 `Version` 使用探测或 CLI 语义别名，默认 UA 使用 `codexCLIUserAgent` |
-| 浏览器 UA 替换 / Codex reset | 后台设置为空时使用 `DefaultOpenAICodexUserAgent` |
-
-- `FetchCodexModelsManifest` 收到非空显式 `clientVersion` 时，query `client_version` 与 Header `Version` 必须原样使用 trim 后的显式值；只在空值时回退到内置版本。其 `User-Agent` 仍使用项目内置 CLI UA。
-- 账号 `credentials.user_agent`、已识别的入站 Codex UA 和后台显式 `openai_codex_user_agent` 按各路径既有优先级生效：
-  - 普通 HTTP 先应用账号 UA，再应用 `gateway.force_codex_cli`，最后只对 OAuth 浏览器 UA 执行后台 Codex UA 替换。
-  - OAuth passthrough 和 WebSocket 继续把最终非 Codex UA 兜底为内置 CLI UA；账号自定义 Codex UA 在未开启强制模式时保持。
-  - `gateway.force_codex_cli=true` 继续具有强制覆盖语义；默认值 `false` 不得因版本升级而改变。
-- `min_codex_version` / `max_codex_version` 只属于入站 `codex_cli_only` 门控，不得作为上游请求的版本源。
-- 不修改 `isUpstreamModelNotFoundError`、`HandleUpstreamModelNotFound`、`upstreamModelNotFoundCooldown` 或模型级冷却键。本场景只通过发送兼容身份避免合法模型误触发既有 404 策略。
-- 本场景不新增配置、环境变量、DTO、数据库字段或 migration，也不自动改写管理员已保存的 UA。
+- 生效版本优先级固定为：管理员 `openai_codex_client_version` 覆写 → 自动同步值 `openai_codex_client_version_synced` → 编译期 `codexCLIVersion`。设置仓储缺失、读取失败、值为空或值非法时必须回退，不能把空值或未校验文本送往上游。
+- `openai_codex_client_version_synced` 只允许版本同步服务写入，管理接口将其作为只读状态输出；`openai_codex_version_auto_sync_enabled` 只控制自动同步，不改变显式管理员覆写的最高优先级。
+- `codexCLIVersion`、`codexCLIUserAgent` 和 `openAICodexProbeVersion` 是编译期兜底与语义别名，不是运行时唯一版本源。消费者不得新增第二套动态版本选择逻辑。
+- `GetOpenAICodexCanonicalUserAgent` 必须用生效版本重建 UA 的版本段。后台或账号自定义 UA 只贡献客户端形态以及 OS、架构、终端等后缀；需要固定版本时应设置版本号并关闭自动同步，不能依赖旧 UA 中的版本文本。
+- `wire.go` 必须通过 `SetCodexCanonicalUserAgentResolver` 注入 `GetOpenAICodexCanonicalUserAgent`。resolver 缺失或返回无法配对的 UA 时整体回退编译期规范身份。
+- 默认开启身份强制统一。所有携带 `originator` 的 OAuth Codex 出站路径必须在最后一次 UA 改写后调用 `enforceCodexIdentityHeadersWithUA`，保证 `User-Agent`、`originator`、`version` 来自同一身份；没有 `originator` 的兼容桥接请求不得被该函数补回身份头。
+- `gateway.disable_codex_identity_enforcement=true` 是回滚开关：保留最终客户端 UA，只配对 `originator`，并对低于 `codexUpstreamMinVersion` 的 `version` 做最低纠正。该开关不得绕过 Header 基本配对规则。
+- `FetchCodexModelsManifest` 的 query `client_version` 保留调用方兼容语义：非空显式值 trim 后原样使用；空值使用 `GetOpenAICodexClientVersion`，服务不可用时回退 `openAICodexProbeVersion`。OAuth 请求头仍走统一身份 resolver，因此显式 query 不得覆盖 Header `Version`；自定义 API Key 上游沿用其独立兼容路径，不应用 OAuth 强制身份改写。
+- HTTP Responses、Chat Completions bridge、compact、OAuth passthrough、WebSocket、alpha/search、模型目录、账号用量探测和账号测试必须复用同一收口规则。`min_codex_version` / `max_codex_version` 仍只属于入站准入门控，不能成为出站版本源。
+- 身份修正不得改变模型名、路由、认证、404 model-not-found 识别或模型级冷却策略。
 
 ### 4. Validation & Error Matrix
 
 | 条件 | 必须结果 |
 |---|---|
-| 使用项目内置默认身份 | CLI UA、TUI UA、compact `Version` 和探测版本都包含或等于 `openAICodexClientVersion` |
-| 模型目录 `clientVersion` 为空 | query `client_version` 与 Header `Version` 都使用 `openAICodexProbeVersion` |
-| 模型目录 `clientVersion` 非空 | query 与 Header 使用显式值，不被内置版本覆盖 |
-| 账号配置了 Codex UA，且未开启强制模式 | 按既有路径保留该 UA |
-| OAuth passthrough / WebSocket 最终 UA 不是 Codex UA | 按既有逻辑回退到 `codexCLIUserAgent` |
-| `gateway.force_codex_cli=true` | 强制使用 `codexCLIUserAgent`，不改变其它路由决策 |
-| 后台 `openai_codex_user_agent` 为空或读取失败 | 回退到 `DefaultOpenAICodexUserAgent` |
-| 后台 `openai_codex_user_agent` 非空 | 使用显式设置，不自动升级其中的版本文本 |
-| 入站设置了 `min_codex_version` / `max_codex_version` | 只影响客户端准入，不影响任何上游 UA、`Version` 或 `client_version` |
-| 上游返回匹配的 404 model-not-found | 继续按既有规则写入 30 分钟模型级冷却，本场景不得吞掉或改写错误 |
+| 管理员版本有效且非空 | 覆盖自动同步值与编译期兜底；规范 UA 和 Header `version` 使用该版本 |
+| 管理员版本为空、同步版本有效 | 使用同步版本；规范 UA 与 Header `version` 同步更新 |
+| 两个设置均为空、非法，或设置仓储读取失败 | 使用 `codexCLIVersion`，请求仍可构造 |
+| 后台或账号 UA 含历史版本 | 保留客户端形态和后缀，用当前生效版本重建版本段 |
+| 候选 UA 无法识别或 resolver 返回非法 UA | 整体回退规范 Codex 身份，不混用第三方 UA 与 Codex originator |
+| 默认强制统一且请求携带 `originator` | `User-Agent`、`originator`、`version` 三者同源自洽 |
+| 请求不携带 `originator` | `enforceCodexIdentityHeadersWithUA` 不修改请求头 |
+| 禁用身份强制统一 | 保留可识别的最终 UA，配对 originator，并最低纠正过旧 version |
+| 模型目录 `clientVersion` 为空 | query 使用运行时生效版本；OAuth 身份头也使用同一运行时身份 |
+| 模型目录 `clientVersion` 非空 | query 使用显式值；OAuth Header `version` 仍使用运行时生效版本 |
+| 模型目录走自定义 API Key 上游 | 保留显式 query/Header 兼容行为，不执行 OAuth 身份强制统一 |
+| 自动同步关闭或拉取失败 | 不覆盖已保存同步值；版本选择继续按既定优先级工作 |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: 将内置版本从旧值升级时只修改 `openAICodexClientVersion`，HTTP、compact、WebSocket、模型目录、探测和账号测试随编译期派生值同步更新。
-- Good: GPT-5.6 Sol、Terra、Luna 模型名原样转发；触发内置身份时 UA 包含 `0.144.1`。
-- Base: 管理员保存了自定义 Codex UA，版本升级后该显式值仍由管理员控制，不做迁移或静默覆盖。
-- Base: 模型目录调用方显式传入历史 `client_version`，请求继续按显式值发出，便于兼容和诊断。
-- Bad: 在 `openai_gateway_service.go`、`account_usage_service.go` 或设置文件中分别维护版本字面量，导致只升级部分路径。
+- Good: 自动同步写入新稳定版后，HTTP、passthrough、WebSocket、模型目录 OAuth Header、探测和账号测试在缓存失效后使用同一个新版本。
+- Good: 管理员用版本设置固定客户端版本，同时自定义 UA 的系统后缀；最终 UA 形态保留，版本段与 Header `version` 一致。
+- Base: 模型目录调用方显式传入历史 `client_version`，URL query 保留该值用于兼容；OAuth 身份 Header 仍按运行时规范身份发送。
+- Base: 自定义 API Key 上游继续接收调用方显式版本和 Header override，不被 ChatGPT OAuth 身份规则覆盖。
+- Bad: 从 `client_version` query、入站 UA 或 `min_codex_version` 推导 OAuth Header `version`，形成第二个运行时版本源。
+- Bad: 逐字透传后台或账号 UA 的旧版本段，使自动同步只更新 Header `version` 而 UA 仍陈旧。
+- Bad: 在 HTTP、WebSocket、模型目录或探测路径分别拼装身份头，导致 `originator` 与 UA 首段不配套。
 - Bad: 用 `min_codex_version` 作为上游 `Version`，把入站准入策略错误耦合到上游客户端身份。
 - Bad: 为规避一次 404 而关闭 model-not-found 识别或缩短冷却，掩盖真正不存在模型的错误。
-- Bad: 无条件覆盖所有账号或入站 UA，破坏显式配置和现有路由优先级。
 
 ### 6. Tests Required
 
-- `openai_codex_client_identity_test.go` 必须锁定唯一版本、语义别名、CLI/TUI UA 和 WebSocket UA 优先级。
-- `openai_codex_models_service_test.go` 必须分别覆盖默认版本和显式 `client_version`，同时断言 query、Header `Version` 与 UA。
+- `openai_codex_identity_test.go` 必须覆盖规范 resolver、账号 UA 重建、非法 UA 回退、禁用强制统一、无 originator 不处理、幂等与版本最低纠正。
+- `openai_codex_version_sync_service_test.go` 必须覆盖管理员覆写、同步值、编译期兜底、读取失败、自动同步开关、只前进不回退以及规范 UA 重建。
+- `openai_codex_models_service_test.go` 必须分别覆盖空值动态版本、显式 `client_version`、OAuth 统一 Header 和自定义 API Key 上游例外。
 - OAuth passthrough 测试必须以 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 为表项，断言模型名原样转发且内置 UA 使用当前版本。
-- Chat Completions bridge 至少覆盖一个 GPT-5.6 模型，断言桥接复用统一内置身份。
-- 现有 compact、账号测试、用量探测、WebSocket 和后台 UA 测试必须继续通过。
+- `openai_gateway_chat_completions_test.go`、`openai_oauth_passthrough_test.go` 和 `openai_ws_forwarder_success_test.go` 必须断言各协议复用统一身份。
+- 现有 compact、alpha/search、账号测试、用量探测和后台设置 API 测试必须继续通过。
 - 现有 404 model-not-found 测试必须继续通过，至少包括识别、模型级冷却和不封禁整个账号三类断言。
-- 建议运行：
+- 必须运行：
 
 ```bash
-cd backend && go test -tags=unit ./internal/service -count=1
-cd backend && go test -tags=unit ./... -count=1
-cd backend && GOTOOLCHAIN=go1.26.5 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0 run --timeout=30m --build-tags=unit --new ./...
-cd backend && rg -n --glob '*.go' --glob '!**/*_test.go' '0\.125\.0' internal
+cd backend && go test -tags=unit -count=1 ./internal/service
+cd backend && go test -tags=unit -count=1 ./...
+cd backend && GOTOOLCHAIN=go1.26.5 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0 run --timeout=30m --build-tags=unit --new-from-rev=HEAD ./...
 git diff --check
 ```
 
@@ -963,25 +943,21 @@ git diff --check
 #### Wrong
 
 ```go
-const codexCLIUserAgent = "codex_cli_rs/0.144.1 (Ubuntu 22.4.0; x86_64) xterm-256color"
-const codexCLIVersion = "0.144.1"
-const openAICodexProbeVersion = "0.144.1"
+headers.Set("User-Agent", account.GetOpenAIUserAgent())
+headers.Set("Originator", "codex_cli_rs")
+headers.Set("Version", clientVersion)
 ```
 
-问题：三个消费者独立维护同一版本，下一次升级很容易只修改其中一部分，再次形成 UA、compact 和探测版本漂移。
+问题：账号 UA、固定 originator 和调用方 query 版本来自不同来源，可能形成无法通过上游校验的身份三元组，也会绕过管理员覆写与自动同步。
 
 #### Correct
 
 ```go
-const (
-	openAICodexClientVersion = "0.144.1"
-	codexCLIUserAgent        = "codex_cli_rs/" + openAICodexClientVersion + " (Ubuntu 22.4.0; x86_64) xterm-256color"
-	codexCLIVersion          = openAICodexClientVersion
-	openAICodexProbeVersion  = openAICodexClientVersion
-)
+headers.Set("Originator", openai.CodexDefaultOriginator)
+enforceCodexIdentityHeadersWithUA(headers, s.codexIdentityOverrideUA(account))
 ```
 
-所有内置身份从一个生产版本字面量派生；显式 UA、显式模型目录版本和入站版本门控仍保持各自独立契约。
+统一收口从规范 resolver 取得运行时生效版本，重建 UA 版本段并配对 originator；模型目录显式 `client_version` 只保留在 URL query，自定义 API Key 上游则保持独立兼容路径。
 
 ---
 

@@ -77,6 +77,23 @@ func TestDiffSettings_DetectsOpenAIResponsesLiteHeaderBlockedModelsChange(t *tes
 	require.Contains(t, changed, service.SettingKeyOpenAIResponsesLiteHeaderBlockedModels)
 }
 
+func TestSettingsAuditRequestDoesNotInheritStoredTencentSecrets(t *testing.T) {
+	req := UpdateSettingsRequest{
+		TencentCaptchaAppSecretKey:   "  ",
+		TencentCaptchaCloudSecretID:  "\t",
+		TencentCaptchaCloudSecretKey: "\n",
+	}
+
+	auditReq := settingsAuditRequest(req)
+	req.TencentCaptchaAppSecretKey = "stored-app-secret"
+	req.TencentCaptchaCloudSecretID = "stored-secret-id"
+	req.TencentCaptchaCloudSecretKey = "stored-secret-key"
+
+	require.Empty(t, auditReq.TencentCaptchaAppSecretKey)
+	require.Empty(t, auditReq.TencentCaptchaCloudSecretID)
+	require.Empty(t, auditReq.TencentCaptchaCloudSecretKey)
+}
+
 func TestDiffSettings_DetectsCompactHomeChange(t *testing.T) {
 	changed := diffSettings(
 		&service.SystemSettings{},

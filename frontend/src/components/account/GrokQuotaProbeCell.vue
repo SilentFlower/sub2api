@@ -26,6 +26,7 @@
       </button>
 
       <button
+        v-if="!compact"
         type="button"
         class="inline-flex cursor-not-allowed items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-400 opacity-70 dark:text-gray-500"
         disabled
@@ -35,7 +36,11 @@
       </button>
     </div>
 
-    <div v-if="summary" class="text-[10px] text-gray-600 dark:text-gray-300">
+    <!-- 紧凑模式由父组件展示额度信息，这里只保留探测入口和错误。 -->
+    <div
+      v-if="!compact && summary"
+      class="text-[10px] text-gray-600 dark:text-gray-300"
+    >
       {{ summary }}
     </div>
     <div v-if="error" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
@@ -51,9 +56,14 @@ import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult, GrokQuotaWindow } from '@/api/admin/grok'
 import type { Account } from '@/types'
 
-const props = defineProps<{
-  account: Account
-}>()
+const props = withDefaults(
+  defineProps<{
+    account: Account
+    /** 启用后只显示探测按钮和错误，避免与父组件额度摘要重复。 */
+    compact?: boolean
+  }>(),
+  { compact: false }
+)
 
 const emit = defineEmits<{ probed: [result: GrokQuotaProbeResult] }>()
 
@@ -92,8 +102,8 @@ const retryAfterLabel = computed(() => {
 })
 
 const summary = computed(() => {
+  if (props.compact || !data.value) return ''
   const snapshot = data.value?.snapshot
-  if (!data.value) return ''
   const parts: Array<string | null> = []
   if (snapshot) {
     parts.push(

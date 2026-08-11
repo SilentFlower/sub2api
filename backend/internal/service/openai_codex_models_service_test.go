@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
@@ -195,13 +196,13 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	if gotAccountID != "acc-123" {
 		t.Errorf("chatgpt-account-id header: got %q", gotAccountID)
 	}
-	if gotOriginator != "codex_cli_rs" {
+	if gotOriginator != openai.CodexDefaultOriginator {
 		t.Errorf("originator header: got %q", gotOriginator)
 	}
 	if gotClientVersion != "0.137.0" {
 		t.Errorf("client_version query: got %q", gotClientVersion)
 	}
-	if gotHeaderVersion != "0.137.0" {
+	if gotHeaderVersion != codexCLIVersion {
 		t.Errorf("version header: got %q", gotHeaderVersion)
 	}
 	if gotUserAgent != codexCLIUserAgent {
@@ -353,18 +354,31 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 	chatgptCodexModelsURL = server.URL
 	defer func() { chatgptCodexModelsURL = original }()
 
-	s := &OpenAIGatewayService{}
+	settingRepo := newMockSettingRepo()
+	settingRepo.data[SettingKeyOpenAICodexClientVersion] = "0.200.1"
+	settingService := NewSettingService(settingRepo, &config.Config{})
+	SetCodexCanonicalUserAgentResolver(func() string {
+		return settingService.GetOpenAICodexCanonicalUserAgent(context.Background())
+	})
+	SetCodexIdentityEnforcementEnabled(true)
+	t.Cleanup(func() {
+		SetCodexCanonicalUserAgentResolver(nil)
+		SetCodexIdentityEnforcementEnabled(true)
+	})
+
+	s := &OpenAIGatewayService{settingService: settingService}
 	if _, err := s.FetchCodexModelsManifest(context.Background(), newCodexModelsTestAccount(), "", ""); err != nil {
 		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
 	}
-	if gotClientVersion != openAICodexProbeVersion {
-		t.Errorf("default client_version: got %q, want %q", gotClientVersion, openAICodexProbeVersion)
+	if gotClientVersion != "0.200.1" {
+		t.Errorf("default client_version: got %q, want %q", gotClientVersion, "0.200.1")
 	}
-	if gotHeaderVersion != openAICodexProbeVersion {
-		t.Errorf("default version header: got %q, want %q", gotHeaderVersion, openAICodexProbeVersion)
+	if gotHeaderVersion != "0.200.1" {
+		t.Errorf("default version header: got %q, want %q", gotHeaderVersion, "0.200.1")
 	}
-	if gotUserAgent != codexCLIUserAgent {
-		t.Errorf("default user-agent header: got %q, want %q", gotUserAgent, codexCLIUserAgent)
+	wantUserAgent := buildCodexCLIUserAgent("0.200.1")
+	if gotUserAgent != wantUserAgent {
+		t.Errorf("default user-agent header: got %q, want %q", gotUserAgent, wantUserAgent)
 	}
 }
 
@@ -463,7 +477,7 @@ func TestFetchCodexModelsManifestAPIKeyCustomUpstream(t *testing.T) {
 	if gotRequest.Header.Get("Authorization") != "Bearer sk-upstream" {
 		t.Errorf("authorization header: got %q", gotRequest.Header.Get("Authorization"))
 	}
-	if gotRequest.Header.Get("Originator") != "codex_cli_rs" {
+	if gotRequest.Header.Get("Originator") != openai.CodexDefaultOriginator {
 		t.Errorf("originator header: got %q", gotRequest.Header.Get("Originator"))
 	}
 	if gotRequest.Header.Get("Version") != "0.144.0" {
