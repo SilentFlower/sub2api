@@ -1,0 +1,39 @@
+{
+  "id": "merge-main-0-1-173-into-build",
+  "name": "merge-main-0-1-173-into-build",
+  "title": "合并 main 0.1.173 到 build 并处理冲突",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "full-stack",
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-11",
+  "completedAt": null,
+  "branch": "build",
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "merge_source": "main@0b3fe95af",
+    "target_version": "0.1.173",
+    "merge_state": "in-progress-conflicts"
+  },
+  "progress": {
+    "updatedAt": "2026-08-11T11:48:16+08:00",
+    "completedSteps": [
+      "已将 main 0.1.173 合并到 build，完成冲突处理、质量验证、规范同步和远端推送"
+    ],
+    "partialStep": null,
+    "nextStep": "等待显式执行 trellis-finish-work 完成归档",
+    "notes": "Check-All 通过并接受 CHK-003：build 基线仍有 56 项全仓 lint，本次合并增量 lint 为 0。"
+  }
+}
