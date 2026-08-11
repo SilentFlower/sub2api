@@ -718,3 +718,24 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: 合并 main 0.1.173 到 build
+
+**Date**: 2026-08-11
+**Task**: 合并 main 0.1.173 到 build
+**Branch**: `build`
+
+### Summary
+
+完成 main 0.1.173 到 build 的冲突处理、全量验证、规范同步、业务推送与任务归档；保留 CHK-003 历史 lint 风险，并生成需人工复核的上线审计。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `da830dd323777dd67fc065a9b7e2ab4fef7488bc` | (see git log) |
+
+### Status
+
+[OK] **Completed**
