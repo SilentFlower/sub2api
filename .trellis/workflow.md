@@ -357,13 +357,12 @@ Inline workflow-state is not an inline route decision. Do not default inline bec
 
 <!-- BEGIN skill-garden patch workflow-state-completed v0.6 -->
 <!-- Per-turn breadcrumb: shown while status='completed'.
-     Normal trellis-push has completed all business pushes, synchronized final
-     task progress, and then activated completed locally. The task remains active until an explicit
-     trellis-finish-work archive succeeds. -->
+     The task remains active until the Push-owned completed preflight resolves
+     publication recovery or explicit trellis-finish-work archive succeeds. -->
 
 [workflow-state:completed]
-Business push and task progress are complete. Do not resume implementation, Update-Spec, or trellis-push automatically.
-Run `/trellis:finish-work` only when explicitly requested; it verifies the completed record and archives the task without rewriting completion metadata.
+Business work and final task progress are complete, but `status=completed` alone does not prove that a normal task-record commit was pushed. Do not resume implementation or Update-Spec automatically.
+Enter the `trellis-push` completed-task preflight for the single next hop. It either prepares publication recovery, points to explicit `/trellis:finish-work`, or blocks on ambiguous evidence; this state does not inspect Git or auto-loop details itself.
 For rework, obtain an explicit user decision and run `task_progress.py reopen --task <task-name> --json` before returning to `in_progress`. Material scope changes still require refreshed planning artifacts and Brief approval.
 [/workflow-state:completed]
 <!-- END skill-garden patch workflow-state-completed v0.6 -->
@@ -701,7 +700,7 @@ All tag blocks live in the `## Phase Index` section above, immediately after eac
 | Codex inline Phase 1 | `[workflow-state:planning-inline]` |
 | Phase 2 + Phase 3.2–3.4 (implementation + check + wrap-up) | `[workflow-state:in_progress]` (after Phase 2 summary) |
 | Codex inline Phase 2 + Phase 3.2–3.4 | `[workflow-state:in_progress-inline]` |
-| After successful task-progress push, before explicit archive | `[workflow-state:completed]` (observable active lifecycle state) |
+| After completion write, before Push-owned recovery preflight or archive | `[workflow-state:completed]` (observable active lifecycle state) |
 
 ### Changing the per-turn prompt text
 
