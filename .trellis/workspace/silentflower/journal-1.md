@@ -760,3 +760,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: 合并 main 0.1.176 到 build
+
+**Date**: 2026-08-14
+**Task**: 合并 main 0.1.176 到 build
+**Branch**: `build`
+
+### Summary
+
+合并 main 0.1.176，删除 Grok 独立套餐额度展示链路，修复主 Billing 接线回归，完成全量验证、规范更新并推送 build。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5a2179828` | (see git log) |
+| `d44f715ac` | (see git log) |
+
+### Status
+
+[OK] **Completed**
