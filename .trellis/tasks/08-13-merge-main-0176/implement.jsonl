@@ -1,0 +1,7 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"合并 main 时确认 build 私有能力 owner、薄接入和自动合并语义"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"跨 handler/service/DTO/frontend 追踪删除链路和配置往返"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"处理 Anthropic/OpenAI/Responses Lite/Web Search 协议桥冲突"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"后端生成、测试和质量门禁"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"账号表单、locale 扩展和功能组件合并规范"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"移除 Grok DTO 并保持 main/build 字段契约"}
+{"file":".trellis/tasks/08-13-merge-main-0176/research/build-feature-regression-audit.md","reason":"私有能力回归矩阵和 Grok 删除边界"}

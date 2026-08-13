@@ -1,0 +1,6 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查 build 特性没有因自动合并或 locale 覆盖静默失效"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"检查协议桥转换顺序、工具 ID、reasoning 和 failover"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查 gofmt、生成文件、单元测试和安全要求"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 typecheck、Vitest、构建和用户可见行为"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查 API/DTO/TypeScript 字段完整性"}
+{"file":".trellis/tasks/08-13-merge-main-0176/research/build-feature-regression-audit.md","reason":"逐项核对私有能力 owner、入口、往返和测试证据"}

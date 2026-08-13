@@ -1,0 +1,47 @@
+{
+  "id": "merge-main-0176",
+  "name": "merge-main-0176",
+  "title": "合并 main 0.1.176 到 build",
+  "description": "将 main 0.1.176 合并到 build，删除独立 Grok 套餐额度链路并审计 build 私有能力回归",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "backend,frontend,merge-audit",
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-13",
+  "completedAt": "2026-08-13",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go",
+    "backend/internal/service/openai_gateway_forward.go",
+    "backend/internal/service/grok_quota_fetcher.go",
+    "frontend/src/components/account/AccountUsageCell.vue",
+    "frontend/src/components/account/BulkEditAccountModal.vue",
+    "frontend/src/components/account/CreateAccountModal.vue",
+    "frontend/src/components/account/EditAccountModal.vue",
+    "frontend/src/views/admin/AccountsView.vue"
+  ],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-08-14T01:12:06+08:00",
+    "completedSteps": [
+      "合并 main 0.1.176 并解决冲突",
+      "删除 Grok 独立套餐额度与展示链路",
+      "审计并修复 build 私有特性回归",
+      "完成全量验证与规范更新"
+    ],
+    "partialStep": null,
+    "nextStep": "等待 finish-work 归档",
+    "notes": "业务 merge commit 5a2179828 已推送至 origin/build。"
+  }
+}
