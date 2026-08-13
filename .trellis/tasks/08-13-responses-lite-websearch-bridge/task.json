@@ -1,0 +1,36 @@
+{
+  "id": "responses-lite-websearch-bridge",
+  "name": "responses-lite-websearch-bridge",
+  "title": "兼容 Responses Lite Web Search 桥接",
+  "description": "让 Codex 保持 Responses Lite 时，在 OpenAI APIKey Chat fallback 链路中仍可由模型按需调用现有 Web Search provider，并保持 Responses 回程、引用与计费语义。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-13",
+  "completedAt": "2026-08-13",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-08-13T13:59:01+08:00",
+    "completedSteps": [
+      "实现并验证 Responses Lite Web Search 桥接",
+      "提交并推送业务变更"
+    ],
+    "partialStep": null,
+    "nextStep": "任务归档与会话收尾",
+    "notes": "严格 Check-All 通过，业务变更已推送。"
+  }
+}

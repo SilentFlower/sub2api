@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"实现 Lite 工具边界、Responses -> Chat Web Search 工具循环、来源引用、usage 与计费契约"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"保持 OpenAI 兼容错误 shape、状态码和 param 语义"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"必须扩展现有 sub2api_web_search/web.run 循环，禁止复制第二套 provider 与回程逻辑"}
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"后端策略和前端 UI 使用 build 私有领域 owner，共享 gateway/view 只保留薄接线"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"前端桥接规则、组件、测试与 locale 按 webSearch feature 目录落位"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"账号/渠道控件遵循 typed model、i18n、可访问和 locale 扩展约定"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"账号 extra 与渠道 features_config 必须从 unknown 安全收窄并保持 snake_case"}
+{"file":".trellis/tasks/archive/2026-07/07-16-deepseek-mixed-tool-websearch/design.md","reason":"复用既有 Chat fallback 混合 Web Search 的架构、工具循环和引用设计"}
+{"file":".trellis/tasks/08-13-responses-lite-websearch-bridge/research/lite-websearch-bridge-findings.md","reason":"实现资格矩阵、Lite 边界和独立开关决策的事实基线"}

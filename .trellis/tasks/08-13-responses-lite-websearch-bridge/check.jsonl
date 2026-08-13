@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"复核 Lite、Chat fallback、工具选择、搜索事件、引用、usage 与计费均未回退"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核新增拒绝和配置错误保持 OpenAI 兼容响应"}
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"复核 build 私有规则没有重新堆入共享 gateway、页面或 locale 热点"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核前端 Vitest、typecheck、lint、build 和 i18n 测试完整"}
+{"file":".trellis/tasks/archive/2026-07/07-16-deepseek-mixed-tool-websearch/brief.md","reason":"复核现有 mixed Web Search 行为和非目标路径不回归"}
