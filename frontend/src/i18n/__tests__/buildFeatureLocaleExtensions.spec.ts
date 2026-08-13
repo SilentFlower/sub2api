@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import enAccounts from '../locales/en/admin/accounts'
 import enAccountsCodexCustomClients from '../locales/en/admin/accountsCodexCustomClients'
-import enAccountsGrokBillingQuota from '../locales/en/admin/accountsGrokBillingQuota'
 import enAccountsOpenAICodexReset from '../locales/en/admin/accountsOpenAICodexReset'
 import enAccountsOpenAICompatibility from '../locales/en/admin/accountsOpenAICompatibility'
 import enAccountsOpenAIImageGeneration from '../locales/en/admin/accountsOpenAIImageGenerationOverrides'
@@ -15,7 +14,6 @@ import enSettingsResponsesLite from '../locales/en/admin/settingsResponsesLite'
 import enSettingsWebSearchAnySearch from '../locales/en/admin/settingsWebSearchAnySearch'
 import zhAccounts from '../locales/zh/admin/accounts'
 import zhAccountsCodexCustomClients from '../locales/zh/admin/accountsCodexCustomClients'
-import zhAccountsGrokBillingQuota from '../locales/zh/admin/accountsGrokBillingQuota'
 import zhAccountsOpenAICodexReset from '../locales/zh/admin/accountsOpenAICodexReset'
 import zhAccountsOpenAICompatibility from '../locales/zh/admin/accountsOpenAICompatibility'
 import zhAccountsOpenAIImageGeneration from '../locales/zh/admin/accountsOpenAIImageGenerationOverrides'
@@ -47,7 +45,6 @@ const localeExtensionPairs: Array<[string, unknown, unknown]> = [
   ['accounts OpenAI compatibility', enAccountsOpenAICompatibility, zhAccountsOpenAICompatibility],
   ['accounts OpenAI image generation', enAccountsOpenAIImageGeneration, zhAccountsOpenAIImageGeneration],
   ['accounts Web Search', enAccountsWebSearch, zhAccountsWebSearch],
-  ['accounts Grok Billing', enAccountsGrokBillingQuota, zhAccountsGrokBillingQuota],
   ['accounts Codex reset', enAccountsOpenAICodexReset, zhAccountsOpenAICodexReset],
   ['settings OpenAI image generation', enSettingsOpenAIImageGeneration, zhSettingsOpenAIImageGeneration],
   ['settings Responses Lite', enSettingsResponsesLite, zhSettingsResponsesLite],
@@ -65,7 +62,6 @@ describe('build 功能 locale 扩展', () => {
     expect(getPath(enAccounts, 'accounts.openai.codexCLIOnlyCustomUA')).toBe('Custom allowed UA prefixes')
     expect(getPath(enAccounts, 'accounts.openai.codexImageToolDesc')).toContain('final-model blocked-model list')
     expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('最终模型阻止列表')
-    expect(getPath(zhAccounts, 'accounts.usageWindow.grokBillingTitle')).toBe('Grok 套餐额度')
     expect(getPath(enSettings, 'settings.gatewayForwarding.openaiResponsesLiteBlockedModels')).toBe(
       'Responses Lite Header blocked models'
     )

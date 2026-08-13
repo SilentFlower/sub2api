@@ -1,5 +1,4 @@
 import codexCustomClientMessages from './accountsCodexCustomClients'
-import grokBillingQuotaMessages from './accountsGrokBillingQuota'
 import openAICodexResetMessages from './accountsOpenAICodexReset'
 import openAICompatibilityMessages from './accountsOpenAICompatibility'
 import openAIImageGenerationOverrides from './accountsOpenAIImageGenerationOverrides'
@@ -129,6 +128,12 @@ export default {
       antigravityProjectIdPlaceholder: 'your-gcp-project-id',
       antigravityProjectIdHint:
         'Antigravity standard-tier accounts that do not receive an automatic project_id need a user-owned GCP project.',
+      accountSchedulingThresholdOverride: 'Account Auto-Pause Threshold Override',
+      accountSchedulingThresholdOverrideHint:
+        'Override the platform auto-pause threshold for this account only. Disable to use platform settings.',
+      accountSchedulingThresholdOverrideValue: 'Account threshold percent',
+      accountSchedulingThresholdOverrideDisabledHint:
+        'Use 1-100. The account becomes temporarily unschedulable after reaching this usage percent; 100 disables it for this account.',
       status: {
         active: 'Active',
         inactive: 'Inactive',
@@ -139,10 +144,6 @@ export default {
         rateLimited: 'Rate Limited',
         overloaded: 'Overloaded',
         tempUnschedulable: 'Temp Unschedulable',
-      accountSchedulingThresholdOverride: 'Account Auto-Pause Threshold Override',
-      accountSchedulingThresholdOverrideHint: 'Override the platform auto-pause threshold for this account only. Disable to use platform settings.',
-      accountSchedulingThresholdOverrideValue: 'Account threshold percent',
-      accountSchedulingThresholdOverrideDisabledHint: 'Use 1-100. The account becomes temporarily unschedulable after reaching this usage percent; 100 disables it for this account.',
         quotaExceeded: 'Quota Exceeded',
         unschedulable: 'Unschedulable',
         rateLimitedUntil: 'Rate limited and removed from scheduling. Auto resumes at {time}',
@@ -580,6 +581,12 @@ export default {
         codexCLIOnlyAppServer: 'Allow Codex app-server clients',
         codexCLIOnlyAppServerDesc:
           "Effective only when the switch above is on. When enabled, this account also allows third-party clients that embed the Codex engine over the app-server protocol (e.g. Claude Code's codex plugin); they still pass the global engine-fingerprint gate. OR-combined with the global app-server toggle.",
+        codexFingerprintMode: 'Codex fingerprint convergence',
+        codexFingerprintModeDesc: 'When multiple users share the same OAuth account, converge device/session identifiers to account-level stable values to reduce upstream-visible device and session count. Off = pass through client identifiers as-is.',
+        codexFingerprintOff: 'Off (passthrough)',
+        codexFingerprintDevice: 'Device only',
+        codexFingerprintSession: 'Device + Session (recommended)',
+        codexFingerprintFull: 'Full convergence',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -1459,7 +1466,6 @@ export default {
         grokLastStatus: 'Status {status}',
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
-        ...grokBillingQuotaMessages,
         passiveSampled: 'Passive',
         activeQuery: 'Query'
       },

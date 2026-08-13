@@ -20,10 +20,10 @@ describe('Grok Messages 强制 Chat extra', () => {
     expect(readGrokForceChatMode(undefined)).toBe('auto')
   })
 
-  it('只更新路由键并保留独立套餐快照', () => {
+  it('只更新路由键并保留其它 extra 字段', () => {
     const source = {
       email: 'grok@example.com',
-      grok_billing_quota_snapshot: { plan_label: 'supergrok' },
+      grok_billing_snapshot: { plan: 'SuperGrok' },
       openai_responses_mode: 'force_responses'
     }
 
@@ -33,7 +33,7 @@ describe('Grok Messages 强制 Chat extra', () => {
     })
     expect(applyGrokForceChatExtra(source, 'auto')).toEqual({
       email: 'grok@example.com',
-      grok_billing_quota_snapshot: { plan_label: 'supergrok' }
+      grok_billing_snapshot: { plan: 'SuperGrok' }
     })
     expect(source.openai_responses_mode).toBe('force_responses')
   })

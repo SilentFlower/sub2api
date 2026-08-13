@@ -12,8 +12,7 @@ vi.mock('@/api/client', () => ({
 import {
   authorizePassword,
   createFromSSO,
-  getGrokSSOImportTimeout,
-  queryBillingQuota
+  getGrokSSOImportTimeout
 } from '@/api/admin/grok'
 
 describe('admin Grok SSO import API', () => {
@@ -21,18 +20,6 @@ describe('admin Grok SSO import API', () => {
     get.mockReset()
     post.mockReset()
     post.mockResolvedValue({ data: { created: [], failed: [] } })
-  })
-
-  it('queries the independent Grok billing quota endpoint', async () => {
-    const result = {
-      source: 'grok_cli_billing_quota',
-      snapshot: { updated_at: '2026-07-15T00:00:00Z' },
-      fetched_at: 1,
-    }
-    get.mockResolvedValue({ data: result })
-
-    await expect(queryBillingQuota(77)).resolves.toEqual(result)
-    expect(get).toHaveBeenCalledWith('/admin/grok/accounts/77/billing-quota')
   })
 
   it.each([

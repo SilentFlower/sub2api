@@ -455,19 +455,20 @@ func ChatCompletionsResponseToAnthropic(resp *ChatCompletionsResponse, model str
 // reasoning 变为 thinking，正文变为 text，tool_calls 变为 tool_use。
 func chatMessageToAnthropicBlocks(message ChatMessage) []AnthropicContentBlock {
 	var blocks []AnthropicContentBlock
+	reasoning := message.reasoningText()
 
-	if message.ReasoningContent != "" {
+	if reasoning != "" {
 		blocks = append(blocks, AnthropicContentBlock{
 			Type:     "thinking",
-			Thinking: message.ReasoningContent,
+			Thinking: reasoning,
 		})
 	}
 
 	text := chatMessageContentText(message.Content)
-	// 只有 reasoning 且没有正文或工具时，把 reasoning 作为可见文本回显，
-	// 避免客户端收到空回答。
-	if text == "" && strings.TrimSpace(message.ReasoningContent) != "" && len(message.ToolCalls) == 0 {
-		text = message.ReasoningContent
+	// DeepSeek reasoning-only fallback: when there is no text and no tool calls,
+	// surface the reasoning content as visible text so the turn isn't empty.
+	if text == "" && strings.TrimSpace(reasoning) != "" && len(message.ToolCalls) == 0 {
+		text = reasoning
 	}
 	if text != "" || len(message.ToolCalls) == 0 {
 		blocks = append(blocks, AnthropicContentBlock{Type: "text", Text: text})
@@ -649,13 +650,14 @@ func ChatCompletionsChunkToAnthropicEvents(
 	events = append(events, ensureCCAnthropicMessageStart(state)...)
 
 	for _, choice := range chunk.Choices {
-		// reasoning content 转为 thinking block。
-		if choice.Delta.ReasoningContent != nil && *choice.Delta.ReasoningContent != "" {
-			_, _ = state.ReasoningContent.WriteString(*choice.Delta.ReasoningContent)
+		// Reasoning content → thinking block.
+		reasoning := choice.Delta.reasoningText()
+		if reasoning != nil && *reasoning != "" {
+			_, _ = state.ReasoningContent.WriteString(*reasoning)
 			events = append(events, ensureCCAnthropicThinkingBlock(state)...)
 			events = append(events, ccAnthropicDelta(state, &AnthropicDelta{
 				Type:     "thinking_delta",
-				Thinking: *choice.Delta.ReasoningContent,
+				Thinking: *reasoning,
 			})...)
 		}
 

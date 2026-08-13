@@ -197,6 +197,7 @@ func ProvideOpenAIQuotaService(
 // @param geminiQuotaService Gemini 额度服务。
 // @param antigravityQuotaFetcher Antigravity 额度获取器。
 // @param grokQuotaFetcher Grok 快照额度获取器。
+// @param grokQuotaService Grok 主额度主动探测服务。
 // @param openAIQuotaService OpenAI 额度服务。
 // @param cache 用量缓存。
 // @param identityCache 身份缓存。
@@ -210,6 +211,7 @@ func ProvideAccountUsageService(
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	grokQuotaFetcher *GrokQuotaFetcher,
+	grokQuotaService *GrokQuotaService,
 	openAIQuotaService *OpenAIQuotaService,
 	cache *UsageCache,
 	identityCache IdentityCache,
@@ -223,6 +225,7 @@ func ProvideAccountUsageService(
 		geminiQuotaService,
 		antigravityQuotaFetcher,
 		grokQuotaFetcher,
+		grokQuotaService,
 		openAIQuotaService,
 		cache,
 		identityCache,
@@ -280,21 +283,6 @@ func ProvideGrokQuotaService(
 	service := NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
 	service.SetSettingService(settingService)
 	return service
-}
-
-// ProvideGrokBillingQuotaService 创建独立 Grok 套餐额度服务。
-// @param accountRepo 账号仓储。
-// @param proxyRepo 代理仓储。
-// @param tokenProvider Grok OAuth Token Provider。
-// @param httpUpstream 上游 HTTP transport。
-// @return 可供依赖注入的独立套餐额度服务。
-func ProvideGrokBillingQuotaService(
-	accountRepo AccountRepository,
-	proxyRepo ProxyRepository,
-	tokenProvider *GrokTokenProvider,
-	httpUpstream HTTPUpstream,
-) *GrokBillingQuotaService {
-	return NewGrokBillingQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream)
 }
 
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection
@@ -661,8 +649,11 @@ func ProvideBackupService(
 	encryptor SecretEncryptor,
 	storeFactory BackupObjectStoreFactory,
 	dumper DBDumper,
+	lockCache LeaderLockCache,
+	db *sql.DB,
 ) *BackupService {
 	svc := NewBackupService(settingRepo, cfg, encryptor, storeFactory, dumper)
+	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
 }
@@ -829,7 +820,6 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
 	ProvideGrokQuotaService,
-	ProvideGrokBillingQuotaService,
 	ProvideClaudeTokenProvider,
 	NewAntigravityGatewayService,
 	ProvideRateLimitService,
@@ -890,6 +880,7 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,
+	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,
 	NewContentModerationService,
 	NewAffiliateService,

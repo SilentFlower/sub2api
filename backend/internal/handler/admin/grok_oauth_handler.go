@@ -20,35 +20,31 @@ import (
 const grokSSOImportConcurrency = 3
 
 type GrokOAuthHandler struct {
-	grokOAuthService    *service.GrokOAuthService
-	adminService        service.AdminService
-	quotaService        *service.GrokQuotaService
-	billingQuotaService *service.GrokBillingQuotaService
-	importProber        grokImportProber
-	reconciler          service.GrokOAuthReconciler
+	grokOAuthService *service.GrokOAuthService
+	adminService     service.AdminService
+	quotaService     *service.GrokQuotaService
+	importProber     grokImportProber
+	reconciler       service.GrokOAuthReconciler
 }
 
 // NewGrokOAuthHandler 创建 Grok OAuth 管理端 handler。
 // @param grokOAuthService Grok OAuth 服务。
 // @param adminService 管理端账号服务。
 // @param quotaService main 手动 quota 服务。
-// @param billingQuotaService 独立套餐额度服务。
 // @param reconciler OAuth 账号凭据对账服务。
 // @return 初始化后的 Grok OAuth handler。
 func NewGrokOAuthHandler(
 	grokOAuthService *service.GrokOAuthService,
 	adminService service.AdminService,
 	quotaService *service.GrokQuotaService,
-	billingQuotaService *service.GrokBillingQuotaService,
 	reconciler service.GrokOAuthReconciler,
 ) *GrokOAuthHandler {
 	return &GrokOAuthHandler{
-		grokOAuthService:    grokOAuthService,
-		adminService:        adminService,
-		quotaService:        quotaService,
-		billingQuotaService: billingQuotaService,
-		importProber:        quotaService,
-		reconciler:          reconciler,
+		grokOAuthService: grokOAuthService,
+		adminService:     adminService,
+		quotaService:     quotaService,
+		importProber:     quotaService,
+		reconciler:       reconciler,
 	}
 }
 

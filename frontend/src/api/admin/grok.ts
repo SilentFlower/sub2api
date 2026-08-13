@@ -4,12 +4,9 @@
  */
 
 import { apiClient } from '../client'
-import { queryBillingQuota } from '@/features/grokBillingQuota/api'
 import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
 
-export { queryBillingQuota }
 export type { GrokBillingSummary, GrokQuotaWindow } from '@/types'
-export type { GrokBillingQuotaResult } from '@/features/grokBillingQuota/types'
 
 export interface GrokAuthUrlResponse {
   auth_url: string
@@ -221,7 +218,6 @@ export default {
   exchangeCode,
   refreshGrokToken,
   queryQuota,
-  queryBillingQuota,
   resetQuota,
   createFromSSO,
   validateSSOToken,

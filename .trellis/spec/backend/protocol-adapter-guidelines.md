@@ -520,15 +520,14 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 
 ---
 
-## Scenario: Grok 独立套餐 Billing 与手动配额探测双链路
+## Scenario: Grok 主 Billing 与配额探测单链路
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 Grok OAuth 套餐 Billing、xAI rate-limit header 探测、账号 usage 聚合、管理端配额 API、SSO 导入后探测或前端 Grok 配额展示时，必须按本节检查。
+- Trigger: 修改 Grok OAuth Billing、xAI rate-limit header 探测、账号 usage 聚合、管理端配额 API、SSO 导入后探测或前端 Grok 配额展示时，必须按本节检查。
 - 适用后端路径：
-  - `backend/internal/pkg/xai/billingquota/`
   - `backend/internal/pkg/xai/billing.go`
-  - `backend/internal/service/grok_billing_quota_service.go`
+  - `backend/internal/pkg/xai/quota.go`
   - `backend/internal/service/grok_quota_service.go`
   - `backend/internal/service/grok_quota_fetcher.go`
   - `backend/internal/service/account_usage_service.go`
@@ -539,10 +538,8 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
   - `frontend/src/api/admin/grok.ts`
   - `frontend/src/types/index.ts`
   - `frontend/src/components/account/AccountUsageCell.vue`
-  - `frontend/src/components/account/GrokBillingQuotaCell.vue`
-  - `frontend/src/components/account/GrokQuotaProbeCell.vue`
   - `frontend/src/views/admin/AccountsView.vue`
-- 目标：账号列表的套餐 Billing 使用 build 私有链路；main `/quota` 只保留显式手动探测兼容。两条链路必须使用不同请求编排、DTO、快照键和前端状态，且页面自动加载不能同时触发两套 Billing 请求。
+- 目标：只使用 main 的 `GrokQuotaService` 和 `grok_billing_snapshot` 承载 Billing；账号列表可自动刷新 Billing，但不得消费 Responses 模型额度。不得恢复独立 `/billing-quota` API、独立 service/parser、`grok_billing_quota` DTO 或前端独立额度组件。
 
 ### 2. Signatures
 
@@ -550,111 +547,103 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 
 ```text
 GET  /api/v1/admin/grok/accounts/:id/quota
-GET  /api/v1/admin/grok/accounts/:id/billing-quota
 POST /api/v1/admin/grok/accounts/:id/reset-quota
 POST /api/v1/admin/grok/sso-to-oauth
 ```
 
 ```go
 func (h *GrokOAuthHandler) QueryQuota(c *gin.Context)
-func (h *GrokOAuthHandler) QueryBillingQuota(c *gin.Context)
 func (h *GrokOAuthHandler) ResetQuota(c *gin.Context)
-func (s *GrokBillingQuotaService) QueryBillingQuota(ctx context.Context, accountID int64) (*GrokBillingQuotaResult, error)
 func (s *GrokQuotaService) QueryQuota(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error)
 func (s *GrokQuotaService) ProbeBilling(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error)
 func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error)
+func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, force ...bool) (*UsageInfo, error)
 ```
 
-独立套餐 Billing：
+Billing parser 和快照：
 
 ```go
-func billingquota.BuildURL(baseURL string, weekly bool) (string, error)
-func billingquota.ApplyHeaders(req *http.Request, accessToken string)
-func billingquota.ParsePayload(body []byte) (*billingquota.Payload, error)
-func billingquota.BuildSnapshot(weekly, monthly *billingquota.Payload, now time.Time) *billingquota.Snapshot
+func xai.BuildBillingURLWithValidator(baseURL string, formatCredits bool, validator xai.BaseURLValidator) (string, error)
+func xai.ApplyCLIBillingHeaders(req *http.Request, accessToken string)
+func xai.ParseBillingPayload(body []byte) (*xai.BillingPayload, error)
+func xai.BuildBillingSummary(config *xai.BillingConfig) *xai.BillingSummary
+func xai.MergeBillingProbeResult(previous, weekly, monthly *xai.BillingSummary, weeklyOK, monthlyOK bool) *xai.BillingSummary
 ```
 
 ```text
-accounts.extra.grok_billing_quota_snapshot -> billingquota.Snapshot（scheduler-neutral 观测字段）
-accounts.extra.grok_billing_snapshot       -> xai.BillingSummary（main 手动 quota）
-accounts.extra.grok_usage_snapshot         -> xai.QuotaSnapshot
-UsageInfo.GrokBillingQuota                 -> json:"grok_billing_quota,omitempty"
+accounts.extra.grok_billing_snapshot -> xai.BillingSummary
+accounts.extra.grok_usage_snapshot   -> xai.QuotaSnapshot
+UsageInfo.GrokBilling                -> json:"grok_billing,omitempty"
 ```
 
 前端调用和类型：
 
 ```typescript
-queryBillingQuota(id: number): Promise<GrokBillingQuotaResult>
 queryQuota(id: number): Promise<GrokQuotaProbeResult>
-AccountUsageInfo.grok_billing_quota?: GrokBillingQuota | null
+AccountUsageInfo.grok_billing?: GrokBillingSummary | null
 ```
 
 ### 3. Contracts
 
-- 两条链路都只支持 `platform=grok` 且 `type=oauth`；共享 `GrokTokenProvider.GetAccessToken`、账号/代理仓储和 `HTTPUpstream`，但独立套餐链路不得引用或转换 main `xai.BillingSummary`。
-- 独立 `GrokBillingQuotaService` 依次请求 weekly `/billing?format=credits` 与 monthly `/billing`，解析月/周额度、产品用量和 on-demand 字段；任一窗口成功即可保存快照，失败窗口通过 `partial`、`failed_windows` 表达。
-- 独立服务只能写 `extra.grok_billing_quota_snapshot`。main `ProbeBilling` 只能写 `extra.grok_billing_snapshot`，主动/被动 rate-limit headers 只能写 `extra.grok_usage_snapshot`；三个键不得交叉回填。
-- `grok_billing_quota_snapshot` 是只影响展示的观测字段，必须保留在 repository 的 `schedulerNeutralExtraKeys` 中；更新该字段需要同步账号快照和缓存，但不得写入 `SchedulerOutboxEventAccountChanged` 或重建调度桶。
-- `AccountUsageService.getGrokUsage` 只读取现有快照和本地 usage，不得自动调用 main `ProbeBilling` 或 `ProbeUsage`。独立 `GrokBillingQuotaCell` 是账号列表唯一的自动 Billing 刷新入口。
-- 独立组件使用真正的模块级 30 分钟缓存和全局队列，最多同时刷新 2 个账号；新鲜快照不请求，stale/缺失快照排队请求，手动刷新绕过 TTL。
-- main `QueryQuota` 后端编排保持兼容：仍可先 `ProbeBilling`，再按可信度决定是否 `ProbeUsage`。它只由显式手动操作或既有 SSO 探测触发，返回的 `billing` 不得进入 `grok_billing_quota` 或套餐额度 UI。
-- 账号列表的套餐标签和免费/付费判断只能读取独立 `grok_billing_quota_snapshot.plan_label`、被动 `grok_usage_snapshot.subscription_tier` 以及 credentials/entitlement fallback；不得读取或投影 main `grok_billing_snapshot.plan`。`UsageInfo.GrokBilling` 仅保留状态、本地窗口和兼容用途。
-- 前端 `AccountUsageCell` 只用 `grok_billing_quota` 展示套餐、月/周额度、产品用量与按量付费；`handleGrokProbed` 不合并 main `result.billing`。免费 24h、header 请求/Token、本地 usage、entitlement、reauth/forbidden 保持可用。
-- 独立 DTO 使用 snake_case。未知字段必须省略；只有 `on_demand_cap_cents` 明确为 `0` 时才可显示“未启用”，缺失不能伪装为零。
-- Authorization 只用于上游请求，不得写入快照或 API DTO；失败正文只能脱敏、截断后进入日志。
+- `GrokQuotaService` 只支持 `platform=grok` 且 `type=oauth`，通过 `GrokTokenProvider.GetAccessToken`、账号代理和 `HTTPUpstream` 访问上游。
+- `ProbeBilling` 并发请求 weekly `/billing?format=credits` 与 monthly `/billing`，合并月/周额度、产品用量、预付和按量付费字段；任一窗口成功即可写入 `extra.grok_billing_snapshot`，失败窗口通过 `partial`、`failed_windows` 和各窗口 status 表达。
+- `AccountUsageService` 必须注入 `GrokQuotaService`。Grok OAuth 账号 Billing 缺失、失败、不完整或超过 10 分钟时，账号 usage 刷新调用 `ProbeBilling`；一分钟内的重复失败重试受 `grokProbeRetryTTL` 限制，force 刷新绕过门禁并向调用方返回探测错误。
+- 账号列表自动刷新只能调用 `ProbeBilling`，不得调用 `ProbeUsage`；因此一次刷新最多产生 weekly/monthly 两个 Billing GET，不得发送真实 Responses 请求消耗模型额度。
+- `GrokQuotaFetcher.BuildUsageInfo` 从 `grok_billing_snapshot` 和 `grok_usage_snapshot` 构建同一份 `UsageInfo`。Billing 负责官方 7d/30d、套餐、金额和状态；rate-limit snapshot 负责 request/token header、429 和 4.5 Responses 套餐信号；本地 usage 负责免费 24h 与窗口统计。
+- 显式 `QueryQuota` 先调用 `ProbeBilling`；Billing 已提供权威额度时直接返回，否则调用 `ProbeUsage` 获取 rate-limit headers，并以 `hybrid_probe` 合并结果。
+- 前端 `AccountUsageCell` 只消费 `grok_billing`、`grok_request_quota`、`grok_token_quota` 和本地窗口字段，不维护独立 Billing 请求队列。`AccountsView` 的套餐判断按明确 credentials、4.5 Heavy 信号、`grok_billing_snapshot.plan`、usage/legacy fallback 的既有优先级执行。
+- 历史 `grok_billing_quota_snapshot` 不再被生产代码读取、更新或展示，也不做数据迁移；repository 仍将该旧 key 保留在 `schedulerNeutralExtraKeys`，避免旧数据清理触发调度重建。
+- Authorization 只用于上游请求，不得写入快照或 API DTO；失败正文只能截断后记录，不能泄露 token 或完整凭据。
 - `reset-quota` 只保留稳定 API 契约；当前 xAI OAuth 不提供重置端点，service 返回明确的未支持错误，不能伪造成功。
 
 ### 4. Validation & Error Matrix
 
 | 条件 | 结果 |
 |---|---|
-| 独立 service、repository、token provider 或 HTTP upstream 未配置 | `500 GROK_BILLING_QUOTA_NOT_CONFIGURED` |
-| 独立查询账号不存在 | `404 GROK_BILLING_QUOTA_ACCOUNT_NOT_FOUND` |
-| 独立查询 `platform != grok` | `400 GROK_BILLING_QUOTA_INVALID_PLATFORM`，不得请求上游 |
-| 独立查询 `type != oauth` | `400 GROK_BILLING_QUOTA_INVALID_TYPE`，不得请求上游 |
-| 独立查询 token 获取失败或为空 | `502 GROK_BILLING_QUOTA_TOKEN_UNAVAILABLE` |
-| 独立 weekly/monthly 任一成功 | 返回独立快照；失败域写入 `partial/failed_windows` |
-| 独立 weekly/monthly 都失败且原因相同 | 返回对应稳定错误 |
-| 独立 weekly/monthly 失败原因不同 | `502 GROK_BILLING_QUOTA_PARTS_FAILED`，metadata 包含两个 status |
-| 独立 Billing JSON 无法解析 | `502 GROK_BILLING_QUOTA_PARSE_FAILED` |
-| 独立两个窗口都无有效数据 | `502 GROK_BILLING_QUOTA_EMPTY` |
-| 更新 `grok_billing_quota_snapshot` | 原子合并 extra 并同步账号缓存；不写 scheduler outbox |
-| main `grok_billing_snapshot.plan` 与独立套餐冲突 | 账号列表采用独立 `plan_label`；main plan 不投影到 `SubscriptionTier` |
-| main Billing 不足且 Responses probe 成功 | `/quota` 继续返回 `hybrid_probe`，不写独立快照 |
+| service、repository、token provider 或 HTTP upstream 未配置 | `500 GROK_QUOTA_NOT_CONFIGURED` |
+| 账号不存在 | `404 GROK_QUOTA_ACCOUNT_NOT_FOUND` |
+| `platform != grok` | `400 GROK_QUOTA_INVALID_PLATFORM`，不得请求上游 |
+| `type != oauth` | `400 GROK_QUOTA_INVALID_TYPE`，不得请求上游 |
+| token 获取失败或为空 | `502 GROK_QUOTA_TOKEN_UNAVAILABLE` |
+| base URL 不满足出站信任策略 | `400 GROK_QUOTA_BASE_URL_INVALID` |
+| weekly/monthly 任一成功 | 返回并持久化合并 Billing；失败窗口写入 `partial/failed_windows` |
+| weekly/monthly 都失败且原因相同 | 返回对应稳定上游错误，并保留可用的旧窗口数据 |
+| weekly/monthly 失败原因不同 | `502 GROK_QUOTA_PROBE_PARTS_FAILED`，metadata 包含两个 status |
+| Billing JSON 无法解析 | `502 GROK_QUOTA_BILLING_PARSE_ERROR` |
+| 两个窗口都无有效数据 | `502 GROK_QUOTA_BILLING_EMPTY` |
+| Billing 不足且 Responses probe 成功 | `/quota` 返回 `hybrid_probe`，Billing 与 header snapshot 分别写入既有 key |
+| 更新 `grok_billing_snapshot` 或历史中性 key | 同步账号快照和缓存，但不得写 scheduler outbox |
 | quota reset 请求 | `501 GROK_QUOTA_RESET_UNSUPPORTED` |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: 账号列表首次加载没有独立快照时，只由 `GrokBillingQuotaCell` 排队请求一组 weekly/monthly，不同时调用 main `ProbeBilling`。
-- Good: 独立 weekly 成功、monthly 失败时保存 weekly，返回 `partial=true`、`failed_windows=["monthly"]`，旧 main/header 状态不受影响。
-- Good: main `/quota` 手动返回 Billing-only 时，API 保持兼容，但账号列表不新增第二条 main Billing 进度条。
-- Good: 独立快照为 `SuperGrok`、main 手动快照为 `SuperGrok Heavy` 时，账号列表套餐标签和免费/付费判断仍采用独立快照。
-- Base: 存量账号只有 `grok_usage_snapshot` 时继续显示 request/token header；独立快照首次刷新后写入新键，不猜测旧 main 快照结构。
-- Base: 独立刷新失败时保留最后成功值并显示区块错误，不自动消耗 Responses 模型额度。
-- Bad: `getGrokUsage` 自动调用 main `ProbeBilling`，同时独立组件也调用 `/billing-quota`，导致缓存过期时形成 4 个上游 GET。
-- Bad: 将独立快照写入 `grok_billing_snapshot`，或把 main `result.billing` 转换后写入 `grok_billing_quota`。
-- Bad: 更新 `grok_billing_quota_snapshot` 时产生 scheduler outbox，导致纯展示字段触发调度重建。
-- Bad: `GrokQuotaFetcher` 把 main `billing.Plan` 投影到 `SubscriptionTier`，使账号列表重新依赖手动探测链路。
-- Bad: 把 `<script setup>` 内的 Map/计数器误认为模块级全局队列，导致每个账号实例各自允许 2 个并发。
-- Bad: 账号列表每次渲染都调用 `ProbeUsage`，以一次真实 Responses 请求换取展示数据。
-- Bad: on-demand cap 缺失时显示为 `0` 或“未启用”。
+- Good: 账号列表首次加载缺失 Billing 时，`AccountUsageService` 只发出 weekly/monthly 两个 GET，保存 `grok_billing_snapshot` 并投影 7d/30d 进度。
+- Good: weekly 成功、monthly 失败时保留 weekly，返回 `partial=true`、`failed_windows=["monthly"]`，旧 monthly 可用数据按 merge 规则保留。
+- Good: 显式 `/quota` 查询免费账号时，Billing 不足再执行一次 Responses probe，返回 `hybrid_probe` 和 rate-limit snapshot。
+- Good: JWT/credentials 明确套餐与 Billing 套餐冲突时，前端按既有优先级选择，不从历史独立快照恢复旧值。
+- Base: 存量账号只有 `grok_usage_snapshot` 时继续显示 request/token header；下一次账号 usage 刷新补充主 Billing 快照。
+- Base: 新鲜 Billing 快照直接复用；force 刷新绕过 10 分钟 freshness 和一分钟 retry gate。
+- Bad: 删除 `AccountUsageService` 构造器中的 `GrokQuotaService` 注入，使账号列表退化为只读本地快照。
+- Bad: 账号列表自动调用 `ProbeUsage`，以真实 Responses 请求换取展示数据。
+- Bad: 恢复 `/billing-quota`、`GrokBillingQuotaService`、`grok_billing_quota` DTO 或独立前端请求队列，重新形成重复 Billing 链路。
+- Bad: 将旧 `grok_billing_quota_snapshot` 投影到当前套餐或进度条，造成历史展示数据覆盖 main 当前结果。
+- Bad: 从 `schedulerNeutralExtraKeys` 删除历史 key，导致清理旧字段时产生无意义调度事件。
 
 ### 6. Tests Required
 
-- `internal/pkg/xai/billingquota/billing_test.go` 必须覆盖 URL、CLI headers、camel/snake payload、月/周归一化、plan、on-demand 和空数据。
-- `internal/service/grok_billing_quota_service_test.go` 必须覆盖 token、代理、weekly/monthly、部分成功、独立快照键和 main/header 键不被写入。
-- `internal/service/grok_quota_service_test.go` 继续覆盖 main 手动 Billing、singleflight、hybrid probe、429 和 reset unsupported。
-- `account_repo_grok_billing_test.go` 必须覆盖 `grok_billing_snapshot` 和 `grok_billing_quota_snapshot` 都是 scheduler-neutral 更新，不产生 scheduler outbox。
-- `grok_quota_fetcher_test.go` 与 account usage 测试必须覆盖独立快照 stale 投影、main Billing plan 不投影到 `SubscriptionTier`，以及 force usage 也不会自动请求 main Billing/Responses。
-- handler/route 测试必须覆盖 `/billing-quota`、`/quota`、标准 envelope、错误 reason 和凭据不泄露。
-- 前端测试必须覆盖独立 API、缓存命中/过期/强刷、真正的全局并发上限、错误保留旧值、未知 on-demand、免费 24h、header fallback、独立套餐标签优先以及 main Billing plan 被忽略。
+- `internal/pkg/xai/billing_test.go` 必须覆盖 URL、CLI headers、payload 解析、月/周归一化、plan、预付/on-demand 和空数据。
+- `internal/service/grok_quota_service_test.go` 必须覆盖 Billing 重试、weekly/monthly 合并、部分成功、singleflight、`QueryQuota` Billing-only/hybrid、429/403、reset unsupported，以及账号 usage 只请求 Billing 的接线回归。
+- `internal/service/grok_quota_fetcher_test.go` 必须覆盖 `grok_billing_snapshot`、`grok_usage_snapshot`、套餐 fallback、官方 7d/30d 和免费 24h 投影。
+- `internal/repository/account_repo_grok_billing_test.go` 必须覆盖 `grok_billing_snapshot` 和历史 `grok_billing_quota_snapshot` 都是 scheduler-neutral 更新，不产生 scheduler outbox。
+- handler/route 测试必须覆盖 `/quota`、标准 envelope、错误 reason 和凭据不泄露，并断言 `/billing-quota` 不再注册。
+- 前端 `AccountUsageCell.spec.ts` 必须覆盖主 `grok_billing` 的周/月进度、免费 24h、header fallback、套餐和金额展示；`admin.grok.spec.ts` 不得重新导出独立 Billing API。
 - 建议运行：
 
 ```bash
 cd backend
-go test -tags=unit ./internal/pkg/xai/billingquota ./internal/pkg/xai ./internal/service ./internal/handler/admin ./internal/server/routes -run 'Grok|Billing|Quota|SSO' -count=1
+go test -tags=unit ./internal/pkg/xai ./internal/service ./internal/handler/admin ./internal/server/routes ./internal/repository -run 'Grok|Billing|Quota|SSO' -count=1
 cd ../frontend
-pnpm vitest run src/api/__tests__/admin.grok.spec.ts src/components/account/__tests__/GrokBillingQuotaCell.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/components/account/__tests__/GrokQuotaProbeCell.spec.ts
+pnpm vitest run src/api/__tests__/admin.grok.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts
 pnpm typecheck
 pnpm lint:check
 git diff --check
@@ -664,53 +653,26 @@ git diff --check
 
 #### Wrong
 
-```typescript
-await adminAPI.grok.queryQuota(account.id)
-await adminAPI.grok.queryBillingQuota(account.id)
-```
-
-问题：同一次账号列表自动加载同时触发两条链路，会形成 4 个 Billing GET；`/quota` 还可能继续触发 Responses probe。
-
-#### Correct
-
-```typescript
-const result = await adminAPI.grok.queryBillingQuota(account.id)
-usageInfo.value = { ...usageInfo.value, grok_billing_quota: result.snapshot }
-```
-
-账号列表只自动刷新独立套餐额度；main `/quota` 仅由用户显式点击探测。
-
-#### Wrong
-
 ```go
-result, err := s.grokQuotaService.ProbeBilling(ctx, account.ID)
+func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
+	return s.grokQuotaFetcher.BuildUsageInfo(account), nil
+}
 ```
 
-问题：账号 usage 已经由独立组件负责 Billing，继续自动调用 main `ProbeBilling` 会重复请求。
+问题：主体文件和快照读取仍存在，但账号列表不再刷新主 Billing，功能会静默退化为只读旧数据。
 
 #### Correct
 
 ```go
+if account.IsGrokOAuth() && s.grokQuotaService != nil &&
+	(force || grokBillingSnapshotNeedsRefresh(account, time.Now())) {
+	result, err := s.grokQuotaService.ProbeBilling(ctx, account.ID)
+	// 将成功结果合并到当前 account，再由 fetcher 统一投影。
+}
 usage := s.grokQuotaFetcher.BuildUsageInfo(account)
 ```
 
-账号 usage 只读三个隔离快照；独立组件决定套餐 Billing 刷新，手动 `QueryQuota` 保持原兼容行为。
-
-#### Wrong
-
-```typescript
-const plan = extra.grok_billing_snapshot?.plan
-```
-
-问题：main 手动 Billing 可以独立变化，将它用于账号列表会让套餐标签和免费/付费判断重新依赖兼容链路。
-
-#### Correct
-
-```typescript
-const plan = extra.grok_billing_quota_snapshot?.plan_label
-```
-
-账号列表只使用独立套餐快照；缺失时再按被动 usage、credentials 和 entitlement 顺序回退。
+账号 usage 在需要时只执行主 Billing 探测，再从主 Billing、header snapshot 和本地 usage 构建单一展示结果。
 
 ---
 

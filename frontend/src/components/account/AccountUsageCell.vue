@@ -354,55 +354,65 @@
       </div>
       <div v-else-if="isForbidden" class="space-y-1">
         <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
-          {{ grokEntitlementLabel || t('admin.accounts.forbidden') }}
+          {{ usageInfo?.grok_entitlement_status || t('admin.accounts.forbidden') }}
         </span>
       </div>
       <div v-else-if="usageInfo" class="space-y-1">
-        <div v-if="grokEntitlementLabel" class="mb-0.5">
-          <span class="inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-            {{ grokEntitlementLabel }}
-          </span>
-        </div>
-        <GrokBillingQuotaCell
-          :account="account"
-          :quota="usageInfo.grok_billing_quota"
-          @updated="handleGrokBillingQuotaUpdated"
-        />
-        <UsageProgressBar
-          v-if="!grokHasOfficialBillingProgress && !grokIsFree && grokRequestQuotaBar"
-          :label="t('admin.accounts.usageWindow.grokRequests')"
-          :utilization="grokRequestQuotaBar.utilization"
-          :resets-at="grokRequestQuotaBar.resetsAt"
-          :remaining-capacity="true"
-          color="indigo"
-        />
-        <UsageProgressBar
-          v-if="!grokHasOfficialBillingProgress && !grokIsFree && grokTokenQuotaBar"
-          :label="t('admin.accounts.usageWindow.grokTokens')"
-          :utilization="grokTokenQuotaBar.utilization"
-          :resets-at="grokTokenQuotaBar.resetsAt"
-          :remaining-capacity="true"
-          color="emerald"
-        />
-        <UsageProgressBar
-          v-if="grokFreeTokenBar"
-          label="24h"
-          :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) })"
-          :utilization="grokFreeTokenBar.utilization"
-          :show-now-when-idle="true"
-          color="emerald"
-        />
-        <div v-if="grokRetryAfterLabel" class="text-[10px] text-amber-600 dark:text-amber-400">
-          {{ t('admin.accounts.usageWindow.grokRetryAfter', { time: grokRetryAfterLabel }) }}
-        </div>
-        <div v-if="grokQuotaUnknown" class="text-[10px] text-gray-500 dark:text-gray-400">
-          {{ grokQuotaUnknownLabel }}
-        </div>
-        <div v-else-if="usageInfo.error" class="truncate text-xs text-amber-600 dark:text-amber-400 max-w-[200px]" :title="usageInfo.error">
+        <!-- Free: only rolling 24h soft-gate bar. Paid: 7d + 30d + prepaid money. -->
+        <template v-if="grokIsFree">
+          <UsageProgressBar
+            v-if="grokFreeTokenBar"
+            label="24h"
+            :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) })"
+            :utilization="grokFreeTokenBar.utilization"
+            :show-now-when-idle="true"
+            color="emerald"
+          />
+          <div v-else-if="grokQuotaUnknown" class="text-[10px] text-gray-500 dark:text-gray-400">
+            {{ grokQuotaUnknownLabel }}
+          </div>
+        </template>
+        <template v-else>
+          <UsageProgressBar
+            v-if="grokWeeklyBillingBar"
+            label="7d"
+            :utilization="grokWeeklyBillingBar.utilization"
+            :resets-at="grokWeeklyBillingBar.resetsAt"
+            :show-now-when-idle="true"
+            color="indigo"
+          />
+          <UsageProgressBar
+            v-if="grokMonthlyBillingBar"
+            label="30d"
+            :utilization="grokMonthlyBillingBar.utilization"
+            :resets-at="grokMonthlyBillingBar.resetsAt"
+            :show-now-when-idle="true"
+            color="indigo"
+          />
+          <div
+            v-if="grokPrepaidMoneyLine"
+            class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400"
+          >
+            <span
+              class="rounded bg-emerald-50 px-1 py-0.5 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              :title="t('admin.accounts.usageWindow.grokPrepaid')"
+            >
+              {{ t('admin.accounts.usageWindow.grokPrepaid') }} ${{ grokPrepaidMoneyLine.prepaid }}
+            </span>
+            <span :title="t('admin.accounts.usageWindow.grokMonthlyLimit')">
+              {{ t('admin.accounts.usageWindow.grokUsed') }}
+              {{ grokPrepaidMoneyLine.used }}/{{ grokPrepaidMoneyLine.limit }}
+            </span>
+          </div>
+          <div v-if="grokQuotaUnknown" class="text-[10px] text-gray-500 dark:text-gray-400">
+            {{ grokQuotaUnknownLabel }}
+          </div>
+        </template>
+        <div v-if="usageInfo.error" class="truncate text-xs text-amber-600 dark:text-amber-400 max-w-[200px]" :title="usageInfo.error">
           {{ usageErrorLabel }}
         </div>
-        <div v-if="grokQuotaStatusLine" class="text-[10px] text-gray-500 dark:text-gray-400">
-          {{ grokQuotaStatusLine }}
+        <div v-if="grokRetryAfterLabel" class="text-[10px] text-amber-600 dark:text-amber-400">
+          {{ t('admin.accounts.usageWindow.grokRetryAfter', { time: grokRetryAfterLabel }) }}
         </div>
         <GrokQuotaProbeCell :account="account" compact @probed="handleGrokProbed" />
       </div>
@@ -608,20 +618,12 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'v
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
-import type { GrokQuotaProbeResult } from '@/api/admin/grok'
-import type { GrokBillingQuota } from '@/features/grokBillingQuota/types'
-import {
-  hasGrokBillingQuotaProgress,
-  isGrokBillingQuotaFreeAccount,
-  mergeGrokBillingQuotaUsage
-} from '@/features/grokBillingQuota/usage'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
-import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
+import { formatCompactNumber } from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
-import GrokBillingQuotaCell from '@/features/grokBillingQuota/GrokBillingQuotaCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 
@@ -1071,20 +1073,98 @@ interface GrokQuotaBarInfo {
   resetsAt: string | null
 }
 
-const makeGrokQuotaBar = (quota?: { limit?: number | null; remaining?: number | null; reset_at?: string | null } | null): GrokQuotaBarInfo | null => {
-  if (!quota || quota.limit == null || quota.remaining == null || quota.limit <= 0) return null
-  const remaining = Math.min(quota.limit, Math.max(0, quota.remaining))
-  return {
-    utilization: (remaining / quota.limit) * 100,
-    resetsAt: quota.reset_at || null
+const grokBilling = computed(() => usageInfo.value?.grok_billing || null)
+const grokWeeklyBillingBar = computed((): GrokQuotaBarInfo | null => {
+  const billing = grokBilling.value
+  if (billing?.period_type?.toLowerCase() !== 'weekly' || billing.usage_percent == null) {
+    return null
   }
+  return {
+    utilization: Math.min(100, Math.max(0, billing.usage_percent)),
+    resetsAt: billing.period_end || null
+  }
+})
+// Monthly used/limit % from billing probe (used_percent or derived from cents).
+const grokMonthlyBillingBar = computed((): GrokQuotaBarInfo | null => {
+  const billing = grokBilling.value
+  if (!billing) return null
+  let utilization: number | null = null
+  if (billing.used_percent != null && Number.isFinite(billing.used_percent)) {
+    utilization = billing.used_percent
+  } else if (
+    billing.monthly_limit_cents != null &&
+    billing.monthly_limit_cents > 0 &&
+    billing.used_cents != null
+  ) {
+    utilization = (billing.used_cents / billing.monthly_limit_cents) * 100
+  }
+  if (utilization == null) return null
+  // Avoid duplicating the weekly bar when period_type is weekly-only without monthly.
+  if (billing.period_type?.toLowerCase() === 'weekly' && billing.monthly_limit_cents == null) {
+    return null
+  }
+  return {
+    utilization: Math.min(100, Math.max(0, utilization)),
+    resetsAt: billing.billing_period_end || billing.period_end || null
+  }
+})
+const formatGrokMoney = (value?: number | null) => {
+  if (value == null || Number.isNaN(value)) return '0'
+  if (value >= 1000) return formatCompactNumber(value)
+  if (value >= 100) return value.toFixed(0)
+  if (value >= 10) return value.toFixed(1)
+  return value.toFixed(2)
 }
-
-const grokRequestQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_request_quota))
-const grokTokenQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_token_quota))
-const grokBillingQuota = computed(() => usageInfo.value?.grok_billing_quota || null)
-const grokHasOfficialBillingProgress = computed(() => hasGrokBillingQuotaProgress(grokBillingQuota.value))
-const grokIsFree = computed(() => isGrokBillingQuotaFreeAccount(props.account, usageInfo.value))
+// Prepaid money line for paid Grok: show when prepaid_balance is present.
+// Monthly used/limit numbers are optional context; primary progress is the 30d bar.
+const grokPrepaidMoneyLine = computed(() => {
+  const billing = grokBilling.value
+  if (!billing) return null
+  const prepaid = billing.prepaid_balance
+  // "只针对预付": only render when prepaid field exists (including $0.00).
+  if (prepaid == null || !Number.isFinite(prepaid)) return null
+  const used =
+    billing.monthly_used != null
+      ? billing.monthly_used
+      : billing.used_cents != null
+        ? billing.used_cents / 100
+        : 0
+  const limit =
+    billing.monthly_limit != null
+      ? billing.monthly_limit
+      : billing.monthly_limit_cents != null
+        ? billing.monthly_limit_cents / 100
+        : 0
+  return {
+    prepaid: formatGrokMoney(prepaid),
+    used: formatGrokMoney(used),
+    limit: formatGrokMoney(limit)
+  }
+})
+const grokPlanLabelIsFree = (value: string) => value.includes('free') || value.includes('basic')
+const grokPlanLabelIsPaid = (value: string) => {
+  return value !== '' && !grokPlanLabelIsFree(value) && !value.includes('unknown')
+}
+const grokIsFree = computed(() => {
+  if (props.account.platform !== 'grok' || props.account.type !== 'oauth') return false
+  const billing = grokBilling.value
+  const plan = (billing?.plan || '').trim().toLowerCase()
+  const tier = (usageInfo.value?.subscription_tier || '').trim().toLowerCase()
+  const entitlement = (usageInfo.value?.grok_entitlement_status || '').toLowerCase()
+  if (grokPlanLabelIsFree(tier)) return true
+  if (grokPlanLabelIsPaid(tier)) return false
+  if (
+    billing?.usage_percent != null ||
+    billing?.used_percent != null ||
+    (billing?.monthly_limit_cents != null && billing.monthly_limit_cents > 0)
+  ) return false
+  if (grokPlanLabelIsPaid(plan)) return false
+  if (
+    grokPlanLabelIsFree(plan) ||
+    grokPlanLabelIsFree(entitlement)
+  ) return true
+  return billing != null
+})
 const grokFreeQuotaUsage = computed(() => usageInfo.value?.grok_local_usage_24h || null)
 const grokFreeTokenBar = computed(() => {
   if (!grokIsFree.value || !grokFreeQuotaUsage.value) return null
@@ -1095,36 +1175,18 @@ const grokFreeTokenBar = computed(() => {
 })
 const grokQuotaUnknown = computed(() => {
   if (props.account.platform !== 'grok') return false
-  if (grokBillingQuota.value || grokFreeTokenBar.value || grokRequestQuotaBar.value || grokTokenQuotaBar.value) return false
+  if (grokIsFree.value) {
+    return !grokFreeTokenBar.value
+  }
+  if (grokWeeklyBillingBar.value || grokMonthlyBillingBar.value || grokPrepaidMoneyLine.value) {
+    return false
+  }
   return usageInfo.value?.grok_quota_snapshot_state !== 'observed'
 })
 const grokQuotaUnknownLabel = computed(() => {
   return usageInfo.value?.grok_quota_snapshot_state === 'no_headers'
     ? t('admin.accounts.usageWindow.grokNoHeaders')
     : t('admin.accounts.usageWindow.grokUnknown')
-})
-const grokQuotaStatusLine = computed(() => {
-  if (props.account.platform !== 'grok') return null
-  const parts: string[] = []
-  const status = usageInfo.value?.grok_last_status_code
-  if (status) {
-    parts.push(t('admin.accounts.usageWindow.grokLastStatus', { status }))
-  }
-  if (usageInfo.value?.grok_last_quota_probe_at) {
-    parts.push(t('admin.accounts.usageWindow.grokLastProbe', {
-      time: formatRelativeTime(usageInfo.value.grok_last_quota_probe_at)
-    }))
-  }
-  if (usageInfo.value?.grok_last_headers_seen_at) {
-    parts.push(t('admin.accounts.usageWindow.grokLastHeadersSeen', {
-      time: formatRelativeTime(usageInfo.value.grok_last_headers_seen_at)
-    }))
-  }
-  return parts.length > 0 ? parts.join(' | ') : null
-})
-const grokEntitlementLabel = computed(() => {
-  const status = (usageInfo.value?.grok_entitlement_status || '').trim()
-  return status || null
 })
 const grokRetryAfterLabel = computed(() => {
   const seconds = usageInfo.value?.grok_retry_after_seconds
@@ -1335,64 +1397,10 @@ const loadActiveUsage = async () => {
   }
 }
 
-const handleGrokProbed = async (result: GrokQuotaProbeResult) => {
-  if (result.persisted !== false) {
-    await loadUsage({ source: 'active', bypassCache: true })
-    return
-  }
-
-  const current = usageInfo.value
-  if (!current) return
-  const snapshot = result.snapshot
-  const statusCode = snapshot?.status_code ?? result.status_code
-  const hasActiveProbeSnapshot = snapshot != null && (
-    result.source === 'active_probe' ||
-    result.source === 'hybrid_probe' ||
-    snapshot.observation_source === 'active_probe'
-  )
-  const probeSucceeded = hasActiveProbeSnapshot &&
-    statusCode != null && statusCode >= 200 && statusCode < 300
-  const snapshotEntitlement = snapshot?.entitlement_status?.trim()
-  const currentEntitlement = current.grok_entitlement_status?.trim()
-  const entitlementStatus = snapshotEntitlement || (
-    probeSucceeded && currentEntitlement?.toLowerCase() === 'forbidden'
-      ? undefined
-      : current.grok_entitlement_status
-  )
-  const merged: AccountUsageInfo = {
-    ...current,
-    grok_local_usage_24h: result.local_usage_24h ?? current.grok_local_usage_24h,
-    grok_local_usage_7d: result.local_usage_7d ?? current.grok_local_usage_7d,
-    grok_local_usage_monthly: result.local_usage_monthly ?? current.grok_local_usage_monthly,
-    grok_request_quota: snapshot?.requests ?? current.grok_request_quota,
-    grok_token_quota: snapshot?.tokens ?? current.grok_token_quota,
-    grok_retry_after_seconds: snapshot?.retry_after_seconds ?? current.grok_retry_after_seconds,
-    grok_entitlement_status: entitlementStatus,
-    grok_quota_snapshot_state: snapshot?.headers_observed
-      ? 'observed'
-      : current.grok_quota_snapshot_state,
-    grok_last_quota_probe_at: snapshot?.last_probe_at ?? current.grok_last_quota_probe_at,
-    grok_last_headers_seen_at: snapshot?.last_headers_seen_at ?? current.grok_last_headers_seen_at,
-    grok_last_status_code: result.status_code ?? snapshot?.status_code ?? current.grok_last_status_code,
-    is_forbidden: probeSucceeded ? false : current.is_forbidden,
-    forbidden_reason: probeSucceeded ? undefined : current.forbidden_reason,
-    forbidden_type: probeSucceeded ? undefined : current.forbidden_type,
-    validation_url: probeSucceeded ? undefined : current.validation_url,
-    needs_verify: probeSucceeded ? false : current.needs_verify,
-    is_banned: probeSucceeded ? false : current.is_banned,
-    error: snapshot ? undefined : current.error,
-    error_code: snapshot ? undefined : current.error_code
-  }
-  usageInfo.value = merged
-  _usageCache.set(props.account.id, { data: merged, ts: Date.now() })
-}
-
-const handleGrokBillingQuotaUpdated = (quota: GrokBillingQuota) => {
-  const current = usageInfo.value
-  if (!current) return
-  const merged = mergeGrokBillingQuotaUsage(current, quota)
-  usageInfo.value = merged
-  _usageCache.set(props.account.id, { data: merged, ts: Date.now() })
+// The probe persists upstream quota state; refresh this cell so its compact
+// bars and entitlement status reflect the newly observed snapshot.
+const handleGrokProbed = async () => {
+  await loadUsage({ source: 'active', bypassCache: true })
 }
 
 // ===== API Key quota progress bars =====

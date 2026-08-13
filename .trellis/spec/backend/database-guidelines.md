@@ -10,7 +10,7 @@
 
 关键事实：
 
-- `backend/go.mod` 当前声明 `go 1.26.4`，`DEV_GUIDE.md` 中仍记录 CI 需要 Go `1.25.7`。涉及工具链时要同时核对 CI 配置和 `go.mod`，不要只凭其中一处判断。
+- `backend/go.mod` 与 `DEV_GUIDE.md` 当前均声明 Go `1.26.5`，CI workflow 也硬校验同一版本。涉及工具链时仍要同时核对实际 CI 文件和 `go.mod`，避免只更新单一来源。
 - PostgreSQL 连接和自动迁移在 `backend/internal/repository/ent.go` 的 `InitEnt` 中完成。
 - migrations 通过 `backend/migrations/migrations.go` 的 `//go:embed *.sql` 嵌入。
 - 迁移执行器在 `backend/internal/repository/migrations_runner.go`，使用 `schema_migrations` 表记录 filename、checksum、applied_at。
