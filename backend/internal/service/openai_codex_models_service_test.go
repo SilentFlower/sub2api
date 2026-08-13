@@ -354,8 +354,9 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 	chatgptCodexModelsURL = server.URL
 	defer func() { chatgptCodexModelsURL = original }()
 
-	settingRepo := newMockSettingRepo()
-	settingRepo.data[SettingKeyOpenAICodexClientVersion] = "0.200.1"
+	settingRepo := &codexVersionSettingRepoStub{values: map[string]string{
+		SettingKeyOpenAICodexClientVersion: "0.200.1",
+	}}
 	settingService := NewSettingService(settingRepo, &config.Config{})
 	SetCodexCanonicalUserAgentResolver(func() string {
 		return settingService.GetOpenAICodexCanonicalUserAgent(context.Background())

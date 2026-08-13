@@ -51,6 +51,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	customTools := apicompat.CustomToolNames(effectiveTools)
 	toolSearch := apicompat.HasToolSearchTool(effectiveTools)
 	namespaceTools := apicompat.NamespaceToolNames(effectiveTools)
+	hasExplicitTypedWebSearch := false
+	for i := range effectiveTools {
+		if isOpenAIResponsesWebSearchTool(effectiveTools[i].Type) {
+			hasExplicitTypedWebSearch = true
+			break
+		}
+	}
 	typedWebSearchConfig, err := resolveOpenAIResponsesTypedWebSearchToolConfig(effectiveTools, responsesReq.ToolChoice)
 	if err != nil {
 		writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
@@ -70,6 +77,24 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 	webRunToolName, webRunDeclared := findOpenAIResponsesWebRunTool(chatReq, namespaceTools)
 	webRunEnabled := webRunDeclared && s.isOpenAIWebSearchEmulationEnabled(ctx, c, account)
+	toolChoice, _ := classifyOpenAIResponsesToolChoice(responsesReq.ToolChoice)
+	bridgeDecision := s.resolveCodexWebSearchBridgeDecision(
+		ctx,
+		c,
+		account,
+		toolChoice.Kind,
+		hasExplicitTypedWebSearch || webRunDeclared,
+		len(chatReq.Tools) > 0,
+	)
+	logger.L().Debug("openai responses: codex web search bridge decision",
+		zap.Int64("account_id", account.ID),
+		zap.String("model", originalModel),
+		zap.Bool("responses_lite", isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))),
+		zap.Bool("enabled", bridgeDecision.Enabled),
+		zap.String("reason", bridgeDecision.Reason),
+		zap.String("tool_choice", string(bridgeDecision.ToolChoice)),
+		zap.Bool("explicit_web_tool", hasExplicitTypedWebSearch || webRunDeclared),
+	)
 	internalWebTools := make(map[string]openAIResponsesInternalWebToolConfig, 2)
 	if webRunEnabled {
 		narrowOpenAIResponsesWebRunTool(chatReq, webRunToolName)
@@ -85,6 +110,14 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 			return nil, err
 		}
 		internalWebTools[typedWebSearchConfig.Name] = *typedWebSearchConfig
+	}
+	if bridgeDecision.Enabled {
+		bridgeConfig := defaultCodexWebSearchBridgeToolConfig()
+		if err := addOpenAIResponsesTypedWebSearchTool(chatReq, bridgeConfig); err != nil {
+			writeOpenAIResponsesFallbackErrorWithParam(c, http.StatusBadRequest, "invalid_request_error", err.Error(), "tools")
+			return nil, err
+		}
+		internalWebTools[bridgeConfig.Name] = bridgeConfig
 	}
 	internalWebToolLoopEnabled := len(internalWebTools) > 0
 

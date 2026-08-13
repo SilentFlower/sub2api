@@ -84,6 +84,28 @@ func NewManager(configs []ProviderConfig, redisClient *redis.Client) *Manager {
 	}
 }
 
+// HasAvailableProvider 判断当前是否至少存在一个可执行搜索的 provider。
+//
+// @param ctx 用于读取代理可用状态和配额使用量的上下文。
+// @param accountProxyURL 账号级代理地址；非空时覆盖 provider 自身代理。
+// @return 至少存在一个未过期、代理可用且配额未耗尽的 provider 时返回 true。
+func (m *Manager) HasAvailableProvider(ctx context.Context, accountProxyURL string) bool {
+	if m == nil {
+		return false
+	}
+	for _, cfg := range m.filterAvailableProviders(ctx, accountProxyURL) {
+		if cfg.QuotaLimit <= 0 {
+			return true
+		}
+		used, err := m.GetUsage(ctx, cfg.Type)
+		if err != nil || used < cfg.QuotaLimit {
+			// 与实际搜索的配额保留策略一致：Redis 异常时放行，由执行阶段再次判断。
+			return true
+		}
+	}
+	return false
+}
+
 // SearchWithBestProvider selects a provider using quota-weighted load balancing,
 // reserves quota, executes the search, and rolls back quota on failure.
 // If the search fails due to a proxy error, the proxy is marked unavailable for 5 minutes.

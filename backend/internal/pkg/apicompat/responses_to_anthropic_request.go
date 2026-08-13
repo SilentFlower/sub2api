@@ -315,7 +315,7 @@ func responsesFunctionOutputToAnthropicContent(item ResponsesInputItem) json.Raw
 // order, as the very next user message. Standalone tool_result blocks are
 // dropped from their original position (re-emitted adjacent to their call);
 // orphan tool_results with no announcing tool_use are dropped. Non-tool content
-// passes through in place. This mirrors normalizeChatMessages on the
+// passes through in place. This mirrors normalizeChatMessagesWithToolOutputMedia on the
 // Responses→Chat path.
 func normalizeAnthropicToolPairing(messages []AnthropicMessage) []AnthropicMessage {
 	// Index every tool_result block by its tool_use id (last wins on dup).

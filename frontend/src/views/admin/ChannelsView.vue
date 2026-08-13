@@ -329,6 +329,11 @@
               v-model="section.web_search_emulation"
             />
 
+            <ChannelCodexWebSearchBridgeToggle
+              v-if="section.platform === 'openai' && webSearchGlobalEnabled"
+              v-model="section.codex_web_search_bridge"
+            />
+
             <ChannelCodexImageGenerationBridgeToggle
               v-if="section.platform === 'openai'"
               v-model="section.codex_image_generation_bridge"
@@ -631,11 +636,16 @@ import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 import ChannelWebSearchEmulationToggle from '@/features/webSearch/ChannelWebSearchEmulationToggle.vue'
+import ChannelCodexWebSearchBridgeToggle from '@/features/webSearch/ChannelCodexWebSearchBridgeToggle.vue'
 import {
   applyChannelWebSearchFeatureConfig,
   readChannelWebSearchFeatureConfig,
   supportsChannelWebSearchEmulation
 } from '@/features/webSearch/channelFeatures'
+import {
+  applyChannelCodexWebSearchBridgeConfig,
+  readChannelCodexWebSearchBridgeConfig
+} from '@/features/webSearch/codexBridge'
 import ChannelCodexImageGenerationBridgeToggle from '@/features/openAIImageGeneration/ChannelCodexImageGenerationBridgeToggle.vue'
 import {
   applyChannelCodexImageBridgeFeatureConfig,
@@ -674,6 +684,7 @@ interface PlatformSection {
   model_mapping: Record<string, string>
   model_pricing: PricingFormEntry[]
   web_search_emulation: boolean
+  codex_web_search_bridge: boolean
   codex_image_generation_bridge: boolean
   bedrock_cc_compat: boolean
   account_stats_pricing_rules: FormPricingRule[]
@@ -772,6 +783,7 @@ function addPlatformSection(platform: GroupPlatform) {
     model_mapping: {},
     model_pricing: [],
     web_search_emulation: false,
+    codex_web_search_bridge: false,
     codex_image_generation_bridge: false,
     bedrock_cc_compat: false,
     account_stats_pricing_rules: [],
@@ -1112,6 +1124,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
   const uniqueGroupIds = Array.from(new Set(group_ids))
 
   applyChannelWebSearchFeatureConfig(featuresConfig, form.platforms)
+  applyChannelCodexWebSearchBridgeConfig(featuresConfig, form.platforms)
   applyChannelCodexImageBridgeFeatureConfig(featuresConfig, form.platforms)
 
   const bedrockCCCompat: Record<string, boolean> = {}
@@ -1181,6 +1194,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
 
     const fc = channel.features_config
     const webSearchEnabled = readChannelWebSearchFeatureConfig(fc, platform)
+    const codexWebSearchBridgeEnabled = readChannelCodexWebSearchBridgeConfig(fc, platform)
     const codexImageGenerationBridgeEnabled = readChannelCodexImageBridgeFeatureConfig(fc, platform)
     const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
 
@@ -1192,6 +1206,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
       model_mapping: { ...mapping },
       model_pricing: pricing,
       web_search_emulation: webSearchEnabled,
+      codex_web_search_bridge: codexWebSearchBridgeEnabled,
       codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
       bedrock_cc_compat: bedrockCCCompatEnabled,
       account_stats_pricing_rules: [],

@@ -22,6 +22,30 @@ func TestNewManager_PreservesOrder(t *testing.T) {
 	require.Equal(t, "tavily", m.configs[1].Type)
 }
 
+func TestManager_HasAvailableProvider(t *testing.T) {
+	past := time.Now().Add(-1 * time.Hour).Unix()
+	future := time.Now().Add(1 * time.Hour).Unix()
+
+	tests := []struct {
+		name    string
+		manager *Manager
+		want    bool
+	}{
+		{name: "nil manager", manager: nil},
+		{name: "empty manager", manager: NewManager(nil, nil)},
+		{name: "missing api key", manager: NewManager([]ProviderConfig{{Type: ProviderTypeBrave}}, nil)},
+		{name: "expired provider", manager: NewManager([]ProviderConfig{{Type: ProviderTypeBrave, APIKey: "k", ExpiresAt: &past}}, nil)},
+		{name: "valid provider", manager: NewManager([]ProviderConfig{{Type: ProviderTypeBrave, APIKey: "k", ExpiresAt: &future}}, nil), want: true},
+		{name: "anysearch without api key", manager: NewManager([]ProviderConfig{{Type: ProviderTypeAnySearch}}, nil), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.manager.HasAvailableProvider(context.Background(), ""))
+		})
+	}
+}
+
 func TestManager_SearchWithBestProvider_EmptyQuery(t *testing.T) {
 	m := NewManager([]ProviderConfig{{Type: "brave", APIKey: "k"}}, nil)
 	_, _, err := m.SearchWithBestProvider(context.Background(), SearchRequest{Query: ""})

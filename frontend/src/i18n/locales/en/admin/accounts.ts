@@ -3,6 +3,7 @@ import grokBillingQuotaMessages from './accountsGrokBillingQuota'
 import openAICodexResetMessages from './accountsOpenAICodexReset'
 import openAICompatibilityMessages from './accountsOpenAICompatibility'
 import openAIImageGenerationOverrides from './accountsOpenAIImageGenerationOverrides'
+import codexWebSearchBridgeMessages from './accountsCodexWebSearchBridge'
 import webSearchMessages from './accountsWebSearch'
 
 export default {
@@ -613,6 +614,7 @@ export default {
         testModeCompact: 'Compact probe',
         modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
         ...codexCustomClientMessages,
+        ...(codexWebSearchBridgeMessages as Record<string, string>),
         // 保留 main 文案块作为上游所有权，build 只在稳定末尾覆盖最终策略文案。
         ...(openAIImageGenerationOverrides as Record<string, string>),
       },

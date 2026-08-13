@@ -935,6 +935,51 @@ describe('EditAccountModal', () => {
     expect(extra?.compatibility_note).toBe('keep')
   })
 
+  it('loads and submits OpenAI APIKey Codex Lite Web Search bridge override', async () => {
+    getWebSearchConfigMock.mockResolvedValue({ enabled: true, providers: [{ type: 'anysearch' }] })
+    const account = buildAccount()
+    account.extra = {
+      compatibility_note: 'keep',
+      codex_web_search_bridge: false
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="codex-web-search-bridge-mode-select"]').exists()).toBe(true)
+    })
+    const select = wrapper.get<HTMLSelectElement>('[data-testid="codex-web-search-bridge-mode-select"]')
+    expect(select.element.value).toBe('disabled')
+    await select.setValue('enabled')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.codex_web_search_bridge).toBe(true)
+    expect(extra?.compatibility_note).toBe('keep')
+  })
+
+  it('clears Codex Lite Web Search bridge override when following channel', async () => {
+    getWebSearchConfigMock.mockResolvedValue({ enabled: true, providers: [{ type: 'anysearch' }] })
+    const account = buildAccount()
+    account.extra = { codex_web_search_bridge: true }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="codex-web-search-bridge-mode-select"]').exists()).toBe(true)
+    })
+    await wrapper.get('[data-testid="codex-web-search-bridge-mode-select"]').setValue('inherit')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_web_search_bridge')
+  })
+
   it('does not show OpenAI compatibility controls for OAuth accounts', () => {
     const wrapper = mountModal(buildOpenAIOAuthAccount())
     expect(wrapper.find('[data-testid="openai-json-schema-downgrade-toggle"]').exists()).toBe(false)

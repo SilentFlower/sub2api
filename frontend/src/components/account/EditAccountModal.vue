@@ -1777,6 +1777,11 @@
         v-model="webSearchEmulationMode"
       />
 
+      <AccountCodexWebSearchBridgeField
+        v-if="account?.platform === 'openai' && account?.type === 'apikey' && webSearchGlobalEnabled"
+        v-model="codexWebSearchBridgeMode"
+      />
+
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
         v-if="account?.platform === 'anthropic' && (account?.type === 'apikey' || account?.type === 'bedrock')"
@@ -2713,6 +2718,12 @@ import {
 } from '@/features/grokForceChat/extra'
 import WebSearchEmulationField from '@/features/webSearch/WebSearchEmulationField.vue'
 import type { WebSearchEmulationMode } from '@/features/webSearch/types'
+import AccountCodexWebSearchBridgeField from '@/features/webSearch/AccountCodexWebSearchBridgeField.vue'
+import {
+  applyAccountCodexWebSearchBridgeExtra,
+  normalizeCodexWebSearchBridgeMode,
+  type CodexWebSearchBridgeMode
+} from '@/features/webSearch/codexBridge'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import {
   applyAntigravityProjectID,
@@ -2962,6 +2973,7 @@ type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref<WebSearchEmulationMode>('default')
+const codexWebSearchBridgeMode = ref<CodexWebSearchBridgeMode>('inherit')
 const webSearchGlobalEnabled = ref(false)
 const {
   globalEnabled: quotaNotifyGlobalEnabled,
@@ -3418,6 +3430,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
+  codexWebSearchBridgeMode.value = 'inherit'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openaiFlattenNamespacesEnabled.value =
@@ -3478,6 +3491,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
   if ((newAccount.platform === 'anthropic' || newAccount.platform === 'openai') && newAccount.type === 'apikey') {
     webSearchEmulationMode.value = compatibility.webSearchEmulation
+  }
+  if (newAccount.platform === 'openai' && newAccount.type === 'apikey') {
+    codexWebSearchBridgeMode.value = normalizeCodexWebSearchBridgeMode(extra?.codex_web_search_bridge)
   }
   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
@@ -4755,6 +4771,10 @@ const handleSubmit = async () => {
         webSearchEmulation:
           props.account.type === 'apikey' ? webSearchEmulationMode.value : null
       })
+      newExtra = applyAccountCodexWebSearchBridgeExtra(
+        newExtra,
+        props.account.type === 'apikey' ? codexWebSearchBridgeMode.value : 'inherit'
+      )
       if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
         newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
       } else {

@@ -193,7 +193,7 @@ func HasToolSearchTool(tools []ResponsesTool) bool {
 //	          assistant message that produced a tool call, merging parallel tool
 //	          calls into one assistant message, and skipping item types that have
 //	          no Chat equivalent
-//	normalize — normalizeChatMessages enforces the invariants DeepSeek requires
+//	normalize — normalizeChatMessagesWithToolOutputMedia enforces the invariants DeepSeek requires
 //
 // The build + normalize split keeps every protocol rule in one place rather than
 // scattered across per-item cases, and makes unknown future codex item types
@@ -551,28 +551,14 @@ func appendAssistantToolCall(messages []ChatMessage, toolCall ChatToolCall, pend
 	})
 }
 
-// normalizeChatMessages is the single place that enforces the tool-call
-// invariant the DeepSeek / OpenAI Chat Completions schema requires: an assistant
-// message with tool_calls must be immediately followed by one tool message per
-// tool_call_id, in order, with nothing in between.
+// normalizeChatMessagesWithToolOutputMedia 统一维护 DeepSeek / OpenAI Chat Completions
+// 所要求的工具调用不变量：带 tool_calls 的 assistant 消息后必须按顺序紧跟每个
+// tool_call_id 对应的 tool 消息，中间不能插入其他消息。
 //
-// Codex histories violate this in several ways that the builder alone can't fix:
-//   - a non-tool message lands between an assistant tool_calls message and its
-//     tool replies (e.g. an "Approved command prefix saved" system notice codex
-//     injects mid tool-execution);
-//   - a parallel tool_call's sibling output never arrives, or a call is left
-//     dangling by a mid-execution reconnect (unanswered tool_call);
-//   - a tool reply has no announcing assistant tool_call (orphan).
-//
-// It rebuilds the sequence so each assistant's answered tool_calls are followed
-// directly by their replies (in call order); unanswered tool_calls are dropped
-// (and an assistant left with neither tool_calls nor content is dropped); orphan
-// tool replies and intervening messages are emitted in their natural position
-// but never between an assistant tool_calls message and its replies.
-func normalizeChatMessages(messages []ChatMessage) []ChatMessage {
-	return normalizeChatMessagesWithToolOutputMedia(messages, nil)
-}
-
+// Codex 历史可能出现执行中插入系统通知、并行调用缺少部分结果、重连后留下悬空调用，
+// 或 tool 回复没有对应 assistant 声明等情况。此处重建消息序列，只保留有回复的调用并
+// 将回复紧邻其 assistant；无回复调用、空 assistant 与孤立 tool 回复会被丢弃，普通消息
+// 则保持自然顺序，同时不会被插到工具调用及其回复之间。
 func normalizeChatMessagesWithToolOutputMedia(messages []ChatMessage, mediaByCallID toolOutputMediaByCallID) []ChatMessage {
 	// Index every tool reply by its tool_call_id (last wins on duplicates).
 	replies := make(map[string]ChatMessage)

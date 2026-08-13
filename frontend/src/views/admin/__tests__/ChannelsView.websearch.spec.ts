@@ -149,4 +149,38 @@ describe('ChannelsView Web Search 默认配置', () => {
       openai: true,
     })
   })
+
+  it('独立保存 OpenAI Codex Lite Web Search 桥接默认值', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const createButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.channels.createChannel'))
+    await createButton?.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('form#channel-form input[type="text"]').setValue('Codex Search Channel')
+    const platformLabel = wrapper
+      .findAll('label')
+      .find((label) => label.text().includes('admin.groups.platforms.openai'))
+    await platformLabel?.get('input[type="checkbox"]').setValue(true)
+
+    const openAITab = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.groups.platforms.openai'))
+    await openAITab?.trigger('click')
+
+    const groupLabel = wrapper.findAll('label').find((label) => label.text().includes('OpenAI Group'))
+    await groupLabel?.get('input[type="checkbox"]').setValue(true)
+
+    expect(wrapper.find('[data-testid="channel-codex-web-search-bridge-field"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="channel-codex-web-search-bridge-toggle"]').trigger('click')
+    await wrapper.get('form#channel-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createChannelMock.mock.calls[0]?.[0]?.features_config?.codex_web_search_bridge).toEqual({
+      openai: true,
+    })
+  })
 })

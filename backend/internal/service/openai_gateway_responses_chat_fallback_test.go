@@ -647,6 +647,9 @@ func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		openAIResponsesWebRunTestResponse("rid_typed_1", `{"id":"chatcmpl_typed_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"杭州天气\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`),
@@ -669,6 +672,7 @@ func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *
 		},
 	}
 	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
 
 	result, err := svc.Forward(context.Background(), c, account, body)
@@ -680,7 +684,7 @@ func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *
 	require.Equal(t, 30, result.Usage.InputTokens)
 	require.Equal(t, 7, result.Usage.OutputTokens)
 	require.Len(t, upstream.bodies, 2)
-	require.Contains(t, string(upstream.bodies[0]), `"name":"sub2api_web_search"`)
+	require.Equal(t, 1, strings.Count(string(upstream.bodies[0]), `"name":"sub2api_web_search"`))
 	require.Equal(t, "auto", gjson.GetBytes(upstream.bodies[0], "tool_choice").String())
 	require.False(t, gjson.GetBytes(upstream.bodies[0], "parallel_tool_calls").Bool())
 	require.Equal(t, "call_typed", gjson.GetBytes(upstream.bodies[1], "messages.1.tool_calls.0.id").String())
@@ -700,6 +704,210 @@ func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *
 	annotation := part.Annotations[0]
 	require.Equal(t, "https://docs.example.com/weather", annotation.URL)
 	require.Equal(t, annotation.URL, string([]rune(part.Text)[annotation.StartIndex:annotation.EndIndex]))
+}
+
+func TestForwardResponses_CodexLiteWebSearchBridgeDoesNotSearchUnlessSelected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := openAIResponsesCodexLiteBridgeTestBody(false, `"tool_choice":"auto",`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_lite_bridge_no_search", `{"id":"chatcmpl_lite_bridge_no_search","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"无需搜索"},"finish_reason":"stop"}],"usage":{"prompt_tokens":6,"completion_tokens":2,"total_tokens":8}}`)}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			return nil, "", errors.New("unexpected search")
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 0, searchCalls)
+	require.Equal(t, 0, result.WebSearchCalls)
+	require.Len(t, upstream.bodies, 1)
+	require.Equal(t, 1, strings.Count(string(upstream.bodies[0]), `"name":"sub2api_web_search"`))
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "parallel_tool_calls").Bool())
+	require.Equal(t, "无需搜索", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.NotContains(t, rec.Body.String(), "web_search_call")
+}
+
+func TestForwardResponses_CodexLiteWebSearchBridgeExecutesExistingLoop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := openAIResponsesCodexLiteBridgeTestBody(false, `"tool_choice":"auto",`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_lite_bridge_1", `{"id":"chatcmpl_lite_bridge_1","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_lite_search","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"最新消息\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`),
+		openAIResponsesWebRunTestResponse("rid_lite_bridge_2", `{"id":"chatcmpl_lite_bridge_2","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"搜索完成"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":3,"total_tokens":18}}`),
+	}}
+	searchCalls := 0
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
+			searchCalls++
+			require.Equal(t, "最新消息", query)
+			require.Equal(t, webSearchDefaultMaxResults, maxResults)
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{
+				{Title: "最新消息", URL: "https://example.com/latest", Snippet: "内容"},
+			}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, searchCalls)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, 25, result.Usage.InputTokens)
+	require.Equal(t, 5, result.Usage.OutputTokens)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "call_lite_search", gjson.GetBytes(upstream.bodies[1], "messages.1.tool_calls.0.id").String())
+	require.Equal(t, "call_lite_search", gjson.GetBytes(upstream.bodies[1], "messages.2.tool_call_id").String())
+	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "最新消息", gjson.Get(rec.Body.String(), "output.0.action.query").String())
+	require.Contains(t, gjson.Get(rec.Body.String(), "output.1.content.0.text").String(), "https://example.com/latest")
+	require.NotContains(t, rec.Body.String(), openAIResponsesTypedWebSearchToolName)
+}
+
+func TestForwardResponses_CodexLiteWebSearchBridgeStreamingEmitsCitationLifecycle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := openAIResponsesCodexLiteBridgeTestBody(true, `"tool_choice":"auto",`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_lite_bridge_stream_1", `{"id":"chatcmpl_lite_bridge_stream_1","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_lite_stream","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"流式最新消息\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,"completion_tokens":1,"total_tokens":9}}`),
+		openAIResponsesWebRunTestResponse("rid_lite_bridge_stream_2", `{"id":"chatcmpl_lite_bridge_stream_2","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"流式搜索完成"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}`),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "流式来源", URL: "https://example.com/stream"}}}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 1, result.WebSearchCalls)
+	wire := rec.Body.String()
+	require.Contains(t, wire, `"type":"web_search_call"`)
+	require.Contains(t, wire, `"delta":"\n\nSources:\n- 流式来源: https://example.com/stream\n"`)
+	require.Contains(t, wire, "event: response.output_text.annotation.added")
+	require.Contains(t, wire, `"annotations":[{"type":"url_citation","url":"https://example.com/stream"`)
+	require.NotContains(t, wire, openAIResponsesTypedWebSearchToolName)
+}
+
+func TestForwardResponses_CodexLiteWebSearchBridgeRejectsReservedNameConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := openAIResponsesCodexLiteBridgeTestBody(false, `"tool_choice":"auto",`)
+	body = bytes.Replace(body, []byte(`"name":"wait"`), []byte(`"name":"sub2api_web_search"`), 1)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "tools", gjson.Get(rec.Body.String(), "error.param").String())
+	require.Contains(t, rec.Body.String(), "conflicts with a declared client tool")
+}
+
+func TestForwardResponses_CodexLiteWebSearchBridgeSkipsUnavailableProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setGlobalWebSearchConfig(&WebSearchEmulationConfig{
+		Enabled:   true,
+		Providers: []WebSearchProviderConfig{{Type: websearch.ProviderTypeAnySearch}},
+	})
+	SetWebSearchManager(websearch.NewManager(nil, nil))
+	t.Cleanup(func() {
+		SetWebSearchManager(nil)
+		clearGlobalWebSearchConfig()
+	})
+
+	body := openAIResponsesCodexLiteBridgeTestBody(false, `"tool_choice":"auto",`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.147.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_lite_bridge_unavailable", `{"id":"chatcmpl_lite_bridge_unavailable","object":"chat.completion","model":"gpt-5.6-sol","choices":[{"index":0,"message":{"role":"assistant","content":"普通回答"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyCodexWebSearchBridge] = true
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 0, result.WebSearchCalls)
+	require.NotContains(t, string(upstream.lastBody), openAIResponsesTypedWebSearchToolName)
+	require.Equal(t, "普通回答", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
 func TestForwardResponses_TypedWebSearchMixedAutoPreservesOtherClientTool(t *testing.T) {
@@ -1175,6 +1383,25 @@ func openAIResponsesTypedWebSearchTestBody(stream bool, extraTool string) []byte
 				{"type":"function","name":"tool_6","parameters":{"type":"object"}},
 				{"type":"function","name":"tool_7","parameters":{"type":"object"}},
 				{"type":"function","name":"tool_8","parameters":{"type":"object"}}` + extraTool + `
+			]}
+		]
+	}`)
+}
+
+func openAIResponsesCodexLiteBridgeTestBody(stream bool, choice string) []byte {
+	streamValue := "false"
+	if stream {
+		streamValue = "true"
+	}
+	return []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":` + streamValue + `,
+		` + choice + `
+		"input":[
+			{"role":"user","content":[{"type":"input_text","text":"需要时搜索最新信息"}]},
+			{"type":"additional_tools","tools":[
+				{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"}}}},
+				{"type":"custom","name":"exec","description":"Execute a command"}
 			]}
 		]
 	}`)

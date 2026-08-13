@@ -174,7 +174,7 @@ func TestGolden_DanglingToolCallDropped(t *testing.T) {
 	}
 }
 
-// normalizeChatMessages drops an orphan tool reply whose tool_call was never
+// normalizeChatMessagesWithToolOutputMedia drops an orphan tool reply whose tool_call was never
 // announced.
 func TestNormalize_DropsOrphanToolReply(t *testing.T) {
 	msgs := convertGolden(t, `[
