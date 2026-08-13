@@ -739,3 +739,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: 完成 Responses Lite Web Search 桥接
+
+**Date**: 2026-08-13
+**Task**: 完成 Responses Lite Web Search 桥接
+**Branch**: `build`
+
+### Summary
+
+完成 Codex Responses Lite 到 Chat fallback 的 Web Search 能力桥接，复用现有搜索工具循环、来源与计费语义；新增账号和渠道开关及管理端配置，严格检查通过并已推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9e1ef7564 802dadf5a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
