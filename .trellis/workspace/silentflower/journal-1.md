@@ -782,3 +782,33 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: DeepSeek 缺失推理内容自动降级
+
+**Date**: 2026-08-14
+**Task**: DeepSeek 缺失推理内容自动降级
+**Branch**: `build`
+
+### Summary
+
+新增默认开启且可关闭的 DeepSeek 缺失推理历史自动降级策略，覆盖 raw Chat、Responses fallback/web-run 与 Anthropic fallback，并完成设置热缓存、管理端开关及全量验证。
+
+### Main Changes
+
+- 按最终 DeepSeek Chat 请求检测不完整 assistant 工具调用历史并关闭 thinking
+- 新增系统开关、并发安全热缓存、管理端 Toggle 和中英文文案
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98e75ac83` | (see git log) |
+
+### Testing
+
+- [OK] 后端全量单测、race、lint、前端 Vitest、typecheck、lint 和 merge-tree 均通过
+
+### Status
+
+[OK] **Completed**
