@@ -1,0 +1,62 @@
+{
+  "id": "deepseek-missing-reasoning-downgrade",
+  "name": "deepseek-missing-reasoning-downgrade",
+  "title": "DeepSeek 缺失推理内容自动降级",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-14",
+  "completedAt": "2026-08-14",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-08-13T18:42:25Z",
+      "contextKey": "codex_019ffc40-1aa7-7360-8bf7-37dcfd260950",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "03d0ddea65779afd9b1d968f1b403c33dad4ed5b",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "03d0ddea65779afd9b1d968f1b403c33dad4ed5b",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "6bc429188c9562a2705b44e5091891e97f1b2e55f2177e1177699d8d87728b37"
+          }
+        ],
+        "fingerprint": "262372b51c3cc2701dfe06550588416db5b4bb7e6ddd2b09efcb57d754af2b03"
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-08-14T00:41:17Z",
+    "completedSteps": [
+      "实现 DeepSeek 缺失推理内容自动降级及系统开关",
+      "完成四条 Chat 上游链路接入、管理端配置与中英文界面",
+      "完成后端和前端全量验证、规范沉淀及并发缓存回归"
+    ],
+    "partialStep": null,
+    "nextStep": "按需执行 trellis-finish-work 归档任务",
+    "notes": ""
+  }
+}
