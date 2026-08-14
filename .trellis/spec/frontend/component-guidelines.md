@@ -143,6 +143,117 @@ const openai = {
 > main 新值和独立 override，把上游新增语义合入 override；不能只检查 marker、文件 diff
 > 或 locale 是否可编译。相邻测试应断言最终有效文案或关键语义词，避免只断言 key 存在。
 
+### 合并/解冲突后的 i18n 验收契约
+
+#### 1. Scope / Trigger
+
+- 合并分支、rebase 或解决冲突时，只要组件、locale 主模块、领域 locale 扩展、re-export
+  或对象 spread 任一侧发生变化，就必须执行本节检查。
+- 目标是同时阻止两类静默回归：中文 key 缺失后回退英文，以及中英文都缺失后直接显示
+  `key.path`。
+
+#### 2. Signatures
+
+组件调用与 locale 叶子必须形成同名契约：
+
+```typescript
+t('admin.settings.gatewayForwarding.someFeature')
+
+// frontend/src/i18n/locales/en/**
+someFeature: 'English text'
+
+// frontend/src/i18n/locales/zh/**
+someFeature: '中文文案'
+```
+
+聚合入口固定为：
+
+```text
+frontend/src/i18n/locales/en/index.ts
+frontend/src/i18n/locales/zh/index.ts
+```
+
+运行时 `fallbackLocale` 是 `en`；因此中文页面显示英文通常是中文最终聚合树缺 key，
+不能把 fallback 当成已完成多语言适配。
+
+#### 3. Contracts
+
+- 必须比较聚合后的最终 `en` / `zh` 叶子 key 集合，不能只比较本次冲突文件或领域扩展源文件。
+- 每个静态 `t('...')`、`$t('...')`、`i18n.global.t('...')` key 必须同时存在于
+  最终中英文树；缺一侧会回退，缺两侧会显示 key path。
+- 动态 key（例如 ``t(`status.${status}`)``）必须按实际枚举值检查所有叶子，不能只检查
+  `status.` 前缀。
+- 中文值允许保留 API、URL、HTTP、模型名和品牌名等语言中立术语；普通标题、按钮、状态、
+  提示和完整句子不得直接复制英文值来掩盖未翻译。
+- locale spread、re-export 或冲突 resolution 改变顺序后，必须验证最终运行时值；源文件中
+  两侧都有 key 不代表最终对象没有被后续 spread 覆盖。
+- 解决冲突不得只保留一侧新增的 import、spread、key 或测试注册。中英文领域扩展必须成对
+  注册，并保持相同 key 路径。
+
+#### 4. Validation & Error Matrix
+
+| 条件 | 中文运行时表现 | 验收结果 |
+| --- | --- | --- |
+| `en` 有 key，`zh` 无 key | 回退显示英文 | 失败，补齐中文同路径 key |
+| `en` / `zh` 都无静态调用 key | 显示 `key.path` | 失败，补齐两种语言或修正调用路径 |
+| 两侧源文件有 key，但中文聚合入口漏 import/spread | 回退显示英文 | 失败，修复聚合注册 |
+| 两侧 key 路径不同 | 一侧回退或显示 key path | 失败，统一到组件实际调用路径 |
+| 后置 override 覆盖 main 新文案 | 显示旧语义 | 失败，把新语义合入最终 owner |
+| 两侧 key 与最终文案都正确 | 按当前 locale 显示 | 通过 |
+
+#### 5. Good/Base/Bad Cases
+
+- Good：组件调用 `admin.groups.claudeMaxSimulation.title`，中英文最终树都在同一路径提供
+  各自文案，组件测试分别切换 `en` / `zh` 断言最终文本。
+- Good：领域扩展新增中英文文件，并同时在两个主 locale 模块的相同深层对象末尾展开；
+  key 结构测试和最终有效文案测试同时覆盖。
+- Base：`API Key`、`HTTP`、`DeepSeek` 等语言中立术语在中英文相同，不视为漏翻译。
+- Bad：英文 key 位于 `admin.groups.claudeMaxSimulation`，中文却位于
+  `admin.groups.modelRouting.claudeMaxSimulation`；中文界面会静默回退英文。
+- Bad：冲突解决后 locale 文件可以编译，但组件使用的静态 key 在两侧都不存在；运行时会
+  直接显示 key path。
+
+#### 6. Tests Required
+
+- locale 变更或合并后至少运行：
+
+```bash
+cd frontend
+pnpm exec vitest run \
+  src/i18n/__tests__/localesMessageCompile.spec.ts \
+  src/i18n/__tests__/localesNoKeyCollision.spec.ts \
+  src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts
+```
+
+- 涉及新增/迁移 key 时，测试必须断言最终聚合树的中英文叶子 key 集合一致，并检查所有
+  静态翻译调用在两侧都存在；动态 key 必须用真实枚举值展开断言。
+- 关键页面或组件必须分别用 `en` / `zh` 渲染并断言最终可见文案，不能只断言 locale
+  源对象中存在 key。
+- 合并 build 私有 locale 扩展时，继续使用包含工作区改动的临时索引执行
+  `git merge-tree`，并在 0 文本冲突后人工复核最终有效值。
+
+#### 7. Wrong vs Correct
+
+错误：中英文使用了不同路径，依赖英文 fallback 掩盖中文缺失。
+
+```typescript
+// en
+groups: { claudeMaxSimulation: { title: 'Claude Max simulation' } }
+
+// zh
+groups: { modelRouting: { claudeMaxSimulation: { title: 'Claude Max 模拟' } } }
+```
+
+正确：两种语言保持同名路径，并让组件测试断言最终文案。
+
+```typescript
+// en
+groups: { claudeMaxSimulation: { title: 'Claude Max simulation' } }
+
+// zh
+groups: { claudeMaxSimulation: { title: 'Claude Max 模拟' } }
+```
+
 ---
 
 ## Common Mistakes

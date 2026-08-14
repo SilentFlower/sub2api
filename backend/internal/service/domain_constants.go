@@ -589,6 +589,8 @@ const (
 	SettingKeyOpenAIImageGenerationReasoningEffort = "openai.image_generation.reasoning_effort"
 	// SettingKeyOpenAIResponsesLiteHeaderBlockedModels 按最终上游模型阻止 Responses Lite Header/metadata 透传的规则列表。
 	SettingKeyOpenAIResponsesLiteHeaderBlockedModels = "openai_responses_lite_header_blocked_models"
+	// SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade 控制 DeepSeek 工具调用历史缺失推理内容时是否自动关闭 thinking。
+	SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade = "enable_deepseek_missing_reasoning_auto_downgrade"
 	// SettingKeyOpenAICodexClientVersion 网关对 ChatGPT 上游声明的 Codex 客户端版本号（管理员覆写）。
 	// 空值表示跟随自动同步值；自动同步也没有结果时回退到内置常量。
 	// 上游在容量紧张时按客户端身份分优先级降载，陈旧版本会被优先丢弃，故该值需保持跟随官方发布。

@@ -98,6 +98,44 @@ func TestForwardResponses_ForceChatCompletionsNormalizesGLMReasoningEffort(t *te
 	require.Equal(t, "max", *result.ReasoningEffort)
 }
 
+func TestForwardResponses_ForceChatCompletionsDeepSeekMissingReasoningAutoDowngrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"deepseek-v4-pro",
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"weather"}]},
+			{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call_1","output":"cloudy"}
+		],
+		"reasoning":{"effort":"high"},
+		"stream":false
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse(
+		"rid_resp_deepseek_missing_reasoning",
+		`{"id":"chatcmpl_json","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+	)}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "assistant", gjson.GetBytes(upstream.lastBody, "messages.1.role").String())
+	require.Equal(t, "call_1", gjson.GetBytes(upstream.lastBody, "messages.1.tool_calls.0.id").String())
+	require.Equal(t, "disabled", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+	require.Nil(t, result.ReasoningEffort)
+}
+
 func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -289,6 +327,56 @@ func TestForwardResponses_WebRunSearchQueryExecutesAndContinuesModel(t *testing.
 	require.Equal(t, "message", gjson.Get(rec.Body.String(), "output.1.type").String())
 	require.Equal(t, "杭州天气结果已找到", gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
 	require.Equal(t, int64(30), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+}
+
+func TestForwardResponses_WebRunDeepSeekMissingReasoningDowngradesContinuation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableOpenAIResponsesWebSearchTestManager(t)
+
+	body := bytes.Replace(
+		openAIResponsesWebRunTestBody(false),
+		[]byte(`"stream":false,`),
+		[]byte(`"stream":false,"reasoning":{"effort":"high"},`),
+		1,
+	)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		openAIResponsesWebRunTestResponse("rid_web_run_missing_1", `{
+			"id":"chatcmpl_web_run_missing_1","object":"chat.completion","model":"deepseek-v4-pro",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_web_missing","type":"function","function":{"name":"web__run","arguments":"{\"search_query\":[{\"q\":\"杭州天气\"}]}"}}]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}
+		}`),
+		openAIResponsesWebRunTestResponse("rid_web_run_missing_2", `{
+			"id":"chatcmpl_web_run_missing_2","object":"chat.completion","model":"deepseek-v4-pro",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}
+		}`),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:            rawChatCompletionsTestConfig(),
+		httpUpstream:   upstream,
+		settingService: &SettingService{},
+		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
+			return &websearch.SearchResponse{Query: query}, "anysearch", nil
+		},
+	}
+	account := forceChatResponsesFallbackAccount()
+	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "high", gjson.GetBytes(upstream.bodies[0], "reasoning_effort").String())
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "thinking").Exists())
+	require.Equal(t, "disabled", gjson.GetBytes(upstream.bodies[1], "thinking.type").String())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "reasoning_effort").Exists())
+	require.Nil(t, result.ReasoningEffort)
 }
 
 func TestForwardResponses_WebRunWeatherRetriesAsSearchQuery(t *testing.T) {

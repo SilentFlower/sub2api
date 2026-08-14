@@ -148,6 +148,16 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		return nil, err
 	}
+	chatBody, err = s.applyDeepSeekMissingReasoningAutoDowngrade(
+		ctx,
+		account,
+		upstreamModel,
+		chatBody,
+		deepSeekMissingReasoningSourceResponsesFallback,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("apply DeepSeek missing reasoning policy: %w", err)
+	}
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}

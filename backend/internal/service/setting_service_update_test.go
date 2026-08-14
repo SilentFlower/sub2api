@@ -606,6 +606,19 @@ func TestSettingService_UpdateSettings_OpenAIResponsesLiteHeaderBlockedModels(t 
 	require.Equal(t, "INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS", infraerrors.Reason(err))
 }
 
+func TestSettingService_UpdateSettings_DeepSeekMissingReasoningAutoDowngrade(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		EnableDeepSeekMissingReasoningAutoDowngrade: false,
+		OpenAIResponsesLiteHeaderBlockedModels:      []string{},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "false", repo.updates[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
+}
+
 func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClientIPHeaders(t *testing.T) {
 	repo := &forwardedIPMigrationRepoStub{values: map[string]string{}}
 	cfg := &config.Config{}
@@ -614,6 +627,7 @@ func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClie
 
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
 	require.JSONEq(t, `["X-Cdn-Ip","True-Client-Ip"]`, repo.values[SettingKeyForwardedClientIPHeaders])
+	require.Equal(t, "true", repo.values[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
 }
 
 func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(t *testing.T) {

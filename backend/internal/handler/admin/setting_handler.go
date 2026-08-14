@@ -302,6 +302,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIImageGenerationMainModel:                         settings.OpenAIImageGenerationMainModel,
 		OpenAIImageGenerationReasoningEffort:                   settings.OpenAIImageGenerationReasoningEffort,
 		OpenAIResponsesLiteHeaderBlockedModels:                 settings.OpenAIResponsesLiteHeaderBlockedModels,
+		EnableDeepSeekMissingReasoningAutoDowngrade:            settings.EnableDeepSeekMissingReasoningAutoDowngrade,
 		OpenAICodexClientVersion:                               settings.OpenAICodexClientVersion,
 		OpenAICodexClientVersionSynced:                         settings.OpenAICodexClientVersionSynced,
 		OpenAICodexVersionAutoSyncEnabled:                      settings.OpenAICodexVersionAutoSyncEnabled,

@@ -132,6 +132,8 @@ type SettingService struct {
 	openAIImageGenerationSF              singleflight.Group
 	openAIResponsesLiteHeaderPolicyCache atomic.Value // *cachedOpenAIResponsesLiteHeaderPolicy
 	openAIResponsesLiteHeaderPolicySF    singleflight.Group
+	deepSeekMissingReasoningPolicyCache  atomic.Pointer[cachedDeepSeekMissingReasoningPolicy]
+	deepSeekMissingReasoningPolicySF     singleflight.Group
 	openAICodexVersionCache              atomic.Value // *cachedOpenAICodexClientVersion
 	openAICodexVersionSF                 singleflight.Group
 	codexRestrictionPolicyCache          atomic.Value // *cachedCodexRestrictionPolicy

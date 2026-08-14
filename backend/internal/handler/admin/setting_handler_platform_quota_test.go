@@ -77,6 +77,18 @@ func TestDiffSettings_DetectsOpenAIResponsesLiteHeaderBlockedModelsChange(t *tes
 	require.Contains(t, changed, service.SettingKeyOpenAIResponsesLiteHeaderBlockedModels)
 }
 
+func TestDiffSettings_DetectsDeepSeekMissingReasoningAutoDowngradeChange(t *testing.T) {
+	changed := diffSettings(
+		&service.SystemSettings{EnableDeepSeekMissingReasoningAutoDowngrade: true},
+		&service.SystemSettings{EnableDeepSeekMissingReasoningAutoDowngrade: false},
+		nil,
+		nil,
+		UpdateSettingsRequest{},
+	)
+
+	require.Contains(t, changed, service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade)
+}
+
 func TestSettingsAuditRequestDoesNotInheritStoredTencentSecrets(t *testing.T) {
 	req := UpdateSettingsRequest{
 		TencentCaptchaAppSecretKey:   "  ",

@@ -628,6 +628,7 @@ export interface SystemSettings {
 	openai_image_generation_main_model: string;
 	openai_image_generation_reasoning_effort: string;
 	openai_responses_lite_header_blocked_models: string[];
+	enable_deepseek_missing_reasoning_auto_downgrade: boolean;
 	openai_codex_client_version: string;
 	openai_codex_client_version_synced: string;
 	openai_codex_version_auto_sync_enabled: boolean;
@@ -944,6 +945,7 @@ export interface UpdateSettingsRequest {
 	openai_image_generation_main_model?: string;
 	openai_image_generation_reasoning_effort?: string;
 	openai_responses_lite_header_blocked_models?: string[];
+	enable_deepseek_missing_reasoning_auto_downgrade?: boolean;
 	openai_codex_client_version?: string;
 	openai_codex_version_auto_sync_enabled?: boolean;
   // codex_cli_only 加固

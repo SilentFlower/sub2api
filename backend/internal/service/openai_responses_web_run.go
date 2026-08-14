@@ -419,6 +419,22 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 		if marshalErr != nil {
 			return nil, fmt.Errorf("marshal web.run chat completions request: %w", marshalErr)
 		}
+		chatBody, err = s.applyDeepSeekMissingReasoningAutoDowngrade(
+			ctx,
+			account,
+			options.UpstreamModel,
+			chatBody,
+			deepSeekMissingReasoningSourceResponsesWebRun,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("apply DeepSeek missing reasoning policy to web.run request: %w", err)
+		}
+		options.ReasoningEffort = extractOpenAIUpstreamReasoningEffort(
+			chatBody,
+			options.OriginalModel,
+			options.UpstreamModel,
+			options.BillingModel,
+		)
 		resp, sendErr := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, false, apiKey, account.GetOpenAIUserAgent(), "")
 		if sendErr != nil {
 			return nil, sendErr

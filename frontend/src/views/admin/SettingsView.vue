@@ -5652,6 +5652,10 @@
                 v-model="form.openai_responses_lite_header_blocked_models"
               />
 
+              <DeepSeekMissingReasoningDowngradeToggle
+                v-model="form.enable_deepseek_missing_reasoning_auto_downgrade"
+              />
+
               <!-- Codex 客户端版本号 -->
               <div>
                 <label
@@ -8274,6 +8278,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import OpenAIImageGenerationSettings from "@/features/openAIImageGeneration/OpenAIImageGenerationSettings.vue";
 import ResponsesLiteBlockedModelsSettings from "@/features/responsesLite/ResponsesLiteBlockedModelsSettings.vue";
+import DeepSeekMissingReasoningDowngradeToggle from "@/features/deepSeekReasoning/DeepSeekMissingReasoningDowngradeToggle.vue";
 import AntigravityGIFSettings from "@/features/antigravityGif/AntigravityGIFSettings.vue";
 import {
   defaultResponsesLiteBlockedModels,
@@ -9247,6 +9252,7 @@ const form = reactive<SettingsForm>({
   openai_image_generation_reasoning_effort: "medium",
   openai_responses_lite_header_blocked_models:
     defaultResponsesLiteBlockedModels(),
+  enable_deepseek_missing_reasoning_auto_downgrade: true,
   openai_codex_client_version: "",
   // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
   openai_codex_client_version_synced: "",
@@ -10676,6 +10682,8 @@ async function saveSettings() {
         form.openai_image_generation_reasoning_effort || "medium",
       openai_responses_lite_header_blocked_models:
         normalizedOpenAIResponsesLiteBlockedModels,
+      enable_deepseek_missing_reasoning_auto_downgrade:
+        form.enable_deepseek_missing_reasoning_auto_downgrade,
       openai_codex_client_version:
         form.openai_codex_client_version?.trim() || "",
       openai_codex_version_auto_sync_enabled:

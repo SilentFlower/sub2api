@@ -239,6 +239,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIImageGenerationMainModel:                     openAIImagesResponsesMainModel,
 		SettingKeyOpenAIImageGenerationReasoningEffort:               openAIImageGenerationReasoningEffortDefault,
 		SettingKeyOpenAIResponsesLiteHeaderBlockedModels:             defaultOpenAIResponsesLiteHeaderBlockedModelsJSON,
+		SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade:        "true",
 		SettingKeyOpenAICodexClientVersion:                           "",
 		SettingKeyOpenAICodexClientVersionSynced:                     "",
 		SettingKeyOpenAICodexVersionAutoSyncEnabled:                  "true",
@@ -884,6 +885,11 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		blockedModels = defaultOpenAIResponsesLiteHeaderBlockedModelsCopy()
 	}
 	result.OpenAIResponsesLiteHeaderBlockedModels = blockedModels
+	if v, ok := settings[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade]; ok && v != "" {
+		result.EnableDeepSeekMissingReasoningAutoDowngrade = v == "true"
+	} else {
+		result.EnableDeepSeekMissingReasoningAutoDowngrade = true
+	}
 	result.OpenAICodexClientVersion = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersion])
 	result.OpenAICodexClientVersionSynced = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersionSynced])
 	// 自动同步默认开启：缺失/空值一律视为开启，与 enable_client_dateline_normalization 同一惯例。

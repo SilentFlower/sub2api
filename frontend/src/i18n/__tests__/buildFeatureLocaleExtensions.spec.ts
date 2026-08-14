@@ -11,6 +11,7 @@ import enChannelsWebSearch from '../locales/en/admin/channelsWebSearchOverrides'
 import enSettings from '../locales/en/admin/settings'
 import enSettingsOpenAIImageGeneration from '../locales/en/admin/settingsOpenAIImageGeneration'
 import enSettingsResponsesLite from '../locales/en/admin/settingsResponsesLite'
+import enSettingsDeepSeekReasoning from '../locales/en/admin/settingsDeepSeekReasoning'
 import enSettingsWebSearchAnySearch from '../locales/en/admin/settingsWebSearchAnySearch'
 import zhAccounts from '../locales/zh/admin/accounts'
 import zhAccountsCodexCustomClients from '../locales/zh/admin/accountsCodexCustomClients'
@@ -24,6 +25,7 @@ import zhChannelsWebSearch from '../locales/zh/admin/channelsWebSearchOverrides'
 import zhSettings from '../locales/zh/admin/settings'
 import zhSettingsOpenAIImageGeneration from '../locales/zh/admin/settingsOpenAIImageGeneration'
 import zhSettingsResponsesLite from '../locales/zh/admin/settingsResponsesLite'
+import zhSettingsDeepSeekReasoning from '../locales/zh/admin/settingsDeepSeekReasoning'
 import zhSettingsWebSearchAnySearch from '../locales/zh/admin/settingsWebSearchAnySearch'
 
 function keyPaths(value: unknown, prefix = ''): string[] {
@@ -48,6 +50,7 @@ const localeExtensionPairs: Array<[string, unknown, unknown]> = [
   ['accounts Codex reset', enAccountsOpenAICodexReset, zhAccountsOpenAICodexReset],
   ['settings OpenAI image generation', enSettingsOpenAIImageGeneration, zhSettingsOpenAIImageGeneration],
   ['settings Responses Lite', enSettingsResponsesLite, zhSettingsResponsesLite],
+  ['settings DeepSeek reasoning', enSettingsDeepSeekReasoning, zhSettingsDeepSeekReasoning],
   ['settings AnySearch', enSettingsWebSearchAnySearch, zhSettingsWebSearchAnySearch],
   ['channels Web Search', enChannelsWebSearch, zhChannelsWebSearch],
   ['channels OpenAI image generation', enChannelsOpenAIImageGeneration, zhChannelsOpenAIImageGeneration]
@@ -64,6 +67,9 @@ describe('build 功能 locale 扩展', () => {
     expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('最终模型阻止列表')
     expect(getPath(enSettings, 'settings.gatewayForwarding.openaiResponsesLiteBlockedModels')).toBe(
       'Responses Lite Header blocked models'
+    )
+    expect(getPath(enSettings, 'settings.gatewayForwarding.deepSeekMissingReasoningAutoDowngradeHint')).toContain(
+      'Anthropic-to-Chat'
     )
     expect(getPath(zhSettings, 'settings.webSearchEmulation.anySearchApiKeyHint')).toContain('AnySearch')
     expect(getPath(enChannels, 'channels.form.webSearchEmulationHint')).toContain('eligible API Key accounts')

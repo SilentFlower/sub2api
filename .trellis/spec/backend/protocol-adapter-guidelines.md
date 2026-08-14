@@ -1527,3 +1527,149 @@ if manager != nil && manager.HasAvailableProvider(ctx, resolveAccountProxyURL(ac
 ```
 
 在资格决策中同时校验现有搜索策略、全局配置和动态 provider readiness；注入后仍复用共享内部循环，不能在桥接层直接执行搜索。
+
+## Scenario: DeepSeek 工具调用历史缺失推理内容自动降级
+
+### 1. Scope / Trigger
+
+- 最终上游协议为 Chat Completions、最终模型 trim/lower 后以 `deepseek-` 开头，并且历史
+  assistant 工具调用可能缺少 DeepSeek thinking mode 要求的推理内容时，必须应用本节。
+- 覆盖原生 Chat、Responses -> Chat fallback、Responses `web.run` 每轮续跑和
+  Anthropic Messages -> Chat fallback；不修改 Responses 或 Anthropic 转换器本身的字段语义。
+
+### 2. Signatures
+
+系统设置与 API 字段：
+
+```text
+SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade
+  = "enable_deepseek_missing_reasoning_auto_downgrade"
+```
+
+```json
+{
+  "enable_deepseek_missing_reasoning_auto_downgrade": true
+}
+```
+
+服务与策略签名：
+
+```go
+func (s *SettingService) IsDeepSeekMissingReasoningAutoDowngradeEnabled(ctx context.Context) bool
+
+func applyDeepSeekMissingReasoningPolicy(
+	body []byte,
+	upstreamModel string,
+	enabled bool,
+) (deepSeekMissingReasoningPolicyResult, error)
+
+func (s *OpenAIGatewayService) applyDeepSeekMissingReasoningAutoDowngrade(
+	ctx context.Context,
+	account *Account,
+	upstreamModel string,
+	body []byte,
+	sourcePath string,
+) ([]byte, error)
+```
+
+稳定来源值：`chat_completions`、`responses_chat_fallback`、`responses_web_run`、
+`anthropic_chat_fallback`。
+
+### 3. Contracts
+
+- 新安装持久化 `true`；存量环境缺 key、空值、repository/service 不可用或读取异常时按
+  `true` 执行。管理员可以显式保存 `false` 关闭策略。
+- 网关热路径使用每个 `SettingService` 实例独立的进程内缓存与 singleflight：成功 TTL
+  60 秒、错误 TTL 5 秒、数据库读取超时 5 秒；不得每请求查询数据库。
+- 保存配置后必须立即 `Store` 新缓存值。`singleflight.Forget` 不会取消已经开始的旧读取，
+  因此加载器写缓存时必须以读取前的指针为 expected 执行 `CompareAndSwap`；CAS 失败时返回
+  当前新缓存值，禁止旧数据库结果覆盖刚保存的设置。
+- 只扫描最终 Chat JSON 的 `messages`。满足 `role="assistant"` 且 `tool_calls` 是非空数组的
+  消息，必须至少有一个 trim 后非空的字符串 `reasoning_content` 或兼容字段 `reasoning`。
+  缺失、`null`、空白字符串和非字符串都不可用。
+- 任一上述消息缺少可用推理内容时，设置顶层 `thinking.type="disabled"` 并删除顶层
+  `reasoning_effort`。若已经 disabled 且不存在 effort，保持 body 不变且不记录降级日志。
+- 策略必须放在模型映射和现有 body 改写之后、reasoning effort 提取和实际发送之前。
+  Responses `web.run` 必须在循环内对每一轮最新 body 重跑策略。
+- 只在实际改写时记录 info：`component=openai.deepseek_missing_reasoning_policy`、账号 ID、
+  最终模型、来源、缺失消息数和 `reason=assistant_tool_calls_missing_reasoning`；不得记录请求体、
+  reasoning、工具参数、密钥或鉴权信息。
+- 本策略不伪造 reasoning，不在上游 400 后重试，也不恢复 Anthropic -> Chat 转换器已丢弃的
+  历史 thinking；它只对最终不可安全继续 thinking 的 DeepSeek Chat 请求做降级。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 行为 | 结果 |
+| --- | --- | --- |
+| 非 `deepseek-*` 最终模型 | 不扫描、不改写 | 原样发送 |
+| 开关为 `false` | 不扫描、不改写 | 保留上游原始行为 |
+| 无 assistant 非空 `tool_calls` | 不改写 | 原样发送 |
+| 每条工具调用历史都有可用 `reasoning_content` 或 `reasoning` | 不改写 | thinking 保持 |
+| 任一工具调用历史缺推理内容 | disabled thinking，删除 effort | 发送降级后的 body |
+| 已 disabled 且无 effort | 幂等返回 `changed=false` | 不记录误导日志 |
+| 已 disabled 但仍有 effort | 只删除 effort | 记录实际改写 |
+| Chat JSON 非法或结构化改写失败 | 返回本地错误 | 不发送半改写请求 |
+| 设置 key 缺失 | 缓存默认 `true` | 自动降级可用 |
+| 设置读取异常 | warning + 5 秒错误缓存，返回 `true` | 后续可自动恢复 |
+| 保存与旧数据库读取并发 | CAS 阻止旧读取覆盖新缓存 | 保存值立即生效 |
+
+### 5. Good/Base/Bad Cases
+
+- Good：最终模型 ` DeepSeek-Reasoner `，assistant 有非空 `tool_calls` 但
+  `reasoning_content=" "`，策略关闭 thinking 并删除 effort。
+- Good：`reasoning_content` 缺失但 `reasoning` 是非空字符串，保持 thinking，不误降级。
+- Good：Responses `web.run` 首轮历史完整，续轮新增缺推理内容的 assistant 工具调用；
+  第二轮发送前触发降级。
+- Good：管理员保存关闭值时，已在进行的旧设置读取随后完成，但 CAS 失败并返回新缓存值，
+  下一请求仍使用关闭状态。
+- Base：非 DeepSeek、没有工具调用或开关关闭时，body 不因本策略变化。
+- Bad：只看客户端原始模型，模型映射到 DeepSeek 后漏检。
+- Bad：只在 Responses 首次转换时检查，漏掉 `web.run` 续轮新产生的不完整历史。
+- Bad：保存时只调用 `singleflight.Forget`；已经执行的旧 loader 仍可能在保存后覆盖新缓存。
+- Bad：为通过上游校验伪造 `reasoning_content`，会把不存在的思考历史冒充为真实内容。
+
+### 6. Tests Required
+
+- 领域单测必须覆盖：模型 trim/lower guard、开关关闭、无工具调用、完整 reasoning、`reasoning`
+  别名、空白/null/非字符串、幂等 disabled、只删除 effort、非法 JSON和安全日志字段。
+- 设置测试必须覆盖：缺失默认 true、显式 false、缓存复用、读取异常短 TTL、保存后立即刷新，
+  以及“旧读取阻塞 -> 保存新值 -> 旧读取完成”的确定性并发场景。
+- 并发缓存测试必须运行 race detector：
+
+```bash
+cd backend
+go test -race -tags=unit ./internal/service \
+  -run 'TestSettingService_DeepSeekMissingReasoningPolicy_DefaultCacheAndRefresh' \
+  -count=1
+```
+
+- 四个发送点必须用真实上游 body 断言策略接线；Responses `web.run` 必须覆盖后续轮次命中。
+- Settings GET/PUT、局部更新、审计 diff、API contract、前端默认值/保存载荷和中英文最终文案
+  必须同时覆盖。
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+s.deepSeekMissingReasoningPolicySF.Forget(refreshKey)
+s.deepSeekMissingReasoningPolicyCache.Store(saved)
+
+// 更早开始的 loader 随后无条件 Store(oldValue)
+```
+
+问题：`Forget` 只允许后续调用启动新 flight，不会取消旧 flight；旧读取可以在保存后回写陈旧值。
+
+#### Correct
+
+```go
+expected := s.deepSeekMissingReasoningPolicyCache.Load()
+loaded := readFromRepository()
+if !s.deepSeekMissingReasoningPolicyCache.CompareAndSwap(expected, loaded) {
+	return s.deepSeekMissingReasoningPolicyCache.Load().enabled
+}
+return loaded.enabled
+```
+
+保存路径直接替换缓存；旧 loader 仅在缓存仍是其读取前观察到的指针时才能提交结果，从而保证
+新保存值不会被迟到读取覆盖。

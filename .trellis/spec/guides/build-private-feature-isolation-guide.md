@@ -92,8 +92,8 @@ if err != nil {
 - [ ] 每个 build 规则都有明确领域 owner，不存在模糊总 helper。
 - [ ] 上游共享文件只保留薄调用、注册、re-export 或不可拆分中央字段。
 - [ ] build 专属测试没有继续堆入 main 综合测试函数。
-- [ ] 前端文案进入领域 locale 扩展，主 locale 只做稳定深层展开。
-- [ ] locale spread、re-export 或装饰器覆盖点已核对最终有效值，没有静默遮蔽 main 的新语义。
+- [ ] 前端文案进入领域 locale 扩展，主 locale 只做稳定深层展开；中英文 import、spread 和 key 路径成对保留。
+- [ ] locale spread、re-export 或装饰器覆盖点已按 [Component Guidelines](../frontend/component-guidelines.md) 核对最终有效值；中文不会因缺 key 回退英文，中英文都缺失时也不会显示 key path。
 - [ ] 生成文件来自生成器，ProviderSet/constructor 与生成结果一致。
 - [ ] `rg` 搜索确认旧定义、重复规则和旧导入已清理。
 - [ ] 双方修改文件完成语义复核，`git merge-tree` 没有新增硬冲突。

@@ -145,6 +145,16 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, fmt.Errorf("normalize Grok chat reasoning effort: %w", err)
 		}
 	}
+	upstreamBody, err = s.applyDeepSeekMissingReasoningAutoDowngrade(
+		ctx,
+		account,
+		upstreamModel,
+		upstreamBody,
+		deepSeekMissingReasoningSourceChatCompletions,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("apply DeepSeek missing reasoning policy: %w", err)
+	}
 	reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel, billingModel)
 
 	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",

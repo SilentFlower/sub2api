@@ -1,5 +1,6 @@
 import openAIImageGenerationMessages from './settingsOpenAIImageGeneration'
 import responsesLiteMessages from './settingsResponsesLite'
+import deepSeekReasoningMessages from './settingsDeepSeekReasoning'
 import webSearchAnySearchMessages from './settingsWebSearchAnySearch'
 import antigravityGIFMessages from './settingsAntigravityGif'
 
@@ -518,6 +519,7 @@ export default {
 		openaiCodexVersionSyncedValue: 'Currently synced: {version}',
 		...openAIImageGenerationMessages,
 		...responsesLiteMessages,
+		...deepSeekReasoningMessages,
 		...antigravityGIFMessages,
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",
