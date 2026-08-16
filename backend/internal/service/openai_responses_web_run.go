@@ -24,19 +24,29 @@ import (
 )
 
 const (
-	openAIResponsesWebRunNamespace          = "web"
-	openAIResponsesWebRunName               = "run"
-	openAIResponsesTypedWebSearchToolName   = "sub2api_web_search"
-	openAIResponsesWebRunMaxQueries         = 4
-	openAIResponsesWebRunMaxRounds          = 2
-	openAIResponsesWebRunDefaultLength      = "medium"
-	openAIResponsesWebRunMaxTitleBytes      = 512
-	openAIResponsesWebRunMaxURLBytes        = 2048
-	openAIResponsesWebRunMaxSnippetBytes    = 4096
-	openAIResponsesWebRunToolDescription    = "Search the public web. Only search_query is supported; use it for current information, including weather queries."
-	openAIResponsesWebRunToolSchema         = `{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1},"recency":{"type":"integer","minimum":0}},"required":["q"],"additionalProperties":false}},"response_length":{"type":"string","enum":["short","medium","long"]}},"required":["search_query"],"additionalProperties":false}`
-	openAIResponsesTypedWebSearchToolSchema = `{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1}},"required":["q"],"additionalProperties":false}}},"required":["search_query"],"additionalProperties":false}`
-	openAIResponsesWebSearchMaxSources      = 5
+	openAIResponsesWebRunNamespace         = "web"
+	openAIResponsesWebRunName              = "run"
+	openAIResponsesTypedWebSearchToolName  = "sub2api_web_search"
+	openAIResponsesWebRunMaxQueries        = 5
+	openAIResponsesWebRunMaxQueriesPerCall = 4
+	openAIResponsesWebRunMaxRounds         = openAIResponsesWebRunMaxQueries
+	openAIResponsesWebRunDefaultLength     = "medium"
+	openAIResponsesWebRunMaxTitleBytes     = 512
+	openAIResponsesWebRunMaxURLBytes       = 2048
+	openAIResponsesWebRunMaxSnippetBytes   = 4096
+	openAIResponsesWebRunToolDescription   = "Search the public web. Only search_query is supported; use it for current information, including weather queries."
+	openAIResponsesWebSearchMaxSources     = 5
+)
+
+var (
+	openAIResponsesWebRunToolSchema = fmt.Sprintf(
+		`{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":%d,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1},"recency":{"type":"integer","minimum":0}},"required":["q"],"additionalProperties":false}},"response_length":{"type":"string","enum":["short","medium","long"]}},"required":["search_query"],"additionalProperties":false}`,
+		openAIResponsesWebRunMaxQueriesPerCall,
+	)
+	openAIResponsesTypedWebSearchToolSchema = fmt.Sprintf(
+		`{"type":"object","properties":{"search_query":{"type":"array","minItems":1,"maxItems":%d,"items":{"type":"object","properties":{"q":{"type":"string","minLength":1}},"required":["q"],"additionalProperties":false}}},"required":["search_query"],"additionalProperties":false}`,
+		openAIResponsesWebRunMaxQueriesPerCall,
+	)
 )
 
 type openAIResponsesInternalWebToolKind string
@@ -174,7 +184,10 @@ func addOpenAIResponsesTypedWebSearchTool(req *apicompat.ChatCompletionsRequest,
 
 func parseOpenAIResponsesWebRunArguments(arguments string, remainingQueries int) (*openAIResponsesWebRunArguments, *openAIResponsesWebRunError) {
 	if remainingQueries < 1 {
-		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request has reached the maximum of 4 web search queries"}
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("The request has reached the maximum of %d web search queries", openAIResponsesWebRunMaxQueries),
+		}
 	}
 	trimmed := strings.TrimSpace(arguments)
 	if trimmed == "" {
@@ -199,8 +212,17 @@ func parseOpenAIResponsesWebRunArguments(arguments string, remainingQueries int)
 	if len(parsed.SearchQuery) == 0 {
 		return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web.run search_query must contain at least one query"}
 	}
+	if len(parsed.SearchQuery) > openAIResponsesWebRunMaxQueriesPerCall {
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("Each web.run call supports at most %d web search queries", openAIResponsesWebRunMaxQueriesPerCall),
+		}
+	}
 	if len(parsed.SearchQuery) > remainingQueries {
-		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request supports at most 4 web search queries"}
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("The request supports at most %d web search queries", openAIResponsesWebRunMaxQueries),
+		}
 	}
 	for i := range parsed.SearchQuery {
 		parsed.SearchQuery[i].Q = strings.TrimSpace(parsed.SearchQuery[i].Q)
@@ -223,7 +245,10 @@ func parseOpenAIResponsesWebRunArguments(arguments string, remainingQueries int)
 
 func parseOpenAIResponsesTypedWebSearchArguments(arguments string, remainingQueries int) (*openAIResponsesWebRunArguments, *openAIResponsesWebRunError) {
 	if remainingQueries < 1 {
-		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request has reached the maximum of 4 web search queries"}
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("The request has reached the maximum of %d web search queries", openAIResponsesWebRunMaxQueries),
+		}
 	}
 	trimmed := strings.TrimSpace(arguments)
 	if trimmed == "" {
@@ -242,8 +267,17 @@ func parseOpenAIResponsesTypedWebSearchArguments(arguments string, remainingQuer
 	if len(parsed.SearchQuery) == 0 {
 		return nil, &openAIResponsesWebRunError{Code: "invalid_tool_arguments", Message: "web_search search_query must contain at least one query"}
 	}
+	if len(parsed.SearchQuery) > openAIResponsesWebRunMaxQueriesPerCall {
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("Each web_search call supports at most %d web search queries", openAIResponsesWebRunMaxQueriesPerCall),
+		}
+	}
 	if len(parsed.SearchQuery) > remainingQueries {
-		return nil, &openAIResponsesWebRunError{Code: "search_limit_exceeded", Message: "The request supports at most 4 web search queries"}
+		return nil, &openAIResponsesWebRunError{
+			Code:    "search_limit_exceeded",
+			Message: fmt.Sprintf("The request supports at most %d web search queries", openAIResponsesWebRunMaxQueries),
+		}
 	}
 	result := &openAIResponsesWebRunArguments{SearchQuery: make([]openAIResponsesWebRunQuery, 0, len(parsed.SearchQuery))}
 	for _, query := range parsed.SearchQuery {
@@ -482,23 +516,32 @@ func (s *OpenAIGatewayService) forwardResponsesViaWebRunChatCompletions(
 			resultOptions.AppendSources = options.AppendSources && typedWebSearchExecuted
 			return s.writeOpenAIResponsesWebRunResult(c, ccResp, responseHeaders, requestID, aggregateUsage, webSearchCalls, webSearchItems, webSearchSources, resultOptions)
 		}
-		if webRunRounds >= openAIResponsesWebRunMaxRounds {
-			errMessage := "web search exceeded the maximum of 2 internal tool rounds"
-			if toolConfig.Kind == openAIResponsesInternalWebToolWebRun {
-				errMessage = "web.run exceeded the maximum of 2 search tool rounds"
-			}
-			err := errors.New(errMessage)
-			writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", err.Error())
-			return nil, err
-		}
 		maxToolRounds := toolConfig.MaxRounds
 		if maxToolRounds < 1 {
 			maxToolRounds = openAIResponsesWebRunMaxRounds
 		}
-		if toolRounds[toolConfig.Name] >= maxToolRounds {
-			err := fmt.Errorf("%s exceeded the configured maximum of %d search tool rounds", toolConfig.Name, maxToolRounds)
-			writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", err.Error())
-			return nil, err
+		globalRoundLimitReached := webRunRounds >= openAIResponsesWebRunMaxRounds
+		toolRoundLimitReached := toolRounds[toolConfig.Name] >= maxToolRounds
+		if globalRoundLimitReached || toolRoundLimitReached {
+			// 搜索额度耗尽后仍需补齐当前 tool_call 的结果，再移除内部搜索工具继续生成。
+			// 这样既避免无界循环，也不会把网关的内部保护机制作为 502 暴露给客户端。
+			toolOutput := marshalOpenAIResponsesWebRunOutput(openAIResponsesWebRunOutput{
+				Error: &openAIResponsesWebRunError{
+					Code:    "search_limit_reached",
+					Message: "Web search limit reached. Use the available search results to answer without calling web search again.",
+				},
+			})
+			appendOpenAIResponsesWebRunMessages(chatReq, choice.Message, webRunCall, toolOutput, webRunRounds+1)
+			disableOpenAIResponsesInternalWebTools(chatReq, options.InternalWebTools, toolConfig.Name, globalRoundLimitReached)
+			logger.L().Info("openai internal web search limit reached; continuing without the exhausted tool",
+				zap.Int64("account_id", account.ID),
+				zap.String("model", options.OriginalModel),
+				zap.String("tool", toolConfig.Name),
+				zap.Int("search_rounds", webRunRounds),
+				zap.Int("tool_rounds", toolRounds[toolConfig.Name]),
+				zap.Bool("global_limit", globalRoundLimitReached),
+			)
+			continue
 		}
 		webRunRounds++
 		toolRounds[toolConfig.Name]++
@@ -618,6 +661,49 @@ func appendOpenAIResponsesWebRunMessages(
 		Content:    content,
 		ToolCallID: callID,
 	})
+}
+
+// disableOpenAIResponsesInternalWebTools 移除已耗尽的内部搜索工具，并把遗留的强制
+// tool_choice 降级为 auto，避免下一轮引用已经不存在的工具而被上游拒绝。
+func disableOpenAIResponsesInternalWebTools(
+	req *apicompat.ChatCompletionsRequest,
+	internalTools map[string]openAIResponsesInternalWebToolConfig,
+	exhaustedToolName string,
+	disableAll bool,
+) {
+	if req == nil {
+		return
+	}
+
+	remainingTools := req.Tools[:0]
+	for _, tool := range req.Tools {
+		toolName := ""
+		if tool.Function != nil {
+			toolName = tool.Function.Name
+		}
+		_, internal := internalTools[toolName]
+		if internal && (disableAll || toolName == exhaustedToolName) {
+			delete(internalTools, toolName)
+			continue
+		}
+		remainingTools = append(remainingTools, tool)
+	}
+	if disableAll {
+		for toolName := range internalTools {
+			delete(internalTools, toolName)
+		}
+	} else {
+		delete(internalTools, exhaustedToolName)
+	}
+
+	req.Tools = remainingTools
+	if len(req.Tools) == 0 {
+		req.Tools = nil
+		req.ToolChoice = nil
+		req.ParallelToolCalls = nil
+		return
+	}
+	req.ToolChoice = json.RawMessage(`"auto"`)
 }
 
 func deterministicOpenAIResponsesWebRunCallID(round int, name, arguments string) string {

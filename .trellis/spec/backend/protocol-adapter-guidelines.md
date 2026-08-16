@@ -1325,9 +1325,9 @@ channel.features_config.codex_web_search_bridge.openai: boolean
 - typed Web Search 复用原始工具的 `search_context_size`、`filters.allowed_domains`、`filters.blocked_domains` 和 `max_uses` 约束。为优先保持请求可执行，本地模拟接受并忽略 `external_web_access` 的缺失、`true` 和 `false`，始终调用实时搜索 provider；`false` 只是兼容降级，不代表实现了缓存/索引模式。`user_location`、`return_token_budget` 等其它无本地等价物的字段仍返回 `400 invalid_request_error`、`param=tools`。
 - Chat fallback 必须用 namespace 映射精确识别 `namespace=web,name=run`；只有最终账号策略允许模拟时才进入服务端循环。全局 provider 开关不能把关闭或未配置的账号隐式改为开启。
 - 服务端接管后只向 Chat 上游声明 `search_query` 与可选 `response_length`，并设置 `parallel_tool_calls=false`。不能声明或执行 `weather/open/click/find/screenshot/image_query/finance/sports`；天气问题由模型生成普通搜索词。
-- `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
-- `web.run` 和 typed Web Search 共用内部循环：内部模型请求固定使用同一账号、映射后模型和非流式 Chat；每个请求最多消费 2 轮 Web 工具调用、累计最多 4 个查询。typed Web Search 的 `max_uses` 还会收窄自身轮次；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
-- 同一轮只允许一个内部 Web 工具调用；内部搜索与客户端工具并行返回时必须返回 `502 api_error`，不能部分执行。`web.run` 超过两轮时保留既有错误文本 `web.run exceeded the maximum of 2 search tool rounds`，避免依赖稳定诊断文本的客户端回归。
+- 单次 `search_query` 必须是 1 至 4 项的数组，每项包含 trim 后非空的 `q`；单个入站请求累计最多执行 5 个查询。可选 `recency` 只生成 `recency_not_enforced` 警告。`response_length=short|medium|long` 分别限制每个查询回灌 3/5/10 条结果，缺失时使用 medium。
+- `web.run` 和 typed Web Search 共用内部循环：内部模型请求固定使用同一账号、映射后模型和非流式 Chat；单个入站请求最多消费 5 轮 Web 工具调用、累计最多 5 个查询。typed Web Search 的 `max_uses` 还会收窄自身轮次；assistant tool call 与 `role=tool` 消息必须使用同一 call ID，缺失 ID 时生成稳定 fallback。
+- 同一轮只允许一个内部 Web 工具调用；内部搜索与客户端工具并行返回时必须返回 `502 api_error`，不能部分执行。达到全局 5 轮或 typed Web Search 的 `max_uses` 后，网关必须回灌 `search_limit_reached` tool result，移除已耗尽的内部搜索工具并继续生成最终回答；不得向客户端返回内部轮次限制的 `502` 或 `response.failed`。仍有客户端工具时把遗留的强制 `tool_choice` 降级为 `auto`，没有剩余工具时清除 `tool_choice`。
 - 已消费的内部 `web.run` function call 不能下发给客户端。每个已尝试的 `search_query` 必须投影为标准 Responses `web_search_call`：使用稳定 `ws_` ID、`action.type="search"`、原查询文本以及 `completed/failed` 状态，并排列在最终文本或其它客户端工具之前。
 - 流式客户端必须收到 `response.output_item.added/done` 的 `web_search_call` 生命周期，后续最终响应事件的 `output_index` 必须按搜索项数量整体偏移，`response.completed.output` 也必须包含同一批搜索项。内部模型轮次仍保持缓冲，只有循环结束后才提交下游 SSE，避免搜索代理 failover 或后续模型错误发生在响应已提交之后。
 - 所有内部模型轮次的 token usage 必须累加；`WebSearchCalls` 只累计真实成功完成的 provider 查询。参数错误、未支持命令、provider 失败和未实际执行的工具调用不计 Web Search 次数。
@@ -1376,9 +1376,10 @@ channel.features_config.codex_web_search_bridge.openai: boolean
 | `web.run` 只有未支持命令或参数非法 | 回灌稳定 tool error，不调用 provider、不计 Web Search 次数 |
 | `web.run` provider 普通失败 | 回灌 `web_search_failed` tool result，允许模型生成可诊断回答，失败查询不计费 |
 | `web.run` 账号代理不可用 | 返回 `UpstreamFailoverError`，由既有账号切换链重试 |
-| `web.run` 累计查询超过 4 个 | 回灌 `search_limit_exceeded` tool result，不执行该批 provider 调用 |
-| `web.run` 超过 2 轮搜索 | 返回 `502 api_error`，停止续跑，不执行第三轮 provider 调用 |
-| typed Web Search 达到 `max_uses` 或内部循环达到 2 轮 | 返回 `502 api_error`，停止续跑，不执行超限 provider 调用 |
+| 单次 `web.run` 或 typed Web Search 包含超过 4 个查询 | 回灌 `search_limit_exceeded` tool result，不执行该批 provider 调用 |
+| `web.run` 累计查询超过 5 个 | 回灌 `search_limit_exceeded` tool result，不执行该批 provider 调用 |
+| `web.run` 超过 5 轮搜索 | 回灌 `search_limit_reached`，移除内部搜索工具并继续生成最终回答，不执行第六轮 provider 调用 |
+| typed Web Search 达到 `max_uses` 或内部循环达到 5 轮 | 回灌 `search_limit_reached`，移除已耗尽的内部搜索工具并继续生成最终回答，不执行超限 provider 调用 |
 | 同一轮同时返回 `web.run` 与客户端工具 | 返回 `502 api_error`，不能部分执行或错配 tool result |
 | typed Web Search 成功且最终返回普通文本 | 搜索项位于消息前；追加去重、最多 5 条的真实来源和精确 `url_citation` |
 | typed Web Search 成功但最终返回客户端工具或结构化文本 | 保留 `web_search_call`，不追加 `Sources:` 或 annotation |
@@ -1419,7 +1420,7 @@ channel.features_config.codex_web_search_bridge.openai: boolean
 - 隐式桥 fallback 必须覆盖：模型不搜索时一次 Chat 且不计费；模型搜索时同 call ID 回灌、同账号续跑、流式/非流式 `web_search_call`、来源、Unicode citation、usage 聚合、provider 失败/代理 failover、查询/轮次上限、结构化输出和客户端断连。
 - 前端必须覆盖：账号三态严格布尔归一化、`inherit` 删除字段、未知 `extra` 保留、渠道 OpenAI-only 序列化、未知 `features_config` 保留、管理页面回填/保存、全局配置不可用时的展示条件和最终中英文 key。
 - typed Web Search 循环必须覆盖：模型不搜索、选择 function/custom/namespace/tool_search、代理名冲突、重复 typed 工具、无等价字段、`max_uses`、并行客户端调用、provider 失败、代理 failover、usage/成功调用数累计、流式/非流式来源、Unicode rune 索引、结构化文本和客户端断连。
-- `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、跨轮次 4 查询上限、2 轮上限、旧错误文本、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
+- `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、单次 4 查询边界、跨轮次累计 5 查询上限、5 轮软终止、无 `response.failed`、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
 - `web.run` 客户端可见事件必须断言：非流式 `output` 的搜索项位于最终消息之前；流式 `web_search_call added/done` 位于最终文本事件之前；所有后续 `output_index` 正确偏移；provider 普通失败投影为 `status=failed`；任何响应都不泄漏 `namespace=web` 的内部调用。
 - 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
 - SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。

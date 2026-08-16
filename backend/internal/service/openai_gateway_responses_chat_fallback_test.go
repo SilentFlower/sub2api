@@ -533,10 +533,10 @@ func TestForwardResponses_WebRunEnabledPreservesOtherClientToolStream(t *testing
 	require.NotContains(t, wire, `"namespace":"web"`)
 }
 
-func TestForwardResponses_WebRunStopsAfterTwoToolRounds(t *testing.T) {
+func TestForwardResponses_WebRunCompletesAfterSearchRoundLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enableOpenAIResponsesWebSearchTestManager(t)
-	body := openAIResponsesWebRunTestBody(false)
+	body := openAIResponsesWebRunTestBody(true)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -549,6 +549,10 @@ func TestForwardResponses_WebRunStopsAfterTwoToolRounds(t *testing.T) {
 		toolResponse("round_1", "query one"),
 		toolResponse("round_2", "query two"),
 		toolResponse("round_3", "query three"),
+		toolResponse("round_4", "query four"),
+		toolResponse("round_5", "query five"),
+		toolResponse("round_6", "query six"),
+		openAIResponsesWebRunTestResponse("round_final", `{"id":"round_final","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"已根据现有搜索结果完成回答"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}`),
 	}}
 	providerCalls := 0
 	svc := &OpenAIGatewayService{
@@ -565,12 +569,20 @@ func TestForwardResponses_WebRunStopsAfterTwoToolRounds(t *testing.T) {
 
 	result, err := svc.Forward(context.Background(), c, account, body)
 
-	require.Error(t, err)
-	require.Nil(t, result)
-	require.EqualError(t, err, "web.run exceeded the maximum of 2 search tool rounds")
-	require.Equal(t, 2, providerCalls)
-	require.Len(t, upstream.bodies, 3)
-	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 5, result.WebSearchCalls)
+	require.Equal(t, 5, providerCalls)
+	require.Len(t, upstream.bodies, 7)
+	finalRequest := upstream.bodies[6]
+	require.False(t, gjson.GetBytes(finalRequest, "tools").Exists())
+	require.False(t, gjson.GetBytes(finalRequest, "tool_choice").Exists())
+	require.Contains(t, gjson.GetBytes(finalRequest, "messages.12.content").String(), "search_limit_reached")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "已根据现有搜索结果完成回答")
+	require.NotContains(t, rec.Body.String(), "response.failed")
+	require.NotContains(t, rec.Body.String(), "Upstream request failed")
 }
 
 func TestForwardResponses_WebRunProviderFailureContinuesWithoutBilling(t *testing.T) {
@@ -682,7 +694,7 @@ func TestForwardResponses_WebRunGeneratesMissingCallID(t *testing.T) {
 	require.Equal(t, expectedCallID, gjson.GetBytes(upstream.bodies[1], "messages.2.tool_call_id").String())
 }
 
-func TestForwardResponses_WebRunEnforcesFourQueryLimitAcrossRounds(t *testing.T) {
+func TestForwardResponses_WebRunEnforcesFiveQueryLimitAcrossRounds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enableOpenAIResponsesWebSearchTestManager(t)
 	body := openAIResponsesWebRunTestBody(false)
@@ -693,7 +705,7 @@ func TestForwardResponses_WebRunEnforcesFourQueryLimitAcrossRounds(t *testing.T)
 
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		openAIResponsesWebRunTestResponse("rid_query_limit_1", `{"id":"chatcmpl_query_limit_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_query_limit_1","type":"function","function":{"name":"web__run","arguments":"{\"search_query\":[{\"q\":\"one\"},{\"q\":\"two\"},{\"q\":\"three\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`),
-		openAIResponsesWebRunTestResponse("rid_query_limit_2", `{"id":"chatcmpl_query_limit_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_query_limit_2","type":"function","function":{"name":"web__run","arguments":"{\"search_query\":[{\"q\":\"four\"},{\"q\":\"five\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`),
+		openAIResponsesWebRunTestResponse("rid_query_limit_2", `{"id":"chatcmpl_query_limit_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_query_limit_2","type":"function","function":{"name":"web__run","arguments":"{\"search_query\":[{\"q\":\"four\"},{\"q\":\"five\"},{\"q\":\"six\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`),
 		openAIResponsesWebRunTestResponse("rid_query_limit_3", `{"id":"chatcmpl_query_limit_3","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"已使用现有搜索结果"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":2,"total_tokens":11}}`),
 	}}
 	providerCalls := 0
@@ -718,6 +730,7 @@ func TestForwardResponses_WebRunEnforcesFourQueryLimitAcrossRounds(t *testing.T)
 	require.Len(t, upstream.bodies, 3)
 	toolOutput := gjson.GetBytes(upstream.bodies[2], "messages.4.content").String()
 	require.Contains(t, toolOutput, "search_limit_exceeded")
+	require.Contains(t, toolOutput, "at most 5 web search queries")
 	require.Equal(t, "call_query_limit_2", gjson.GetBytes(upstream.bodies[2], "messages.4.tool_call_id").String())
 	require.Equal(t, "one", gjson.Get(rec.Body.String(), "output.0.action.query").String())
 	require.Equal(t, "two", gjson.Get(rec.Body.String(), "output.1.action.query").String())
@@ -1182,6 +1195,7 @@ func TestForwardResponses_TypedWebSearchHonorsMaxUses(t *testing.T) {
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		openAIResponsesWebRunTestResponse("rid_typed_max_1", `{"id":"chatcmpl_typed_max_1","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_max_1","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"one\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`),
 		openAIResponsesWebRunTestResponse("rid_typed_max_2", `{"id":"chatcmpl_typed_max_2","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_typed_max_2","type":"function","function":{"name":"sub2api_web_search","arguments":"{\"search_query\":[{\"q\":\"two\"}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`),
+		openAIResponsesWebRunTestResponse("rid_typed_max_final", `{"id":"chatcmpl_typed_max_final","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"已使用首次搜索结果完成回答"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}}`),
 	}}
 	searchCalls := 0
 	svc := &OpenAIGatewayService{
@@ -1198,11 +1212,16 @@ func TestForwardResponses_TypedWebSearchHonorsMaxUses(t *testing.T) {
 
 	result, err := svc.Forward(context.Background(), c, account, body)
 
-	require.ErrorContains(t, err, "exceeded the configured maximum of 1 search tool rounds")
-	require.Nil(t, result)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 	require.Equal(t, 1, searchCalls)
-	require.Len(t, upstream.bodies, 2)
-	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Len(t, upstream.bodies, 3)
+	finalRequest := upstream.bodies[2]
+	require.Equal(t, "auto", gjson.GetBytes(finalRequest, "tool_choice").String())
+	require.Empty(t, gjson.GetBytes(finalRequest, `tools.#(function.name=="sub2api_web_search")`).String())
+	require.Contains(t, gjson.GetBytes(finalRequest, "messages.4.content").String(), "search_limit_reached")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "已使用首次搜索结果完成回答", gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
 }
 
 func TestForwardResponses_TypedWebSearchStreamingEmitsCitationLifecycle(t *testing.T) {
@@ -1406,6 +1425,47 @@ func TestParseOpenAIResponsesWebRunArgumentsRejectsUnsupportedAndOverLimit(t *te
 	require.Nil(t, parsed)
 	require.NotNil(t, toolErr)
 	require.Equal(t, "search_limit_exceeded", toolErr.Code)
+}
+
+func TestParseOpenAIResponsesInternalWebToolArgumentsEnforcesPerCallQueryLimit(t *testing.T) {
+	require.Equal(t, int64(openAIResponsesWebRunMaxQueriesPerCall), gjson.Get(openAIResponsesWebRunToolSchema, "properties.search_query.maxItems").Int())
+	require.Equal(t, int64(openAIResponsesWebRunMaxQueriesPerCall), gjson.Get(openAIResponsesTypedWebSearchToolSchema, "properties.search_query.maxItems").Int())
+
+	arguments := `{"search_query":[{"q":"one"},{"q":"two"},{"q":"three"},{"q":"four"},{"q":"five"}]}`
+	tests := []struct {
+		name   string
+		config openAIResponsesInternalWebToolConfig
+	}{
+		{
+			name: "web.run",
+			config: openAIResponsesInternalWebToolConfig{
+				Name: "web__run",
+				Kind: openAIResponsesInternalWebToolWebRun,
+			},
+		},
+		{
+			name: "typed web_search",
+			config: openAIResponsesInternalWebToolConfig{
+				Name: openAIResponsesTypedWebSearchToolName,
+				Kind: openAIResponsesInternalWebToolTypedSearch,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, toolErr := parseOpenAIResponsesInternalWebToolArguments(
+				tt.config,
+				arguments,
+				openAIResponsesWebRunMaxQueries,
+			)
+
+			require.Nil(t, parsed)
+			require.NotNil(t, toolErr)
+			require.Equal(t, "search_limit_exceeded", toolErr.Code)
+			require.Contains(t, toolErr.Message, "at most 4 web search queries")
+		})
+	}
 }
 
 func TestFindOpenAIResponsesWebRunToolSupportsTopLevelAndAdditionalTools(t *testing.T) {
