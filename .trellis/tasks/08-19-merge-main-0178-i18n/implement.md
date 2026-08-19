@@ -40,8 +40,13 @@
 - [x] 运行 OAuth/API Key/compact/Chat fallback 与 Responses Lite 策略聚焦测试。
 - [x] 运行前端 `pnpm typecheck` 和 `pnpm lint:check`。
 - [x] 运行前端全量 Vitest：248 个测试文件、1709 个测试通过。
+- [x] 运行前端生产构建，Vite 构建通过。
 - [x] 修复后重新运行 `go test -tags=unit ./... -count=1`，所有包通过；
   `internal/service` 非缓存耗时 162.386 秒。
+- [x] 二次全面复审运行 `go test -tags=integration ./... -count=1` 与
+  `golangci-lint v2.9`，全部通过，lint 为 `0 issues`。
+- [x] 对共同基线执行三方树核对：54 个双方共同修改文件逐项复审；除 8 个明确交互
+  修复点外，668 个 build 独有文件与 296 个 main 独有文件均与所属父分支一致。
 - [x] 运行 `git diff --cached --check` 和 `git ls-files -u`，结果通过。
 
 ## 6. 任务与 Git 收尾
@@ -50,6 +55,6 @@
 - [x] 生成并展示最新 `brief.md`，等待用户确认回溯任务记录。
 - [x] Repair Check-All 通过，剩余 `CHK=0`、`FBK=0`；将最终上游模型解析契约写入
   `.trellis/spec/backend/protocol-adapter-guidelines.md`。
-- [ ] 通过 `trellis-push` 展示精确 merge commit 计划并取得确认。
-- [ ] 创建双父 merge commit，验证父提交和 `origin/main` 祖先关系。
-- [ ] 如用户确认推送，则以普通模式推送 `build -> origin/build`；禁止 force push。
+- [x] 通过 `trellis-push` 展示精确 merge commit 计划并取得确认。
+- [x] 创建双父 merge commit，验证父提交和 `origin/main` 祖先关系。
+- [x] 经用户确认后以普通模式推送 `build -> origin/build`；未使用 force push。

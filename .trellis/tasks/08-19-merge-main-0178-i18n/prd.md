@@ -60,13 +60,13 @@
   回归用例通过。
 - [x] 中英文主 locale 与 `build` locale extension 均成对存在；locale 编译、键冲突、
   build 扩展和 Responses Lite 文案专项测试通过。
-- [x] 前端 `pnpm typecheck`、`pnpm lint:check` 和全量 Vitest 通过，共 248 个测试文件、
-  1709 个测试。
-- [x] 后端完整 `go test -tags=unit ./...` 通过；`internal/service` 非缓存运行耗时
-  162.386 秒并通过。
-- [ ] 创建双父 merge commit，并验证两个父提交分别为合并前 `build@442ad2e20` 与
+- [x] 前端 `pnpm typecheck`、`pnpm lint:check`、生产构建和全量 Vitest 通过，共
+  248 个测试文件、1709 个测试。
+- [x] 后端完整 unit、integration 测试与 `golangci-lint v2.9` 通过；lint 为
+  `0 issues`。
+- [x] 创建双父 merge commit，并验证两个父提交分别为合并前 `build@442ad2e20` 与
   `origin/main@359fd12b2`。
-- [ ] 是否推送 `origin/build` 由后续精确 Git 计划和用户确认决定；不得 force push。
+- [x] 经用户确认后普通推送 `build -> origin/build`；未使用 force push。
 
 ## Out Of Scope
 

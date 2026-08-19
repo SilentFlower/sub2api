@@ -37,16 +37,18 @@
 ## Key Context
 
 - 合并目标 `359fd12b2`，共同基线 `fbfdcef81`，双方独有提交数 `241 / 124`。
-- 当前处于真实 merge 未提交状态，未合并索引为空；`CHK-001` 修复覆盖 12 个后端
-  实现/测试文件。
+- 双父 merge commit `c50a16338` 已创建并普通推送到 `origin/build`；两个父提交分别为
+  `442ad2e20` 与 `359fd12b2`，且 `origin/main` 是该提交祖先。
+- `CHK-001` 修复覆盖 12 个后端实现/测试文件；合并后复审确认双方独有文件除 8 个
+  明确交互修复点外均与所属父分支逐字一致。
 - 任务为用户要求的回溯建档，真实实现和验证先于任务创建发生。
 - 详细冲突矩阵与路径契约见 `design.md`，实际完成项和验证命令见 `implement.md`。
 
 ## Risks / Deferred
 
-- 双父 merge commit 尚未创建；提交和是否推送 `origin/build` 仍受 `trellis-push` 精确
-  文件范围与用户确认门禁约束。
-- task 文件当前作为回溯记录保留，不应未经核对混入产品 merge 的 staged 文件集合。
+- 未向真实 OpenAI、xAI 或国产供应商上游发起在线请求；本地 unit、integration、lint
+  与前端全量验证均已通过。
+- task 与规范文件属于本轮复审记录，不应混入业务 merge commit。
 
 ## Acceptance
 
@@ -54,11 +56,10 @@
 - OAuth、API Key、compact 和 Responses-to-Chat 四种模型映射契约均通过回归测试。
 - OAuth 渠道限制、API Key/compact Lite 与 compact reasoning 组合回归均通过。
 - 中英文主 locale 与 build 扩展成对存在，locale 编译、键冲突及专项测试通过。
-- 前端 typecheck、lint 和 1709 个 Vitest 全部通过；修复后后端
-  `go test -tags=unit ./... -count=1` 全部通过。
+- 前端 typecheck、lint、生产构建和 1709 个 Vitest 全部通过；后端 unit、integration
+  与 `golangci-lint v2.9` 全部通过。
 - 最终 merge commit 的两个父提交必须分别为 `442ad2e20` 与 `359fd12b2`。
 
 ## Next Step
 
-- Check-All 重检与 `trellis-update-spec` 已完成；进入 `trellis-push` 精确 merge commit 与
-  `build -> origin/build` 推送确认。
+- 等待用户确认本轮全面审查结果；确认后进入任务收尾与记录提交。
