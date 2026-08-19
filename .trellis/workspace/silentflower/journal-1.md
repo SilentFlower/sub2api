@@ -812,3 +812,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: 合并 main 0.1.178 到 build 并保护多语言
+
+**Date**: 2026-08-19
+**Task**: 合并 main 0.1.178 到 build 并保护多语言
+**Branch**: `build`
+
+### Summary
+
+完成 main 0.1.178 双父合并、11 个冲突与无标记语义回归修复，保护中英文 i18n 扩展，完成前后端全量验证、发布审计和任务归档。
+
+### Main Changes
+
+- 保留 main 与 build 双方功能并统一最终上游模型映射契约
+- 新增归档发布说明，记录 222-226 自动数据库迁移与部署验证要求
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c50a1633860e4445aa2b58b3a543cedac8caa9dd` | (see git log) |
+| `38fa70276f2f5ad170692fab0116b02f6ef3d274` | (see git log) |
+
+### Testing
+
+- [OK] 后端 unit、integration 与 golangci-lint 通过
+- [OK] 前端 typecheck、lint、build 与 1709 个 Vitest 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后执行真实 OpenAI、xAI 与国产供应商协议和配额冒烟验证

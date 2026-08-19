@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
-- **Last Active**: 2026-08-14
+- **Total Sessions**: 26
+- **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~814 | Active |
+| `journal-1.md` | ~850 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-08-19 | 合并 main 0.1.178 到 build 并保护多语言 | `c50a1633860e4445aa2b58b3a543cedac8caa9dd`, `38fa70276f2f5ad170692fab0116b02f6ef3d274` | `build` |
 | 25 | 2026-08-14 | DeepSeek 缺失推理内容自动降级 | `98e75ac83` | `build` |
 | 24 | 2026-08-14 | 合并 main 0.1.176 到 build | `5a2179828`, `d44f715ac` | `build` |
 | 23 | 2026-08-13 | 完成 Responses Lite Web Search 桥接 | `9e1ef7564` `802dadf5a` | `build` |
