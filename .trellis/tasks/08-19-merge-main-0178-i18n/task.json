@@ -1,0 +1,38 @@
+{
+  "id": "merge-main-0178-i18n",
+  "name": "merge-main-0178-i18n",
+  "title": "合并 main 0.1.178 到 build 并保护多语言",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-19",
+  "completedAt": "2026-08-19",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "updatedAt": "2026-08-19T12:08:10+08:00",
+    "completedSteps": [
+      "将 origin/main 0.1.178 双父合并到 build",
+      "解决 11 个硬冲突并修复最终上游模型解析回归",
+      "保护中英文 i18n 扩展并完成前后端全量验证",
+      "更新协议适配规范并推送业务合并"
+    ],
+    "partialStep": null,
+    "nextStep": "运行 trellis-finish-work 完成会话收尾与任务归档",
+    "notes": ""
+  }
+}
