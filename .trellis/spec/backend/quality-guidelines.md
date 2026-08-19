@@ -94,7 +94,7 @@ rg "type .*Stub|type .*Mock" internal
 
 ## Common Mistakes
 
-- `DEV_GUIDE.md`、`backend/go.mod` 与 CI workflow 当前统一为 Go `1.26.5`。涉及版本判断时仍先核对实际 CI 文件，不要只修改或引用单一来源。
+- `DEV_GUIDE.md`、`backend/go.mod` 与 CI workflow 当前统一为 Go `1.26.6`。涉及版本判断时仍先核对实际 CI 文件，不要只修改或引用单一来源。
 - pnpm 和 npm 混用会导致前端 lock/node_modules 问题，后端改动同时触及前端依赖时仍要使用 pnpm。
 - PowerShell 中 bcrypt hash 的 `$` 会被解释，执行 SQL 时优先写入文件再 `psql -f`。
 - 批量修改账号或模型映射前要按平台分组，避免 OpenAI、Antigravity、Gemini 的映射策略互相覆盖。
