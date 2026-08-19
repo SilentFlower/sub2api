@@ -202,7 +202,7 @@ helper 写入规则：保留另一个 target 的 runtime 决策和偏好；覆�
 | `inline check-all` | `Skill({skill: "trellis-check-all"})` |
 | `subagent check-all` | 读取 catalog 当前平台条目，只调用 `checkAll.target` 声明的专用 audit-only `trellis-check-all` 角色，并按 `checkAll.launch` 启动；subagent 只返回 `CHK-*` / `FBK-*` / `DOC-*` 候选，不写文件。目标缺失、host 未发现或资格不成立时停止并请用户改选 inline；禁止通用 agent 与 `trellis-check` fallback |
 
-implement 路由只决定执行位置，不拥有实现后的停止策略。无论 inline 或 subagent，focused validation 完成后都必须返回 workflow Phase 2.1 的 completion contract；由该 owner 处理 auto-loop、用户显式继续/暂缓、已有 hold 和默认立即 Check-All 的优先级。
+implement 路由只决定执行位置，不拥有实现后的停止策略。无论 inline 或 subagent，focused validation 完成后都必须返回 workflow Phase 2.1 的 completion contract，并在当前回合实际执行该 owner 解析出的 Pre-Check action：auto-loop、用户显式继续/暂缓和已有 hold 按 owner 结果处理；默认分支必须立即进入 `trellis-route(target=check)`。不得先询问是否运行 Check-All，也不得把 Check-All 作为可选下一步后结束回合。
 
 ### 平台 Dispatch Catalog
 
@@ -226,7 +226,7 @@ Active task: <task path from task.py current>
 必须：
 1. 读取 <task>/check.jsonl 及其列出的文件，再读取 prd.md、design.md（若存在）、implement.md（若存在）。
 2. 读取并遵循本地 trellis-check-all/SKILL.md；完成三件套实现、实现假设、完整性与规范三个维度。
-3. 先按本地 fallback findings 规则判定 `CHK-*` / `FBK-*`，再为两类问题分配 P0/P1/P2；已声明的兜底契约只影响证据和严重度，不改变 `FBK-*` 归属。具备具体位置、可达场景和问题证据时返回 `FBK-*`，不要求异常已实际发生；保护收益和验证方式属于报告完整度，缺少验证环境时保留 ID 并标记部分验证。泛化建议不报告。低风险事实漂移使用 `DOC-*` 候选单独返回。
+3. 先按本地 fallback findings 规则判定 `CHK-*` / `FBK-*`，再为两类问题分配 P0/P1/P2；已声明的兜底契约只影响证据和严重度，不改变 `FBK-*` 归属。具备具体位置、可达场景和问题证据时返回 `FBK-*`，不要求异常已实际发生；保护收益和验证方式属于报告完整度。提交前应完成但证据不足时标记阻断型部分验证；本质依赖部署后、生产环境或外部系统的验收返回 `[上线后验证]`，不得执行且不得误标为阻断。泛化建议不报告。低风险事实漂移使用 `DOC-*` 候选单独返回。
 4. 只读审查；禁止编辑、写文件、补测试或自修复。Step 3 只复用 trellis-check 的检查清单，忽略其自动修复指令；`DOC-*` 也只能返回候选，由主会话按 Check-All 规则决定是否写入。
 5. 真正阻塞条件返回主会话，不替用户选择业务行为或修复范围。
 
