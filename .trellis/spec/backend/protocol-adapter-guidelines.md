@@ -1049,6 +1049,126 @@ model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 
 ---
 
+## Scenario: OpenAI Responses 最终上游模型解析
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 OpenAI Responses 的账号模型映射、API Key/OAuth 透传、compact、Responses -> Chat Completions 回退、频道模型限制、Responses Lite 判定或 reasoning effort 记录时，必须按本节检查。
+- 适用路径：
+  - `backend/internal/service/openai_model_mapping.go`
+  - `backend/internal/service/openai_gateway_forward.go`
+  - `backend/internal/service/openai_gateway_passthrough.go`
+  - `backend/internal/service/openai_gateway_request_body.go`
+  - `backend/internal/service/openai_gateway_scheduling.go`
+  - `backend/internal/service/openai_gateway_service.go`
+  - `backend/internal/service/openai_responses_lite_policy.go`
+- 目标：同一次 attempt 的请求体模型、频道限制、Lite 策略和 reasoning effort 必须基于同一个最终上游模型，不能各自重复模型映射顺序。
+
+### 2. Signatures
+
+```go
+func resolveOpenAIAccountUpstreamModelForRequest(
+	account *Account,
+	requestedModel string,
+	requireCompact bool,
+) string
+
+func extractOpenAIUpstreamReasoningEffort(
+	body []byte,
+	requestedModel string,
+	mappedModel string,
+	additionalModelCandidates ...string,
+) *string
+```
+
+共享解析结果至少由以下调用点消费：`forwardOpenAIPassthrough`、`resolveOpenAIResponsesLitePolicyModel`、`normalizeOpenAICodexCompactReasoningEffortForAccount` 和 `isUpstreamModelRestrictedByChannel`。
+
+### 3. Contracts
+
+- `requestedModel` 必须先 trim；空模型返回空字符串，不能凭账号类型补默认模型。
+- Responses -> Chat Completions 回退先于 passthrough 分支判定；该路径只应用普通 `model_mapping` 和既有上游归一化，不应用 compact 映射。
+- passthrough compact 必须直接用入站/频道映射后的模型查询 `compact_model_mapping`，不能先套普通 `model_mapping`。
+- OAuth passthrough 普通 Responses 必须应用普通账号映射，再执行 Codex 上游模型归一化。
+- API Key passthrough 普通 Responses 必须保持入站/频道映射后的模型；账号残留的普通 `model_mapping` 不能改写实际请求。
+- managed 普通请求沿用普通账号映射和上游归一化；managed compact 先应用普通映射，再按映射结果查询 compact 映射。
+- `forwardOpenAIPassthrough` 写入 body 的模型必须来自共享解析函数；Responses Lite、频道限制和 compact reasoning 不能另行调用 `GetMappedModel` 拼装近似结果。
+- passthrough reasoning effort 必须将实际 `upstreamModel` 作为候选传给 `extractOpenAIUpstreamReasoningEffort`；记录值不能只根据客户端模型或未生效的账号映射推断。
+- failover 每次 attempt 都必须按当前账号重新解析；频道调度上下文存在模型映射时，共享解析函数接收该频道映射结果，而不是回退到最初客户端别名。
+
+### 4. Validation & Error Matrix
+
+| 请求路径 | 普通映射 | compact 映射 | 最终模型规则 |
+|---|---|---|---|
+| OAuth passthrough 普通 Responses | 应用 | 不应用 | 普通映射后执行 Codex 归一化 |
+| API Key passthrough 普通 Responses | 不应用账号残留映射 | 不应用 | 保持入站/频道映射后的模型 |
+| passthrough compact | 不先应用 | 直接按当前请求模型应用 | 使用 compact 映射结果 |
+| passthrough 标记存在但 Responses 不受支持 | 应用 | 不应用 | 走 raw Chat fallback 的普通映射结果 |
+| managed 普通 Responses | 应用 | 不应用 | 普通映射后执行既有归一化 |
+| managed compact | 先应用 | 按普通映射结果应用 | 使用 compact 结果；未命中时沿用普通结果 |
+| 模型为空 | 不应用 | 不应用 | 返回空字符串 |
+
+所有分支解析完成后：请求体、频道 restriction、Responses Lite 和 reasoning effort 必须看到同一结果；任一消费者得到不同模型都属于阻塞回归。
+
+### 5. Good/Base/Bad Cases
+
+- Good: OAuth passthrough 的 `client-alias -> gpt-5.6` 最终写入 `gpt-5.6-sol`，频道限制和 Lite 判定也使用 `gpt-5.6-sol`。
+- Good: API Key passthrough 即使残留 `client-alias -> gpt-5.5`，普通 Responses 仍向上游发送 `client-alias`，reasoning 也不把残留映射当成实际模型。
+- Good: passthrough compact 同时配置普通映射和 compact 映射时，直接按 `client-alias` 命中 compact 模型，不经过普通映射。
+- Good: passthrough 账号不支持 Responses 时，raw Chat fallback 使用普通账号映射，并忽略 compact 标记。
+- Base: managed compact 未命中 compact 映射时，保持普通映射和既有归一化结果。
+- Base: 频道没有映射时，按客户端请求模型进入相同分支矩阵。
+- Bad: Lite 策略直接调用 `account.GetMappedModel(requestedModel)`，会错误阻止 API Key passthrough 或漏掉 compact/OAuth 最终模型。
+- Bad: passthrough compact 先执行普通映射再查 compact 映射，会让仅按客户端别名配置的 compact 映射失效。
+- Bad: 请求 body 使用最终模型，但频道限制或 reasoning 仍使用客户端模型，会造成调度通过后上游模型被限制，或 usage 记录错误档位。
+
+### 6. Tests Required
+
+- `TestResolveOpenAIAccountUpstreamModelForRequest` 必须覆盖 OAuth passthrough、API Key passthrough、passthrough compact、raw Chat fallback 和 managed compact 五条分支。
+- `TestIsUpstreamModelRestrictedByChannel_OAuthPassthroughUsesAccountMapping` 必须钉死频道限制使用 OAuth passthrough 的最终账号模型。
+- `TestApplyOpenAIResponsesLiteHTTPIngressPolicy_UsesPassthroughFinalModel` 必须覆盖 API Key 保持入站模型、OAuth 普通映射和 passthrough compact 直接映射。
+- `TestNormalizeOpenAICodexCompactReasoningEffortForAccountUsesFinalCompactModel` 必须覆盖“最终 compact 为 GPT-5.6 才降级”和“仅普通映射为 GPT-5.6 不误降级”两个方向。
+- `TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEndpoint` 必须断言 API Key passthrough body 不受残留普通映射影响，同时 reasoning 候选使用实际上游模型。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service \
+  -run 'ResolveOpenAIAccountUpstreamModelForRequest|IsUpstreamModelRestrictedByChannel_OAuthPassthroughUsesAccountMapping|ApplyOpenAIResponsesLiteHTTPIngressPolicy_UsesPassthroughFinalModel|NormalizeOpenAICodexCompactReasoningEffortForAccountUsesFinalCompactModel|APIKeyPassthrough_PreservesBodyAndUsesResponsesEndpoint' \
+  -count=1
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+upstreamModel := account.GetMappedModel(requestedModel)
+if compact {
+	upstreamModel = resolveOpenAICompactForwardModel(account, upstreamModel)
+}
+```
+
+问题：所有路径都按“普通映射后 compact”处理，破坏 API Key 原生透传、passthrough compact 和 raw Chat fallback 的不同契约。
+
+#### Correct
+
+```go
+upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(
+	account,
+	requestedModel,
+	compact,
+)
+reasoningEffort := extractOpenAIUpstreamReasoningEffort(
+	body,
+	requestedModel,
+	upstreamModel,
+)
+```
+
+共享解析函数拥有分支顺序；下游只消费最终模型，不重新解释账号类型、透传模式或 compact 映射。
+
+---
+
 ## Scenario: Codex 生图桥接与 Responses Lite 工具边界
 
 ### 1. Scope / Trigger

@@ -171,12 +171,7 @@ func (s *OpenAIGatewayService) resolveOpenAIResponsesLitePolicyModel(
 		return strings.TrimSpace(requestedModel)
 	}
 
-	finalModel := account.GetMappedModel(strings.TrimSpace(requestedModel))
-	if compact {
-		finalModel = resolveOpenAICompactForwardModel(account, finalModel)
-	} else {
-		finalModel = normalizeOpenAIModelForUpstream(account, finalModel)
-	}
+	finalModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, compact)
 	if !compact && isOpenAIImageGenerationModel(finalModel) {
 		finalModel = s.openAIImageGenerationMainModel(ctx)
 	}

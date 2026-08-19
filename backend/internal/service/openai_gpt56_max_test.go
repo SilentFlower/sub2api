@@ -99,6 +99,55 @@ func TestNormalizeOpenAICodexCompactReasoningEffortForAccountScopesCompatibility
 	}
 }
 
+func TestNormalizeOpenAICodexCompactReasoningEffortForAccountUsesFinalCompactModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name                string
+		modelMapping        string
+		compactModelMapping string
+		changed             bool
+		want                string
+	}{
+		{
+			name:                "最终 compact 模型为 GPT-5.6 时降级",
+			modelMapping:        "gpt-5.5",
+			compactModelMapping: "gpt-5.6-sol-openai-compact",
+			changed:             true,
+			want:                "xhigh",
+		},
+		{
+			name:                "仅普通映射为 GPT-5.6 时不误降级",
+			modelMapping:        "gpt-5.6-sol",
+			compactModelMapping: "gpt-5.5-openai-compact",
+			want:                "max",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses/compact", nil)
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping":         map[string]any{"client-alias": tt.modelMapping},
+					"compact_model_mapping": map[string]any{"client-alias": tt.compactModelMapping},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			}
+			body := []byte(`{"model":"client-alias","input":"compact me","reasoning":{"effort":"max"}}`)
+
+			normalized, changed, err := normalizeOpenAICodexCompactReasoningEffortForAccount(c, account, body)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.changed, changed)
+			require.Equal(t, tt.want, gjson.GetBytes(normalized, "reasoning.effort").String())
+		})
+	}
+}
+
 func TestOpenAIGatewayServiceForwardPreservesGPT56MaxEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{

@@ -463,6 +463,75 @@ func TestOpenAIGatewayServiceForward_AppliesResponsesLitePolicyToFinalModel(t *t
 	}
 }
 
+func TestApplyOpenAIResponsesLiteHTTPIngressPolicy_UsesPassthroughFinalModel(t *testing.T) {
+	settingService := NewSettingService(&settingValuesRepoStub{values: map[string]string{
+		SettingKeyOpenAIResponsesLiteHeaderBlockedModels: `["gpt-5.5"]`,
+	}}, &config.Config{})
+	svc := &OpenAIGatewayService{settingService: settingService}
+	tests := []struct {
+		name    string
+		account *Account
+		compact bool
+		want    string
+	}{
+		{
+			name: "API Key 透传按保持不变的入站模型放行 Lite",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"client-alias": "gpt-5.5"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			want: "all_turns",
+		},
+		{
+			name: "OAuth 透传普通请求按账号映射阻止 Lite",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"client-alias": "gpt-5.5"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			want: "current_turn",
+		},
+		{
+			name: "透传 compact 按原始模型的 compact 映射放行 Lite",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping":         map[string]any{"client-alias": "gpt-5.5"},
+					"compact_model_mapping": map[string]any{"client-alias": "gpt-5.6-sol-openai-compact"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			compact: true,
+			want:    "all_turns",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(`{
+				"model":"client-alias",
+				"reasoning":{"context":"current_turn"},
+				"input":"hello"
+			}`)
+
+			updated, err := svc.applyOpenAIResponsesLiteHTTPIngressPolicy(
+				context.Background(), tt.account, body, "true", tt.compact,
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, gjson.GetBytes(updated, "reasoning.context").String())
+		})
+	}
+}
+
 func requireResponsesLiteSlice(t *testing.T, value any) []any {
 	t.Helper()
 	result, ok := value.([]any)

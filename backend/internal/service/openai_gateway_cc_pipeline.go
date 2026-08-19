@@ -162,7 +162,7 @@ func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, acco
 			return "", "", fmt.Errorf("account %d missing grok credential", account.ID)
 		}
 	default:
-		apiKey = account.GetOpenAIApiKey()
+		apiKey = strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 		if apiKey == "" {
 			return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 		}

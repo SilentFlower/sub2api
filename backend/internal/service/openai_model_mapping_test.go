@@ -222,6 +222,98 @@ func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	}
 }
 
+func TestResolveOpenAIAccountUpstreamModelForRequest(t *testing.T) {
+	tests := []struct {
+		name           string
+		account        *Account
+		requestedModel string
+		requireCompact bool
+		expectedModel  string
+	}{
+		{
+			name: "OAuth 透传普通请求应用账号映射和 Codex 归一化",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"client-alias": "gpt-5.6"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			requestedModel: "client-alias",
+			expectedModel:  "gpt-5.6-sol",
+		},
+		{
+			name: "API Key 透传普通请求保持入站模型",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"client-alias": "gpt-5.5"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			requestedModel: "client-alias",
+			expectedModel:  "client-alias",
+		},
+		{
+			name: "透传 compact 直接使用原始模型的 compact 映射",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping":         map[string]any{"client-alias": "gpt-5.5"},
+					"compact_model_mapping": map[string]any{"client-alias": "gpt-5.6-sol-openai-compact"},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			requestedModel: "client-alias",
+			requireCompact: true,
+			expectedModel:  "gpt-5.6-sol-openai-compact",
+		},
+		{
+			name: "Responses 降级 Chat 时应用普通账号映射",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"client-alias": "gpt-5.5"},
+				},
+				Extra: map[string]any{
+					"openai_passthrough":         true,
+					"openai_responses_supported": false,
+				},
+			},
+			requestedModel: "client-alias",
+			requireCompact: true,
+			expectedModel:  "gpt-5.5",
+		},
+		{
+			name: "managed compact 先应用普通映射再应用 compact 映射",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping":         map[string]any{"client-alias": "gpt-5.5"},
+					"compact_model_mapping": map[string]any{"gpt-5.5": "gpt-5.5-openai-compact"},
+				},
+			},
+			requestedModel: "client-alias",
+			requireCompact: true,
+			expectedModel:  "gpt-5.5-openai-compact",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveOpenAIAccountUpstreamModelForRequest(tt.account, tt.requestedModel, tt.requireCompact)
+			if got != tt.expectedModel {
+				t.Fatalf("resolveOpenAIAccountUpstreamModelForRequest(...) = %q, want %q", got, tt.expectedModel)
+			}
+		})
+	}
+}
+
 func TestNormalizeCodexModel(t *testing.T) {
 	cases := map[string]string{
 		"gpt-5.6-sol-max":           "gpt-5.6-sol",

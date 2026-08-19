@@ -21,6 +21,44 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatc
 	return mappedModel
 }
 
+// resolveOpenAIAccountUpstreamModelForRequest 解析 Responses 请求实际发送给账号上游的模型。
+// 透传模式必须区分 OAuth、API Key、compact 与 Chat Completions fallback，避免调度、
+// Lite 策略和请求改写分别维护不一致的映射顺序。
+func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return ""
+	}
+
+	// Forward 会先于 passthrough 判定 Responses -> Chat fallback；该路径只应用普通映射。
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+		return normalizeOpenAIModelForUpstream(account, upstreamModel)
+	}
+
+	if account != nil && account.IsOpenAIPassthroughEnabled() {
+		// compact 直接按入站模型查询 compact_model_mapping，不能先套普通映射。
+		if requireCompact {
+			return resolveOpenAICompactForwardModel(account, requestedModel)
+		}
+		// OAuth 仍需应用账号别名并收敛为 Codex 上游模型；API Key 原生透传保持入站模型。
+		if account.Type == AccountTypeOAuth {
+			upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+			return normalizeOpenAIModelForUpstream(account, upstreamModel)
+		}
+		return requestedModel
+	}
+
+	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+	if requireCompact {
+		compactModel := resolveOpenAICompactForwardModel(account, upstreamModel)
+		if compactModel != upstreamModel {
+			return compactModel
+		}
+	}
+	return normalizeOpenAIModelForUpstream(account, upstreamModel)
+}
+
 // openAIOAuthForeignModelPrefixes 列出明确属于其他厂商家族的模型名前缀。
 // Codex 上游不可能服务这些模型：转发阶段 normalizeOpenAIModelForUpstream
 // 对未知模型原样透传，上游必然返回不可重试的 400。

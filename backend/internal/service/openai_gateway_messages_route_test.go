@@ -49,6 +49,33 @@ func TestShouldForwardAnthropicMessagesViaRawChatCompletions(t *testing.T) {
 			want:    false,
 		},
 		{
+			name: "Kimi Chat Completions protocol",
+			account: &Account{
+				Platform:    PlatformKimi,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_protocol": APIProtocolChatCompletions},
+			},
+			want: true,
+		},
+		{
+			name: "DeepSeek Responses protocol",
+			account: &Account{
+				Platform:    PlatformDeepseek,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_protocol": APIProtocolResponses},
+			},
+			want: false,
+		},
+		{
+			name: "Zhipu Anthropic protocol",
+			account: &Account{
+				Platform:    PlatformZhipu,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_protocol": APIProtocolAnthropic},
+			},
+			want: false,
+		},
+		{
 			name:    "other platform",
 			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
 			want:    false,
