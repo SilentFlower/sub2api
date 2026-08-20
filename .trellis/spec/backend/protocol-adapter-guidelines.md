@@ -1794,3 +1794,132 @@ return loaded.enabled
 
 保存路径直接替换缓存；旧 loader 仅在缓存仍是其读取前观察到的指针时才能提交结果，从而保证
 新保存值不会被迟到读取覆盖。
+
+## Scenario: 国产供应商自适应协议与分协议端点
+
+### 1. Scope / Trigger
+
+- 适用于 `kimi`、`zhipu`、`deepseek` API Key 账号使用
+  `credentials.api_protocol="adaptive"` 的创建、编辑、连接测试和网关转发。
+- 目标是按入站协议优先选择供应商原生端点，只在供应商没有对应端点时转换；账号计费模式
+  `account_mode` 与 API 协议正交。
+
+### 2. Signatures
+
+```go
+func (a *Account) GetAPIProtocol() string
+func (a *Account) IsAdaptiveAPIProtocol() bool
+func (a *Account) GetCNProtocolBaseURL(protocol string) string
+```
+
+```typescript
+type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses'
+type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive'>
+
+function defaultCNAdaptiveBaseUrls(
+  platform: 'kimi' | 'zhipu' | 'deepseek',
+  mode: CnAccountMode
+): Record<CnNativeApiProtocol, string>
+```
+
+### 3. Contracts
+
+- 凭据字段：
+  - `api_protocol: "adaptive"` 开启按入站协议分流。
+  - `api_base_urls.chat_completions` 和 `api_base_urls.anthropic` 保存两个原生端点。
+  - `api_base_urls.responses` 仅 DeepSeek 有非空默认值；Kimi、Zhipu 保存空值并回退 Chat。
+  - `base_url` 必须镜像 Chat Completions 地址，兼容仍读取旧字段的调用点。
+- 入站分流：
+  - `/v1/chat/completions` 的标准 `messages` 请求 -> 原生 Chat Completions。
+  - `/v1/messages` -> 原生 Anthropic `/v1/messages`。
+  - `/v1/responses` 或误投到 Chat 路径的 Responses 形状请求：DeepSeek -> 原生 Responses；
+    Kimi、Zhipu -> 转换为 Chat Completions。
+- 显式固定协议优先于 `extra` 中可能陈旧的 Responses 探测/覆盖值；固定
+  `chat_completions` 不得被 `force_responses` 改写，固定 `responses` 也不得被
+  `force_chat_completions` 改写。
+- 分协议 URL 缺失时按平台和 `account_mode` 使用后端/前端一致的官方默认端点。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 行为 | 结果 |
+| --- | --- | --- |
+| `account == nil` 或非 CN 平台 | `GetAPIProtocol` 回退 Chat | 保持旧账号行为 |
+| `api_protocol` 缺失或非法 | 回退 `chat_completions` | 不进入未知端点 |
+| Kimi/Zhipu 显式配置 `responses` | 回退 `chat_completions` | 不请求不存在的 Responses 端点 |
+| adaptive Chat URL 缺失 | 先读旧 `base_url`，再读官方默认值 | 历史账号可继续转发 |
+| adaptive Anthropic/Responses URL 缺失 | 使用对应官方默认值 | 端点选择稳定 |
+| Kimi/Zhipu 收到 Responses 入站 | 转换为 Chat 请求 | 上游 body 有 `messages`、无 `input` |
+| DeepSeek 收到 Responses 入站 | 原生 Responses 转发 | 保留 `max_output_tokens`，清理不兼容会话字段 |
+| 连接测试某原生端点返回非成功或非法流 | 立即停止并返回带协议名的错误 | 不发出后续端点请求，不发送 `test_complete` |
+
+### 5. Good/Base/Bad Cases
+
+- Good：DeepSeek adaptive 账号分别把 Chat、Messages、Responses 发到三个配置端点。
+- Good：Kimi adaptive 账号收到 Responses 请求后转为 Chat，仍把 Messages 原生发到
+  Anthropic 端点。
+- Base：未配置 `api_protocol` 的存量 CN 账号继续走 `chat_completions` 和旧 `base_url`。
+- Bad：仅根据 `openai_responses_supported` 或 `openai_responses_mode` 决定 CN 路由，覆盖管理员
+  明确选择的固定协议。
+- Bad：把 Responses 形状 body 原样发送给 Kimi/Zhipu Chat 端点，导致 `input`/`messages`
+  结构不匹配。
+- Bad：保存 adaptive 时只写 `api_base_urls` 而不同步 `base_url`，使旧读取点使用陈旧地址。
+
+### 6. Tests Required
+
+- 后端路由测试必须断言最终 URL 与最终上游 body 形状：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service \
+  -run 'TestAdaptiveProtocol|TestFixedCN(Chat|Responses)Protocol'
+```
+
+- 账号连接测试必须覆盖 Kimi/Zhipu 的 Chat + Anthropic、DeepSeek 的三个端点，以及中途失败
+  不继续请求：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service \
+  -run 'TestAccountTestService_Adaptive'
+```
+
+- 前端默认端点测试必须逐平台、逐账号模式断言完整对象；创建/编辑测试必须断言
+  `api_protocol`、`api_base_urls`、兼容 `base_url` 和从 adaptive 切回固定协议时删除旧 map：
+
+```bash
+cd frontend
+pnpm exec vitest run \
+  src/components/account/__tests__/credentialsBuilder.cnAdaptive.spec.ts \
+  src/components/account/__tests__/CreateAccountModal.spec.ts \
+  src/components/account/__tests__/EditAccountModal.spec.ts
+```
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+}
+```
+
+问题：只读取异步探针/覆盖值会忽略 CN 固定协议和 adaptive 的平台能力，Responses 形状请求也
+可能被原样送入只接受 `messages` 的端点。
+
+#### Correct
+
+```go
+if account.IsAdaptiveAPIProtocol() {
+	// 先按入站形状和平台能力选择原生端点或执行必要转换。
+}
+if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if isResponsesShape {
+		body, err = convertResponsesShapeToRawChatBody(body)
+	}
+	return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+}
+```
+
+先让 adaptive 路由处理供应商能力，再让统一 predicate 处理固定 Chat 与非 CN API Key；命中
+raw Chat 时必须先把 Responses 形状转换为标准 Chat body。
