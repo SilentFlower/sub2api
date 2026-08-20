@@ -1,0 +1,7 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"核对 build 私有能力的领域 owner 与共享薄接入边界"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核对协议、账号表单、计费、迁移和 i18n 的跨层数据流"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"核对 OpenAI、Grok 与 CN provider 协议路由和转换契约"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"核对后端格式、测试、lint 和生成接线质量门禁"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"核对账号表单组件、条件状态与 i18n 使用规范"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"核对前端类型检查、lint、测试和构建门禁"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"核对 adaptive、渠道倍率和 build extra 字段类型安全"}

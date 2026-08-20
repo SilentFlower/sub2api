@@ -1,0 +1,63 @@
+{
+  "id": "merge-main-0179-build-i18n",
+  "name": "merge-main-0179-build-i18n",
+  "title": "合并 main 0.1.179 到 build 并保护现有功能与 i18n",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-08-20",
+  "completedAt": "2026-08-20",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-08-20T12:32:15Z",
+      "contextKey": "codex_01a01f13-5a3a-7e70-ae6a-ff716d21c303",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "45ca348e8b705fa2206f04fb1e4fba99169c3d21",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "45ca348e8b705fa2206f04fb1e4fba99169c3d21",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "03ab0c7660c9d672875acdc65a14458438a1dea6cfb38d47abd1d8c90894a502"
+          }
+        ],
+        "fingerprint": "007d0dad5b3a5cd7cb035c1cb536291aa933719c719bf9ab43244ff984d19c9f"
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-08-20T13:53:59Z",
+    "completedSteps": [
+      "合并 origin/main 0.1.179 并解决 5 个冲突文件",
+      "完成 47 个 overlap 语义复核及单侧路径归属校验",
+      "通过前后端聚焦与全量质量门禁和 Trellis Check-All",
+      "更新 CN adaptive 协议规范"
+    ],
+    "partialStep": null,
+    "nextStep": "按需运行 trellis-finish-work 归档当前任务",
+    "notes": "未执行真实第三方上游冒烟，留待部署后验证。"
+  }
+}
