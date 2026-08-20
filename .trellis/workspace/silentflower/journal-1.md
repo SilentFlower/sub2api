@@ -848,3 +848,24 @@
 ### Next Steps
 
 - 部署后执行真实 OpenAI、xAI 与国产供应商协议和配额冒烟验证
+
+
+## Session 27: 合并 main 0.1.179 到 build 并完成归档
+
+**Date**: 2026-08-20
+**Task**: 合并 main 0.1.179 到 build 并完成归档
+**Branch**: `build`
+
+### Summary
+
+完成 main 0.1.179 双父合并、冲突与无冲突语义复核、i18n 和全量质量验证；归档任务并记录数据库迁移与上线后真实上游冒烟要求。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2befdb21bf11eb7430e3debef6d243f21a95229b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
