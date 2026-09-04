@@ -1,13 +1,13 @@
 export default {
   codexImageTool: 'Codex 图片桥接策略',
   codexImageToolDesc:
-    '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。对于 Responses Lite 请求，hosted 工具自动注入按最终模型阻止列表决定，并非全局关闭。账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
+    '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求。账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
   codexImageToolInherit: '跟随渠道',
   codexImageToolInheritDesc:
-    '不写入账号覆盖；hosted 工具是否注入由渠道或全局策略以及 Responses Lite 最终模型阻止列表共同决定，客户端显式携带的 hosted 工具和本地 image_gen 声明照常放行。',
+    '不写入账号覆盖；hosted 工具注入跟随渠道或全局策略，仅适用于非 Responses Lite 请求。客户端显式携带的 hosted 工具和本地 image_gen 声明照常放行。',
   codexImageToolEnabled: '启用 Hosted 桥接',
   codexImageToolEnabledDesc:
-    '在遵循 Responses Lite 最终模型阻止列表的前提下注入 hosted image_generation 工具；客户端显式携带的图片工具仍会放行。',
+    '仅为非 Responses Lite 请求注入 hosted image_generation 工具；客户端显式携带的图片工具仍会放行。',
   codexImageToolDisabled: '不注入 Hosted 工具',
   codexImageToolDisabledDesc:
     '不注入 hosted 工具；客户端显式携带的 hosted 工具和本地 image_gen 声明仍会放行。',

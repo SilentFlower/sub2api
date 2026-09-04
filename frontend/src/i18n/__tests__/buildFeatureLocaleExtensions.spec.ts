@@ -63,8 +63,8 @@ describe('build 功能 locale 扩展', () => {
 
   it('主模块在原 key path 暴露扩展文案', () => {
     expect(getPath(enAccounts, 'accounts.openai.codexCLIOnlyCustomUA')).toBe('Custom allowed UA prefixes')
-    expect(getPath(enAccounts, 'accounts.openai.codexImageToolDesc')).toContain('final-model blocked-model list')
-    expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('最终模型阻止列表')
+    expect(getPath(enAccounts, 'accounts.openai.codexImageToolDesc')).toContain('only to non-Responses Lite requests')
+    expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('仅适用于非 Responses Lite 请求')
     expect(getPath(enSettings, 'settings.gatewayForwarding.openaiResponsesLiteBlockedModels')).toBe(
       'Responses Lite Header blocked models'
     )
@@ -73,6 +73,7 @@ describe('build 功能 locale 扩展', () => {
     )
     expect(getPath(zhSettings, 'settings.webSearchEmulation.anySearchApiKeyHint')).toContain('AnySearch')
     expect(getPath(enChannels, 'channels.form.webSearchEmulationHint')).toContain('eligible API Key accounts')
-    expect(getPath(zhChannels, 'channels.form.codexImageGenerationBridgeHint')).toContain('最终模型阻止列表')
+    expect(getPath(enChannels, 'channels.form.codexImageGenerationBridgeHint')).toContain('does not inject tools for Responses Lite')
+    expect(getPath(zhChannels, 'channels.form.codexImageGenerationBridgeHint')).toContain('桥接不会为 Responses Lite 注入工具')
   })
 })

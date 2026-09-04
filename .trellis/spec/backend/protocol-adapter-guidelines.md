@@ -1250,6 +1250,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - `image_gen` 是 Codex 客户端工具。只有 namespace 内含 `type=function,name=imagegen` 时才视为可执行；兼容扁平形态严格匹配 `type=function,name=image_gen.imagegen`。
 - 顶层 `tools` 与 `input` 中的 `additional_tools` 都必须参与客户端工具分类。仅在描述文本中出现 `image_gen.imagegen` 不构成工具声明。
 - 已有客户端 `image_gen` 时不得注入 hosted 工具、不得追加 hosted bridge 提示，也不得把客户端 `tool_choice: "none"` 改为 `"auto"`。
+- 图片桥接与 `main` 保持一致：入站 HTTP Header 或 WS metadata 为 Lite 时，不自动注入 hosted 工具、不追加桥接提示、不改写 `tool_choice`。模型阻止列表只决定 Lite 标记透传；即使剥离标记，也不能重新开启该请求的桥接。WS 必须在应用阻止规则前记录本轮入站 Lite 状态。
 - 没有原生或客户端图片工具且 bridge 有效时，注入一个 `image_generation`；此时 `tool_choice` 缺失或忽略大小写和空白后等于 `none` 时写为 `auto`。
 - `auto`、`required`、其它字符串、明确工具选择对象和其它非字符串值必须保持。
 - HTTP 只在 `codexImageGenerationBridgeEnabled` 为真时调用；WebSocket 只在 `codexBridgeEnabled` 为真时调用。
@@ -1276,7 +1277,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 
 | 条件 | hosted 工具 | `tool_choice` |
 |---|---|---|
-| 无图片工具，bridge 有效 | 注入一个 | 缺失或 `none` 改为 `auto` |
+| Lite 入站，无论最终模型是否阻止透传 | 不自动注入 | 保持客户端值 |
+| 非 Lite、无图片工具，bridge 有效 | 注入一个 | 缺失或 `none` 改为 `auto` |
 | 已有原生 `image_generation` | 不重复注入 | `none` 可改为 `auto`，其它明确选择保持 |
 | 可执行 `image_gen` namespace/扁平 function | 不注入 | 保持客户端值 |
 | 仅描述文本提到 `image_gen.imagegen` | 按无图片工具处理 | 按 hosted 规则处理 |
@@ -1289,7 +1291,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - Good: 管理员显式保存空数组后，`gpt-5.5` 的 Lite 请求允许透传，而不是重新套用默认列表。
 - Good: 同一 WS 会话从 allow 模型切到 block 模型再切回 allow，每个 turn 独立更新 metadata 和 context。
 - Good: 旧账号数据试图通过 Header Override 注入 Lite Header 时，OpenAI 普通请求和 Grok 请求都不会收到该标记。
-- Good: Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
+- Good: 非 Lite Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
 - Good: WebSocket `additional_tools` 含可执行 `image_gen` 时保持客户端工具、提示和 `none`，不追加 hosted 工具。
 - Base: 非 Lite 请求即使模型位于阻止列表，也不修改 body 或其它 Header。
 - Base: block 模型原始 body 已有 developer message、additional tools 或 `parallel_tool_calls` 时保持原样。
@@ -1297,7 +1299,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - Base: 管理员关闭桥接后，文本请求不会被注入图片工具，也不会因为 `none` 被改写。
 - Bad: 只判断字段是否存在并直接返回，会让 `tool_choice: "none"` 永久禁止已注入的图片工具。
 - Bad: 无条件把所有 `tool_choice` 写成 `"auto"`，会破坏 `required` 和明确工具选择。
-- Bad: 看到 Lite header 或 metadata 就整体关闭 bridge，会让没有客户端图片工具的请求失去 hosted fallback。
+- Bad: 为 Lite 入站请求自动注入 hosted `image_generation`，会形成 Lite 标记与托管工具不兼容的上游请求。
+- Bad: WS 在模型阻止规则移除 metadata 后才判断是否为 Lite，导致与 HTTP 的桥接行为不一致。
 - Bad: 对所有模型永久删除 Lite 标记，会破坏 Lite-capable 模型的官方请求布局。
 - Bad: 无条件透传或只按客户端原始模型判断，会让非 Lite 模型返回 `unsupported_value`。
 - Bad: 允许 Header Override 注入 Lite Header，会产生“Header 是 Lite、body 未归一化”的不一致请求，并把内部标记泄漏给 Grok。
@@ -1313,8 +1316,9 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - Grok 回归必须断言普通 Responses、媒体和 WS HTTP bridge 不带 Lite Header；Header Override 的保存校验与运行时防御性过滤都要覆盖。
 - 普通 OpenAI 请求必须覆盖：即使账号旧数据包含 Lite Header Override，也不能新增 Header，且 body 不执行 Lite normalizer。
 - 纯函数测试至少覆盖：原生工具、可执行 namespace、空 namespace、顶层/`additional_tools`、扁平 function、相似名称、`none`、`auto`、`required` 和 Spark。
-- HTTP service 回归测试必须断言桥接启用时 `none -> auto`，同时保留现有 bridge disabled、group disabled、`strip` 和明确工具选择测试。
-- 真实 WebSocket ingress 必须分别覆盖 Lite 无工具时注入，以及 Lite 有客户端工具时不接管。
+- HTTP service 回归测试必须断言非 Lite 桥接启用时 `none -> auto`，同时保留现有 bridge disabled、group disabled、`strip` 和明确工具选择测试。
+- HTTP APIKey/OAuth 必须覆盖 Lite 允许模型、默认阻止模型、自定义通配规则、显式空列表均不注入 hosted 工具，且最终 Header 仍按模型规则处理。
+- 真实 WebSocket ingress 必须覆盖 Lite 无工具时不注入、Lite 有客户端工具时不接管，以及同一连接中 Lite 标记被阻止规则移除后仍不注入。
 - 建议运行：
 
 ```bash
@@ -1356,7 +1360,7 @@ account.ApplyHeaderOverrides(req.Header) // 禁止覆写名单已包含 Lite Hea
 s.enforceOpenAIResponsesLiteHTTPHeader(ctx, req, account, finalModel)
 ```
 
-body 归一化只接受真实入站 Lite 信号；Header 在请求构造的最后边界按最终模型再次收口，Header Override 不能绕过协议所有权。图片 bridge 是否可用仍只由权限和图片策略决定，是否实际注入由原生/客户端工具分类决定。
+body 归一化只接受真实入站 Lite 信号；Header 在请求构造的最后边界按最终模型再次收口，Header Override 不能绕过协议所有权。图片 bridge 先按入站 Lite 信号排除自动注入，非 Lite 请求再由权限、图片策略及原生/客户端工具分类决定是否注入。
 
 ---
 

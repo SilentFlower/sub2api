@@ -266,6 +266,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
+		// 阻止列表可能移除 metadata；桥接仍按入站 Lite 状态禁用，与 HTTP 和 main 保持一致。
+		responsesLiteRequest := isOpenAIResponsesLiteWebSocketPayload(normalized)
 		litePayload, liteErr := s.applyOpenAIResponsesLiteWebSocketPayloadPolicy(ctx, account, normalized, upstreamModel)
 		if liteErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
@@ -282,6 +284,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()
 		}
 		codexBridgeEnabled := isCodexCLI &&
+			!responsesLiteRequest &&
 			imageGenerationAllowed &&
 			codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
 			s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)

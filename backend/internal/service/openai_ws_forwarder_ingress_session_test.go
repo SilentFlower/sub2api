@@ -622,7 +622,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCa
 	require.Equal(t, "resp_omit_model_1", gjson.Get(requestToJSONString(captureConn.writes[1]), "previous_response_id").String())
 }
 
-func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridgeRestoresResponsesLiteFallback(t *testing.T) {
+// TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridgeSkipsResponsesLite 验证连续轮次按入站 Lite 状态禁用图片桥接。
+//
+// @param t 测试上下文。
+// @return 无。
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridgeSkipsResponsesLite(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -646,6 +650,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 			[]byte(`{"type":"response.completed","response":{"id":"resp_codex_image_lite","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`),
 			[]byte(`{"type":"response.completed","response":{"id":"resp_codex_image_namespace","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`),
 			[]byte(`{"type":"response.completed","response":{"id":"resp_codex_image_function","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_codex_image_lite_blocked","model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}}`),
 		},
 	}
 	captureDialer := &openAIWSCaptureDialer{conn: captureConn}
@@ -812,6 +817,26 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.Equal(t, coderws.MessageText, msgType)
 	require.Equal(t, "resp_codex_image_function", gjson.GetBytes(message, "response.id").String())
 
+	writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{
+		"type":"response.create",
+		"model":"gpt-5.5",
+		"stream":false,
+		"previous_response_id":"resp_codex_image_function",
+		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
+		"input":"检查代码",
+		"tool_choice":"none"
+	}`))
+	cancelWrite()
+	require.NoError(t, err)
+
+	readCtx, cancelRead = context.WithTimeout(context.Background(), 3*time.Second)
+	msgType, message, err = clientConn.Read(readCtx)
+	cancelRead()
+	require.NoError(t, err)
+	require.Equal(t, coderws.MessageText, msgType)
+	require.Equal(t, "resp_codex_image_lite_blocked", gjson.GetBytes(message, "response.id").String())
+
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
 
 	select {
@@ -821,7 +846,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 		t.Fatal("等待 ingress websocket 结束超时")
 	}
 
-	require.Len(t, captureConn.writes, 4)
+	require.Len(t, captureConn.writes, 5)
 	nonLitePayload := requestToJSONString(captureConn.writes[0])
 	require.True(t, gjson.Get(nonLitePayload, `tools.#(type=="image_generation")`).Exists())
 	require.Equal(t, "png", gjson.Get(nonLitePayload, `tools.#(type=="image_generation").output_format`).String())
@@ -830,10 +855,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.False(t, gjson.Get(nonLitePayload, "reasoning.context").Exists())
 
 	litePayload := requestToJSONString(captureConn.writes[1])
-	require.True(t, gjson.Get(litePayload, `tools.#(type=="image_generation")`).Exists())
+	require.False(t, gjson.Get(litePayload, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "true", gjson.Get(litePayload, "client_metadata."+responsesLiteWSMetadataKey).String())
 	require.Equal(t, "namespace", gjson.Get(litePayload, "tool_choice.type").String())
 	require.Equal(t, "collaboration", gjson.Get(litePayload, "tool_choice.name").String())
-	require.Contains(t, gjson.Get(litePayload, "instructions").String(), "image_generation")
+	require.NotContains(t, gjson.Get(litePayload, "instructions").String(), codexImageGenerationBridgeMarker)
 	require.Equal(t, "exec", gjson.Get(litePayload, `input.#(type=="additional_tools").tools.0.name`).String())
 	require.Contains(t, gjson.Get(litePayload, `input.#(type=="additional_tools").tools.0.description`).String(), "image_gen.imagegen")
 	require.False(t, gjson.Get(litePayload, `tools.#(type=="namespace")`).Exists())
@@ -854,6 +880,12 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.False(t, gjson.Get(functionPayload, `tools.#(type=="image_generation")`).Exists())
 	require.False(t, gjson.Get(functionPayload, "tool_choice").Exists())
 	require.NotContains(t, gjson.Get(functionPayload, "instructions").String(), codexImageGenerationBridgeMarker)
+
+	blockedLitePayload := requestToJSONString(captureConn.writes[4])
+	require.False(t, gjson.Get(blockedLitePayload, "client_metadata."+responsesLiteWSMetadataKey).Exists())
+	require.False(t, gjson.Get(blockedLitePayload, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "none", gjson.Get(blockedLitePayload, "tool_choice").String())
+	require.NotContains(t, gjson.Get(blockedLitePayload, "instructions").String(), codexImageGenerationBridgeMarker)
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_DedicatedModeDoesNotReuseConnAcrossSessions(t *testing.T) {
