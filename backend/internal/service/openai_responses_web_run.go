@@ -73,6 +73,7 @@ type openAIResponsesWebRunLoopOptions struct {
 	ServiceTier      *string
 	ClientStream     bool
 	CustomTools      map[string]bool
+	FunctionTools    map[string]bool
 	ToolSearch       bool
 	NamespaceTools   map[string]apicompat.NamespacedToolName
 	InternalWebTools map[string]openAIResponsesInternalWebToolConfig
@@ -749,7 +750,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunResult(
 	if options.ClientStream {
 		return s.writeOpenAIResponsesWebRunStream(c, ccResp, upstreamHeaders, requestID, usage, webSearchCalls, webSearchItems, webSearchSources, options)
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
+	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, options.OriginalModel, options.CustomTools, options.FunctionTools, options.ToolSearch, options.NamespaceTools)
 	prependOpenAIResponsesWebRunSearchItems(responsesResp, webSearchItems)
 	if options.AppendSources {
 		appendOpenAIResponsesWebSearchSources(responsesResp, webSearchSources)
@@ -759,17 +760,18 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunResult(
 	}
 	c.JSON(http.StatusOK, responsesResp)
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		ResponseID:      responsesResp.ID,
-		Usage:           usage,
-		Model:           options.OriginalModel,
-		BillingModel:    options.BillingModel,
-		UpstreamModel:   options.UpstreamModel,
-		ReasoningEffort: options.ReasoningEffort,
-		ServiceTier:     options.ServiceTier,
-		Stream:          false,
-		Duration:        time.Since(options.StartTime),
-		WebSearchCalls:  webSearchCalls,
+		RequestID:                   requestID,
+		ResponseID:                  responsesResp.ID,
+		Usage:                       usage,
+		Model:                       options.OriginalModel,
+		BillingModel:                options.BillingModel,
+		UpstreamModel:               options.UpstreamModel,
+		ReasoningEffort:             options.ReasoningEffort,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, options.ServiceTier),
+		Stream:                      false,
+		Duration:                    time.Since(options.StartTime),
+		WebSearchCalls:              webSearchCalls,
 	}, nil
 }
 
@@ -793,7 +795,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.WriteHeader(http.StatusOK)
 
-	events := apicompat.ChatCompletionsResponseToResponsesEvents(ccResp, options.OriginalModel, options.CustomTools, options.ToolSearch, options.NamespaceTools)
+	events := apicompat.ChatCompletionsResponseToResponsesEvents(ccResp, options.OriginalModel, options.CustomTools, options.FunctionTools, options.ToolSearch, options.NamespaceTools)
 	events = addOpenAIResponsesWebRunSearchEvents(events, webSearchItems)
 	if options.AppendSources {
 		events = addOpenAIResponsesWebSearchSourceEvents(events, webSearchSources)
@@ -822,19 +824,20 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 		responseID = ccResp.ID
 	}
 	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		ResponseID:       responseID,
-		Usage:            usage,
-		Model:            options.OriginalModel,
-		BillingModel:     options.BillingModel,
-		UpstreamModel:    options.UpstreamModel,
-		ReasoningEffort:  options.ReasoningEffort,
-		ServiceTier:      options.ServiceTier,
-		Stream:           true,
-		Duration:         time.Since(options.StartTime),
-		FirstTokenMs:     &firstTokenMs,
-		ClientDisconnect: clientDisconnected,
-		WebSearchCalls:   webSearchCalls,
+		RequestID:                   requestID,
+		ResponseID:                  responseID,
+		Usage:                       usage,
+		Model:                       options.OriginalModel,
+		BillingModel:                options.BillingModel,
+		UpstreamModel:               options.UpstreamModel,
+		ReasoningEffort:             options.ReasoningEffort,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, options.ServiceTier),
+		Stream:                      true,
+		Duration:                    time.Since(options.StartTime),
+		FirstTokenMs:                &firstTokenMs,
+		ClientDisconnect:            clientDisconnected,
+		WebSearchCalls:              webSearchCalls,
 	}, nil
 }
 

@@ -159,7 +159,7 @@ func TestForwardAsAnthropic_GrokOAuthForceChatCompletions(t *testing.T) {
 	require.Equal(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
-	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.Equal(t, "ok", gjson.Get(recorder.Body.String(), "content.0.text").String())
 	require.Equal(t, "xai-msg-chat", result.RequestID)
@@ -167,7 +167,7 @@ func TestForwardAsAnthropic_GrokOAuthForceChatCompletions(t *testing.T) {
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.Equal(t, 2, result.Usage.CacheReadInputTokens)
 	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "high", *result.ReasoningEffort)
+	require.Equal(t, "xhigh", *result.ReasoningEffort)
 	require.NotNil(t, repo.updates[202][grokQuotaSnapshotExtraKey])
 }
 

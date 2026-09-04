@@ -42,11 +42,20 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 			return resolveOpenAICompactForwardModel(account, requestedModel)
 		}
 		// OAuth 仍需应用账号别名并收敛为 Codex 上游模型；API Key 原生透传保持入站模型。
-		if account.Type == AccountTypeOAuth {
+		if account.IsOpenAIOAuthLike() {
 			upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 			return normalizeOpenAIModelForUpstream(account, upstreamModel)
 		}
 		return requestedModel
+	}
+
+	// compact 规则优先匹配客户端模型，避免普通别名映射遮蔽上游新增的精确规则。
+	if requireCompact && account != nil {
+		if compactModel, matched := account.ResolveCompactMappedModel(requestedModel); matched {
+			if compactModel = strings.TrimSpace(compactModel); compactModel != "" {
+				return compactModel
+			}
+		}
 	}
 
 	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
@@ -57,6 +66,41 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 		}
 	}
 	return normalizeOpenAIModelForUpstream(account, upstreamModel)
+}
+
+// ResolveOpenAIAccountUpstreamModelForRequest 向 handler 暴露调度使用的完整模型映射链。
+//
+// @param account 本次转发账号。
+// @param requestedModel 客户端或频道映射后的模型。
+// @param requireCompact 是否为 compact 请求。
+// @return 本次账号实际转发的上游模型。
+func ResolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
+	return resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+}
+
+// resolveOpenAIForwardMappedModels 同时返回普通计费模型与调度允许的实际上游模型。
+func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, requireCompact bool) (billingModel, upstreamModel string) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if account != nil && account.IsOpenAIPassthroughEnabled() {
+		billingModel = requestedModel
+	} else if account != nil {
+		billingModel = strings.TrimSpace(account.GetMappedModel(requestedModel))
+	}
+	if billingModel == "" {
+		billingModel = requestedModel
+	}
+	upstreamModel = resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	if strings.TrimSpace(upstreamModel) == "" {
+		upstreamModel = billingModel
+	}
+	return billingModel, upstreamModel
+}
+
+func resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel string) string {
+	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
+		return upstreamModel
+	}
+	return strings.TrimSpace(billingModel)
 }
 
 // openAIOAuthForeignModelPrefixes 列出明确属于其他厂商家族的模型名前缀。

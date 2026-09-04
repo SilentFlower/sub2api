@@ -170,7 +170,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ResponsesLitePol
 
 	firstUpstreamPayload := requestToJSONString(captureConn.writes[0])
 	require.Equal(t, "true", gjson.Get(firstUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).String())
-	require.Equal(t, "all_turns", gjson.Get(firstUpstreamPayload, "reasoning.context").String())
+	require.Equal(t, "current_turn", gjson.Get(firstUpstreamPayload, "reasoning.context").String())
 
 	secondUpstreamPayload := requestToJSONString(captureConn.writes[1])
 	require.False(t, gjson.Get(secondUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).Exists())
@@ -178,5 +178,5 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ResponsesLitePol
 
 	thirdUpstreamPayload := requestToJSONString(captureConn.writes[2])
 	require.Equal(t, "true", gjson.Get(thirdUpstreamPayload, "client_metadata."+responsesLiteWSMetadataKey).String())
-	require.Equal(t, "all_turns", gjson.Get(thirdUpstreamPayload, "reasoning.context").String())
+	require.Equal(t, "current_turn", gjson.Get(thirdUpstreamPayload, "reasoning.context").String())
 }

@@ -29,13 +29,13 @@ func initDebugGatewayBodyFile(file *atomic.Pointer[os.File], path string) {
 
 	// 显式文件路径可能包含尚不存在的父目录，初始化时一并创建。
 	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0755); err != nil { //nolint:gosec // G703: 路径来自启动环境变量 SUB2API_DEBUG_GATEWAY_BODY，属于运维配置。
 			slog.Error("failed to create gateway debug log directory", "dir", dir, "error", err)
 			return
 		}
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644) //nolint:gosec // G703: 路径来自运维配置，不接受请求输入。
 	if err != nil {
 		slog.Error("failed to open gateway debug log file", "path", path, "error", err)
 		return
@@ -49,7 +49,7 @@ func resolveGatewayDebugSnapshotPath(path string) string {
 		return debugGatewayBodyDefaultFilename
 	}
 	// 目录路径自动追加默认文件名，保持环境变量既可填目录也可填文件。
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
+	if info, err := os.Stat(path); err == nil && info.IsDir() { //nolint:gosec // G703: 路径来自运维配置，不接受请求输入。
 		return filepath.Join(path, debugGatewayBodyDefaultFilename)
 	}
 	return path

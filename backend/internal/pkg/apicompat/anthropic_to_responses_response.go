@@ -23,10 +23,13 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 		id = generateResponsesID()
 	}
 
+	// Anthropic responses carry no creation timestamp, so stamp now — the same
+	// synthesize-what-the-client-requires rule the generated id above follows.
 	out := &ResponsesResponse{
-		ID:     id,
-		Object: "response",
-		Model:  resp.Model,
+		ID:        id,
+		Object:    "response",
+		CreatedAt: time.Now().Unix(),
+		Model:     resp.Model,
 	}
 
 	var outputs []ResponsesOutput
@@ -340,6 +343,16 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 
 	switch evt.ContentBlock.Type {
 	case "thinking":
+		// 开新 item 前必须先关掉在开的那个，与下面的 tool_use 分支一致。
+		// 一个 message item 在它的 text 块 content_block_stop 时是刻意保持打开的
+		// （同一 item 里可能还有后续 text 块），所以 thinking 块到来时它仍然开着：
+		// 不关就直接被 CurrentItemType/CurrentItemID 覆盖，累积在 CurrentContent
+		// 里的助手文本既不会进 state.Outputs，也拿不到 output_item.done，
+		// response.completed 于是只带 reasoning——客户端看到的是「成功但无输出」。
+		// 交错思考（interleaved-thinking，本仓库在 anthropic-beta 透传里明确支持）
+		// 会稳定产生 text → thinking 这个顺序。
+		events = append(events, closeCurrentResponsesItem(state)...)
+
 		state.CurrentItemID = generateItemID()
 		state.CurrentItemType = "reasoning"
 		state.ContentIndex = 0
@@ -358,6 +371,11 @@ func anthToResHandleContentBlockStart(evt *AnthropicStreamEvent, state *Anthropi
 		}
 		// If we don't have an open message item, open one
 		if state.CurrentItemType != "message" {
+			// 走到这里时 CurrentItemType 只可能是 ""（前一个 reasoning/function_call
+			// 已在自己的 content_block_stop 里关闭）；保留这次关闭是为了让三个分支
+			// 的「开新 item 前先关旧的」保持同一条不变式，而不是留一个仅 text 例外。
+			events = append(events, closeCurrentResponsesItem(state)...)
+
 			state.CurrentItemID = generateItemID()
 			state.CurrentItemType = "message"
 			state.ContentIndex = 0
@@ -555,22 +573,25 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 		events := flushPendingResponsesCitations(state, true)
 		text := state.TextAccum
 		state.TextAccum = ""
+		contentIndex := state.ContentIndex
 		part := ResponsesContentPart{
 			Type:        "output_text",
 			Text:        text,
 			Annotations: append([]ResponsesAnnotation(nil), state.CurrentAnnotations...),
 		}
 		state.CurrentContent = append(state.CurrentContent, part)
+		// 每个文本块占用独立下标，避免流式累积时覆盖前一块及其引用。
+		state.ContentIndex++
 		events = append(events,
 			makeResponsesEvent(state, "response.output_text.done", &ResponsesStreamEvent{
 				OutputIndex:  state.OutputIndex,
-				ContentIndex: state.ContentIndex,
+				ContentIndex: contentIndex,
 				ItemID:       state.CurrentItemID,
 				Text:         text,
 			}),
 			makeResponsesEvent(state, "response.content_part.done", &ResponsesStreamEvent{
 				OutputIndex:  state.OutputIndex,
-				ContentIndex: state.ContentIndex,
+				ContentIndex: contentIndex,
 				ItemID:       state.CurrentItemID,
 				Part:         &part,
 			}),
@@ -578,7 +599,6 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 		state.CurrentText = ""
 		state.CurrentAnnotations = nil
 		state.CurrentAnnotationIndex = 0
-		state.ContentIndex++
 		return events
 	}
 
@@ -843,11 +863,12 @@ func makeResponsesCreatedEvent(state *AnthropicEventToResponsesState) ResponsesS
 		Type:           "response.created",
 		SequenceNumber: seq,
 		Response: &ResponsesResponse{
-			ID:     state.ResponseID,
-			Object: "response",
-			Model:  state.Model,
-			Status: "in_progress",
-			Output: []ResponsesOutput{},
+			ID:        state.ResponseID,
+			Object:    "response",
+			CreatedAt: state.Created,
+			Model:     state.Model,
+			Status:    "in_progress",
+			Output:    []ResponsesOutput{},
 		},
 	}
 }
@@ -905,6 +926,7 @@ func makeResponsesCompletedEvent(
 		Response: &ResponsesResponse{
 			ID:                state.ResponseID,
 			Object:            "response",
+			CreatedAt:         state.Created,
 			Model:             state.Model,
 			Status:            status,
 			Output:            outputs,

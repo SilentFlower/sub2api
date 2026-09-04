@@ -295,9 +295,8 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 	return out, nil
 }
 
-// anthropicAssistantToChatMessages 转换 Anthropic assistant 消息。文本和 tool_use
-// 分别进入同一 assistant 消息的 content 与 tool_calls；Chat Completions 没有
-// 对应的入站 thinking 字段，因此丢弃 thinking block。
+// anthropicAssistantToChatMessages 转换 Anthropic assistant 消息，保持 typed content。
+// 仅携带工具调用的消息回传 thinking 为 reasoning_content，供上游重放工具推理历史。
 func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 	// 助手文本同样固定使用 typed content part。
 	var s string
@@ -341,7 +340,24 @@ func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error
 		})
 	}
 
+	msg.ReasoningContent = anthropicThinkingToReasoningContent(blocks, len(msg.ToolCalls) > 0)
+
 	return []ChatMessage{msg}, nil
+}
+
+// anthropicThinkingToReasoningContent 仅在工具调用轮次回传明文 thinking。
+// DeepSeek 要求回传产生工具调用的推理内容；普通文本轮次和仅含签名的块不回传。
+func anthropicThinkingToReasoningContent(blocks []AnthropicContentBlock, hasToolCalls bool) string {
+	if !hasToolCalls {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "thinking" && b.Thinking != "" {
+			parts = append(parts, b.Thinking)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // anthropicToolsToChatTools 把 Anthropic 工具定义转换为 Chat function 工具；

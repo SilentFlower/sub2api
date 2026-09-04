@@ -143,8 +143,9 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDropped(t *testing.T) {
 	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 1)
-	// thinking 被丢弃，正文继续保持 typed content part。
+	// 无工具调用的轮次不回传 thinking，正文继续保持 typed content part。
 	require.JSONEq(t, `[{"type":"text","text":"answer"}]`, string(out.Messages[0].Content))
+	require.Empty(t, out.Messages[0].ReasoningContent)
 }
 
 func TestAnthropicToChatCompletionsRequest_ToolChoiceAuto(t *testing.T) {
@@ -699,7 +700,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion(t *testing.T) {
 	direct := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 
 	// Double-conversion bridge
-	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, false, nil)
+	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, nil, false, nil)
 	double := ResponsesToAnthropic(responsesResp, "claude-sonnet-4-20250514")
 
 	// Compare key fields
@@ -995,7 +996,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion_CacheWriteTokens(t *te
 
 	direct := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 
-	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, false, nil)
+	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, nil, false, nil)
 	double := ResponsesToAnthropic(responsesResp, "claude-sonnet-4-20250514")
 
 	require.Equal(t, double.Usage.InputTokens, direct.Usage.InputTokens)
@@ -1065,7 +1066,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion_EmptyChoices(t *testin
 
 	direct := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 
-	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, false, nil)
+	responsesResp := ChatCompletionsResponseToResponses(resp, "claude-sonnet-4-20250514", nil, nil, false, nil)
 	double := ResponsesToAnthropic(responsesResp, "claude-sonnet-4-20250514")
 
 	require.Equal(t, AnthropicStopReasonString(double.StopReason), AnthropicStopReasonString(direct.StopReason))

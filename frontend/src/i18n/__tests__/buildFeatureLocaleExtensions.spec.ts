@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import enAccounts from '../locales/en/admin/accounts'
 import enAccountsCodexCustomClients from '../locales/en/admin/accountsCodexCustomClients'
-import enAccountsOpenAICodexReset from '../locales/en/admin/accountsOpenAICodexReset'
 import enAccountsOpenAICompatibility from '../locales/en/admin/accountsOpenAICompatibility'
 import enAccountsOpenAIImageGeneration from '../locales/en/admin/accountsOpenAIImageGenerationOverrides'
 import enAccountsWebSearch from '../locales/en/admin/accountsWebSearch'
@@ -15,7 +14,6 @@ import enSettingsDeepSeekReasoning from '../locales/en/admin/settingsDeepSeekRea
 import enSettingsWebSearchAnySearch from '../locales/en/admin/settingsWebSearchAnySearch'
 import zhAccounts from '../locales/zh/admin/accounts'
 import zhAccountsCodexCustomClients from '../locales/zh/admin/accountsCodexCustomClients'
-import zhAccountsOpenAICodexReset from '../locales/zh/admin/accountsOpenAICodexReset'
 import zhAccountsOpenAICompatibility from '../locales/zh/admin/accountsOpenAICompatibility'
 import zhAccountsOpenAIImageGeneration from '../locales/zh/admin/accountsOpenAIImageGenerationOverrides'
 import zhAccountsWebSearch from '../locales/zh/admin/accountsWebSearch'
@@ -47,7 +45,6 @@ const localeExtensionPairs: Array<[string, unknown, unknown]> = [
   ['accounts OpenAI compatibility', enAccountsOpenAICompatibility, zhAccountsOpenAICompatibility],
   ['accounts OpenAI image generation', enAccountsOpenAIImageGeneration, zhAccountsOpenAIImageGeneration],
   ['accounts Web Search', enAccountsWebSearch, zhAccountsWebSearch],
-  ['accounts Codex reset', enAccountsOpenAICodexReset, zhAccountsOpenAICodexReset],
   ['settings OpenAI image generation', enSettingsOpenAIImageGeneration, zhSettingsOpenAIImageGeneration],
   ['settings Responses Lite', enSettingsResponsesLite, zhSettingsResponsesLite],
   ['settings DeepSeek reasoning', enSettingsDeepSeekReasoning, zhSettingsDeepSeekReasoning],

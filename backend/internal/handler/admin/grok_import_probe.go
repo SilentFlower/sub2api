@@ -203,7 +203,6 @@ func (h *GrokOAuthHandler) scheduleGrokImportProbe(account *service.Account) {
 // @param rateLimitService 限流服务。
 // @param accountUsageService 账号用量服务。
 // @param accountTestService 账号测试服务。
-// @param openaiCodexResetService build 独立 Codex reset 邀请重置服务。
 // @param concurrencyService 并发服务。
 // @param crsSyncService CRS 同步服务。
 // @param sessionLimitCache 会话限制缓存。
@@ -221,7 +220,6 @@ func ProvideAccountHandler(
 	rateLimitService *service.RateLimitService,
 	accountUsageService *service.AccountUsageService,
 	accountTestService *service.AccountTestService,
-	openaiCodexResetService *service.OpenAICodexResetService,
 	concurrencyService *service.ConcurrencyService,
 	crsSyncService *service.CRSSyncService,
 	sessionLimitCache service.SessionLimitCache,
@@ -239,7 +237,6 @@ func ProvideAccountHandler(
 		rateLimitService,
 		accountUsageService,
 		accountTestService,
-		openaiCodexResetService,
 		concurrencyService,
 		crsSyncService,
 		sessionLimitCache,

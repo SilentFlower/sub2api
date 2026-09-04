@@ -172,6 +172,11 @@ func (s *OpenAIGatewayService) resolveOpenAIResponsesLitePolicyModel(
 	}
 
 	finalModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, compact)
+	if compact && account.IsOpenAIPassthroughEnabled() {
+		if fallbackModel := s.resolveOpenAICompactFallbackModel(account, requestedModel); fallbackModel != "" {
+			finalModel = fallbackModel
+		}
+	}
 	if !compact && isOpenAIImageGenerationModel(finalModel) {
 		finalModel = s.openAIImageGenerationMainModel(ctx)
 	}
@@ -207,7 +212,7 @@ func (s *OpenAIGatewayService) applyOpenAIResponsesLiteHTTPBodyPolicy(
 		return body, false, nil
 	}
 
-	normalized, _, err := normalizeOpenAIResponsesLiteToolsPayload(body)
+	normalized, _, err := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 	if err != nil {
 		return body, false, err
 	}
@@ -248,7 +253,7 @@ func (s *OpenAIGatewayService) applyOpenAIResponsesLiteWebSocketPolicy(
 		return stripped, false, err
 	}
 
-	normalized, _, err := normalizeOpenAIResponsesLiteToolsPayload(body)
+	normalized, _, err := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 	if err != nil {
 		return body, false, err
 	}

@@ -32,7 +32,7 @@
 - assistant 的 text/image 和 `tool_use` 必须合并为同一条 `role:"assistant"` message；`tool_use` 转为 Chat `tool_calls`。
 - Anthropic `tool_result` 没有独立 id，只有 `tool_use_id`。转 Chat 时输出 `role:"tool"`，并把 `tool_use_id` 写入 `tool_call_id`。同一 Anthropic user 轮次中的其它 text/image 必须放在后续 user message，以保持 Chat tool adjacency。
 - 多个并行工具的 `tool_result` 可能因实际执行耗时以不同顺序到达。转换到 Chat 后，紧跟上一条 assistant `tool_calls` 的连续 `role:"tool"` messages 必须按该 assistant `tool_calls` 的 id 顺序规范化；未知 id 保持相对顺序并排在已知 id 后面。不要跨过普通 user/text message 重排。
-- 历史 assistant `thinking` 默认不能当普通 text 注入 Chat prompt；当前直连桥接只保留请求级 `thinking:{"type":"disabled"}` 透传，并在该场景省略 `reasoning_effort`。
+- 历史 assistant `thinking` 不能当普通 text 注入 Chat prompt；带工具调用的 assistant 消息将明文 thinking 回传为 `reasoning_content`，无工具调用的轮次仍省略。请求级 `thinking:{"type":"disabled"}` 继续透传，并在该场景省略 `reasoning_effort`。
 - Chat 上游返回非空 `tool_call.id` 时，Anthropic `tool_use.id` 必须原样使用。
 - Chat 上游缺失 `tool_call.id` 时，不能使用随机 id。必须在 index/name/完整 arguments 可确定后生成 fallback：
   ```text
@@ -676,136 +676,57 @@ usage := s.grokQuotaFetcher.BuildUsageInfo(account)
 
 ---
 
-## Scenario: OpenAI Codex reset credit 元数据投影
+## Scenario: OpenAI Codex 额度重置统一入口
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 `backend/internal/repository/openai_codex_reset_client.go`、`backend/internal/service/openai_codex_reset_service.go` 或前端 `OpenAICodexReset*` 类型/组件时，必须按本节检查。
-- 适用上游：ChatGPT Web 后端 `GET /backend-api/wham/rate-limit-reset-credits`。
-- 适用管理端 API：`GET /api/v1/admin/accounts/:id/openai-codex-reset/status`。
-- 目标：只投影 reset credit 的非敏感展示字段，避免记录或暴露 access token、refresh token、Cookie、完整 Authorization 或未脱敏上游响应。
+- 修改 Codex 额度展示、重置或自动用卡时，以 main 的 `OpenAIQuotaService` 及 `OpenAIQuotaResetCell.vue` 为准。
+- build 原有邀请重置模态框、邀请发送、专用服务及客户端已删除，不再恢复旧的独立调用链。
 
 ### 2. Signatures
 
-- 后端 client：`GetCredits(ctx context.Context, account service.OpenAICodexResetClientAccount) (*service.OpenAICodexResetCreditsResult, error)`
-- 后端 service DTO：`service.OpenAICodexResetCreditStatus`
-- 前端 API 类型：`OpenAICodexResetCreditStatus` in `frontend/src/api/admin/accounts.ts`
-- 前端展示组件：`frontend/src/components/admin/account/OpenAICodexResetModal.vue`
+- 查询：`GET /api/v1/admin/openai/accounts/:id/quota`。
+- 刷新并持久化：`POST /api/v1/admin/openai/accounts/:id/quota/refresh`，前端 `refreshOpenAIQuota(id)`。
+- 消耗重置卡：`POST /api/v1/admin/openai/accounts/:id/reset-quota`，前端 `resetOpenAIQuota(id)`。
+- 服务：`OpenAIQuotaService.QueryUsage`、`ResetCredit` 和共享恢复流程 `RunOpenAIQuotaResetPostProcess`。
 
 ### 3. Contracts
 
-- 上游 credit 可包含：
-  ```json
-  {
-    "id": "credit-1",
-    "status": "available",
-    "title": "Reset",
-    "description": "...",
-    "granted_at": "2026-07-01T12:00:00Z",
-    "expires_at": "2026-07-08T12:00:00Z"
-  }
-  ```
-- 本项目只透传非敏感字段：`id`、`status`、`title`、`description`、`granted_at`、`expires_at`。
-- `granted_at` / `expires_at` 是可选字段。后端可接受 RFC3339/RFC3339Nano 字符串、Unix 秒时间戳、Unix 毫秒时间戳，并规范化为 UTC RFC3339 字符串。
-- 无法解析或小于等于 0 的时间值视为缺失，不应让整个 credit 查询失败。
-- 前端 API 类型必须保持 snake_case：`granted_at?: string`、`expires_at?: string`。
-- 前端展示前必须通过统一日期格式化工具处理；格式化结果为空时不显示该行。
+- 额度响应使用 `rate_limit_reset_credits.available_count` 与可选 `credits[].expires_at`；展示明细不包含上游卡 ID 或 Token。
+- 刷新返回 `cache_persisted`，缓存写入失败仍返回已查询的额度，但该字段为 `false`。
+- 重置响应保留 `code`、`credit`、`windows_reset`，并返回 `quota`、`account`、`cache_refreshed`、`account_state_recovered`、`warning_code`。
+- 手动和自动重置共用消费后恢复流程：解除账号限流、刷新额度缓存、刷新账号行。上游消费成功后，本地恢复失败不能伪装成消费失败并诱发重复用卡。
+- `codexResetAtRFC3339` 仍被网关用量和额度服务共用，删除旧邀请重置服务时不得删除它。
+- 不清空历史账号 extra，不改写已发布迁移。
 
 ### 4. Validation & Error Matrix
 
-- 上游 `expires_at` 为 RFC3339/RFC3339Nano 字符串 -> 后端响应 `expires_at` 为 UTC RFC3339。
-- 上游 `expires_at` 为 Unix 秒数字 -> 后端响应 `expires_at` 为 UTC RFC3339。
-- 上游 `expires_at` 为 Unix 毫秒数字 -> 后端响应 `expires_at` 为 UTC RFC3339。
-- 上游 `expires_at` 缺失、`null`、空字符串、非日期字符串或小于等于 0 -> 后端省略该字段，前端不显示过期时间行。
-- 上游请求失败 -> 继续走 `OPENAI_CODEX_RESET_UPSTREAM_FAILED` 错误路径，错误消息必须脱敏。
+| 条件 | 结果 |
+|---|---|
+| 影子账号请求消费重置卡 | `409 SPARK_SHADOW_RESET_NOT_SUPPORTED`，需要操作母账号 |
+| 刷新成功、快照持久化失败 | 返回额度及 `cache_persisted=false` |
+| 消费成功、账号恢复失败 | `warning_code=account_state_recovery_failed` |
+| 消费成功、额度刷新失败 | `warning_code=reset_credit_cache_refresh_failed` |
+| 消费成功、账号行读取失败 | 无更早错误时返回 `account_state_refresh_failed` |
+| 旧邀请重置 API | 不再注册路由 |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: 上游 `expires_at:"2026-07-06T12:00:00.123Z"`，API 返回 `expires_at:"2026-07-06T12:00:00Z"`，前端显示本地化过期时间。
-- Good: 老上游响应没有 `expires_at`，弹窗仍正常展示 credit 标题、状态和描述。
-- Base: 只修改展示字段，不改变 invite 发送、credit consume 或账号调度逻辑。
-- Bad: 前端把字段写成 `expiresAt`，导致后端 snake_case 响应无法被类型契约覆盖。
-- Bad: 后端把上游原始响应整体塞进 `rules`、日志或错误 message，泄露 token、账号或隐私字段。
+- Good：额度单元格继续使用上游的新刷新和重置接口，自动用卡继续使用同一恢复流程。
+- Base：缺少过期时间时不显示过期时间；查询额度不依赖已删除的邀请客户端。
+- Bad：删除名称含 Codex/reset 的所有函数，误删共享用量解析或 main 的重置服务。
 
 ### 6. Tests Required
 
-- 后端 repository 单测必须覆盖：
-  - RFC3339/RFC3339Nano 字符串规范化。
-  - Unix 秒/毫秒时间戳规范化。
-  - 字段透传到 `OpenAICodexResetCreditStatus.ExpiresAt`。
-- 前端组件单测必须覆盖：
-  - `expires_at` 有效时显示 i18n 文案和格式化时间。
-  - 缺失或格式化为空时不显示过期时间行。
-- 建议运行：
-  ```bash
-  cd backend && go test -tags=unit ./internal/repository ./internal/service -run OpenAICodexReset
-  cd frontend && pnpm vitest run src/components/admin/account/__tests__/OpenAICodexResetModal.spec.ts
-  cd frontend && pnpm typecheck
-  ```
+- `openai_quota_spark_window_test.go`、`openai_quota_reset_credits_test.go`：影子账号拒绝消费、卡明细和缓存投影。
+- `openai_quota_auto_reset_test.go` 与 `openai_oauth_handler_reset_quota_test.go`：自动用卡和手动恢复的成功、部分失败语义。
+- `OpenAIQuotaResetCell` 组件测试及 `EditAccountModal` 测试：新额度入口和自动重置设置仍可用。
+- 搜索后端和前端确认旧邀请重置类型、服务、API 和 locale 已无引用；重新生成 Wire 并编译全部调用方。
 
 ### 7. Wrong vs Correct
 
-#### Wrong
-
-```typescript
-interface OpenAICodexResetCreditStatus {
-  id: string
-  expiresAt?: string
-}
-```
-
-问题：前端类型改成 camelCase 后，实际 API 返回的 `expires_at` 不会被组件稳定消费。
-
-#### Correct
-
-```typescript
-interface OpenAICodexResetCreditStatus {
-  id: string
-  expires_at?: string
-}
-```
-
-保持后端 JSON tag 与前端 API 类型一致，组件只负责展示格式化后的值。
-
-#### Wrong
-
-```go
-ExpiresAt string `json:"expires_at,omitempty"`
-```
-
-直接把上游原值当字符串透传会让数字时间戳、毫秒时间戳和非法值进入前端，导致显示不稳定。
-
-#### Correct
-
-```go
-ExpiresAt openAICodexResetOptionalTimestamp `json:"expires_at"`
-```
-
-在上游 payload 边界先收窄并规范化时间格式；无法解析时投影为空值。
-
-#### Wrong
-
-```json
-[
-  {"role":"assistant","tool_calls":[{"id":"call_a"},{"id":"call_b"}]},
-  {"role":"tool","tool_call_id":"call_b"},
-  {"role":"tool","tool_call_id":"call_a"}
-]
-```
-
-问题：并行工具完成顺序会进入 Chat payload。相同对话 replay 时，本地文件读取、Bash 或网络耗时变化会导致 prefix cache 边界漂移。
-
-#### Correct
-
-```json
-[
-  {"role":"assistant","tool_calls":[{"id":"call_a"},{"id":"call_b"}]},
-  {"role":"tool","tool_call_id":"call_a"},
-  {"role":"tool","tool_call_id":"call_b"}
-]
-```
-
-连续 tool messages 按上一条 assistant `tool_calls` 顺序规范化，只在紧邻 tool result 区间内排序，不跨过普通 user message。
+- Wrong：只删旧模态框，留下菜单事件、旧 API、依赖注入和无消费者的专用服务。
+- Correct：删除整条独立旧链路，并通过引用检查保留 `OpenAIQuotaService`、自动重置和共享时间解析。
 
 ---
 
@@ -896,7 +817,7 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 ```bash
 cd backend && go test -tags=unit -count=1 ./internal/service
 cd backend && go test -tags=unit -count=1 ./...
-cd backend && GOTOOLCHAIN=go1.26.6 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0 run --timeout=30m --build-tags=unit --new-from-rev=HEAD ./...
+cd backend && GOTOOLCHAIN=go1.27.0 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0 run --timeout=30m --build-tags=unit --new-from-rev=HEAD ./...
 git diff --check
 ```
 
@@ -1090,7 +1011,8 @@ func extractOpenAIUpstreamReasoningEffort(
 - passthrough compact 必须直接用入站/频道映射后的模型查询 `compact_model_mapping`，不能先套普通 `model_mapping`。
 - OAuth passthrough 普通 Responses 必须应用普通账号映射，再执行 Codex 上游模型归一化。
 - API Key passthrough 普通 Responses 必须保持入站/频道映射后的模型；账号残留的普通 `model_mapping` 不能改写实际请求。
-- managed 普通请求沿用普通账号映射和上游归一化；managed compact 先应用普通映射，再按映射结果查询 compact 映射。
+- managed 普通请求沿用普通账号映射和上游归一化；managed compact 优先用客户端模型匹配 compact 规则，未命中才应用普通映射并按映射结果查询 compact 规则。
+- 配置了全局 compact fallback 时，透传转发与 Lite 策略均通过 `resolveOpenAICompactFallbackModel` 解析；账号对客户端模型的 compact 规则优先于全局 fallback。
 - `forwardOpenAIPassthrough` 写入 body 的模型必须来自共享解析函数；Responses Lite、频道限制和 compact reasoning 不能另行调用 `GetMappedModel` 拼装近似结果。
 - passthrough reasoning effort 必须将实际 `upstreamModel` 作为候选传给 `extractOpenAIUpstreamReasoningEffort`；记录值不能只根据客户端模型或未生效的账号映射推断。
 - failover 每次 attempt 都必须按当前账号重新解析；频道调度上下文存在模型映射时，共享解析函数接收该频道映射结果，而不是回退到最初客户端别名。
@@ -1104,7 +1026,7 @@ func extractOpenAIUpstreamReasoningEffort(
 | passthrough compact | 不先应用 | 直接按当前请求模型应用 | 使用 compact 映射结果 |
 | passthrough 标记存在但 Responses 不受支持 | 应用 | 不应用 | 走 raw Chat fallback 的普通映射结果 |
 | managed 普通 Responses | 应用 | 不应用 | 普通映射后执行既有归一化 |
-| managed compact | 先应用 | 按普通映射结果应用 | 使用 compact 结果；未命中时沿用普通结果 |
+| managed compact | 客户端 compact 规则未命中后应用 | 优先匹配客户端模型，再匹配普通映射结果 | 使用 compact 结果；均未命中时沿用普通结果 |
 | 模型为空 | 不应用 | 不应用 | 返回空字符串 |
 
 所有分支解析完成后：请求体、频道 restriction、Responses Lite 和 reasoning effort 必须看到同一结果；任一消费者得到不同模型都属于阻塞回归。
@@ -1242,7 +1164,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - 运行时使用 `SettingService` 的 60 秒成功 TTL、5 秒错误 TTL 和 singleflight；存储 JSON 非法时记录不含敏感信息的 warning，并使用默认列表。
 - Lite 决策必须使用完成账号映射、compact 映射、OAuth 归一化和图片主模型转换后的最终上游模型；failover 的每次 attempt 和 WS 的每个 turn 都重新计算。
 - 只有入站 HTTP Header 为 `true` 或 WS metadata 为 `true` 才是 Lite 请求。账号 Header Override 不得注入 `X-OpenAI-Internal-Codex-Responses-Lite`；保存时拒绝，运行时也要防御性丢弃旧数据。
-- OpenAI 最终模型未命中阻止列表时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header，并执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化。
+- OpenAI 最终模型未命中阻止列表时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header；OAuth 类账号执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化，API Key 账号仅归一化 `parallel_tool_calls`，保持工具布局和客户端 context。
 - OpenAI 最终模型命中阻止列表时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
 - 命中阻止列表只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
 - 非 OpenAI 平台不得收到该内部标记；Grok 普通 Responses、媒体请求和 WS HTTP bridge 都必须保持 Header 为空。
@@ -1267,7 +1189,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 | 设置 JSON 非法或元素非法 | 回退默认列表 | 按默认规则 | warning + 5 秒错误缓存 |
 | 更新规则为空或 `*` 位置非法 | N/A | N/A | `400 INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS` |
 | 非 Lite 请求 | 不新增标记 | 不执行 | body 和无关 Header 保持 |
-| Lite + 最终模型 allow | 保留/重建标记 | 执行 | `reasoning.context=all_turns` |
+| Lite + 最终模型 allow + OAuth 类账号 | 保留/重建标记 | 执行工具布局及并行参数归一化 | `reasoning.context=all_turns` |
+| Lite + 最终模型 allow + API Key | 保留/重建标记 | 仅归一化并行参数 | 不迁移工具、不补 context |
 | Lite + 最终模型 block | 删除/禁止重建 | 跳过 | 客户端原始 body 字段保持 |
 | Lite + 客户端显式 context + block | 删除标记 | 跳过 | 显式 context 原值保持 |
 | Grok 或其它非 OpenAI 平台 | 删除标记 | 不执行 | 内部 Header 不进入上游 |
@@ -1287,7 +1210,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 ### 5. Good/Base/Bad Cases
 
 - Good: Lite 请求从客户端别名映射到默认阻止的 `gpt-5.5` 后，按映射后的模型删除标记且保持客户端显式 context。
-- Good: `gpt-5.6-terra` 未命中阻止列表时，managed、passthrough、WS 和 bridge 均保留 Lite 标记并补齐 `all_turns`。
+- Good: `gpt-5.6-terra` 未命中阻止列表时，各路径均保留 Lite 标记；OAuth 类账号补齐 `all_turns`，API Key 保持原 context。
 - Good: 管理员显式保存空数组后，`gpt-5.5` 的 Lite 请求允许透传，而不是重新套用默认列表。
 - Good: 同一 WS 会话从 allow 模型切到 block 模型再切回 allow，每个 turn 独立更新 metadata 和 context。
 - Good: 旧账号数据试图通过 Header Override 注入 Lite Header 时，OpenAI 普通请求和 Grok 请求都不会收到该标记。
