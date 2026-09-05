@@ -548,6 +548,9 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 - API Key 目录补全时，Astra 缺失图像能力可补为 `text/image`；上游显式 `input_modalities=["text"]` 必须保留。
 - API Key 目录中精确 `slug=gpt-6-astra` 或 `gpt-6` 的 `use_responses_lite=true` 改为 `false`，保留其它字段并保证幂等；不得扩展为关闭全部 GPT-6 型号或改写 OAuth 上游目录。
 - Astra 普通请求的 `max` 不降级；既有 GPT-5.6 OAuth compact 专属降级规则不自动扩展到 Astra。目录中的 `ultra` 是客户端编排档位，不能据此新增服务端原始 `ultra` effort 语义。
+- GPT-5.6 与 GPT-6 的本地 Codex 提示词分别内嵌于 `internal/pkg/openai/instructions_gpt5_6.txt`、`instructions_gpt6.txt`，来源为 CLIProxyAPI `c77b1369` 的 `internal/registry/models/codex_client_models.json`；GPT-5.6 Sol/Terra/Luna 的 `base_instructions` 与 `model_messages.instructions_template` 共用同一份原文。
+- 本地目录的 `model_messages.instructions_template` 与请求的空 `instructions` 补全共用服务层 `codexBaseInstructionsForModel(model string) string`；仅将既有规则识别的新型号别名归一化后交给 `openai.CodexBaseInstructionsForModel`。含 `codex` 的模型保持通用 Codex 模板优先级，GPT-5.1/GPT-5.2 专用模板及旧型号、未知型号的 GPT-5.5 回退保持不变。
+- 默认补全保留客户端非空 `instructions` 和 API Key 上游已有 `instructions_template`；`SkipDefaultInstructions` 仍可跳过请求补全。新模板为空时回退 GPT-5.5，再回退通用 Codex 模板，不能将 Astra 模板作为全部未知模型的新默认值。
 
 ### 4. Validation & Error Matrix
 
@@ -569,6 +572,7 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 ### 6. Tests Required
 
 - `openai_gpt6_test.go`：覆盖别名与未知边界、`max`、默认目录字段、图像元数据优先级、API Key Lite 幂等及自定义字段保留。
+- `internal/pkg/openai/instructions_test.go`、`openai_codex_base_instructions_test.go`：覆盖 GPT-5.6/GPT-6 模板、别名、未知型号及空模板回退，验证目录与请求模板一致、客户端与上游内容优先、跳过补全开关及目录补全幂等。
 - `useModelWhitelist.spec.ts`：覆盖模型列表、`gpt-6 -> gpt-6-astra` 预设与最终 `model_mapping` 对象。
 - `openai_model_mapping_test.go`、`openai_oauth_passthrough_test.go` 和 `openai_gateway_chat_completions_test.go`：未知模型使用 `gpt-unknown-model` 等明确测试值，保留上游错误透传和不回退到 GPT-5.4 的断言；新增已知模型后须复核旧 fixture。
 

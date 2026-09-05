@@ -58,7 +58,7 @@ var DefaultInstructions string
 
 // instructionsGPT51 / instructionsGPT52 / instructionsGPT55 为 gpt-5.1 / gpt-5.2 / gpt-5.5
 // 非 codex 模型对应的真实 Codex 编码 agent base prompt，用于模型感知的 instructions 选择。
-// GPT-5.5 同时作为最新版本的 fallback（覆盖 5.3 / 5.4 等未单独维护 prompt 的版本）。
+// GPT-5.5 保持作为兼容 fallback（覆盖 5.3 / 5.4 等未单独维护 prompt 的版本）。
 //
 //go:embed instructions_gpt5_1.txt
 var instructionsGPT51 string
@@ -69,8 +69,17 @@ var instructionsGPT52 string
 //go:embed instructions_gpt5_5.txt
 var instructionsGPT55 string
 
-// latestCodexInstructions 返回当前已知最新版本的 Codex base instructions，
-// 当前为 GPT-5.5；若 5.5 prompt 意外为空则回退到 DefaultInstructions 保证非空。
+// instructionsGPT56 和 instructionsGPT6 同步自 CLIProxyAPI 的 Codex 客户端目录。
+// GPT-5.6 的 Sol、Terra、Luna 共用同一份 base instructions。
+//
+//go:embed instructions_gpt5_6.txt
+var instructionsGPT56 string
+
+//go:embed instructions_gpt6.txt
+var instructionsGPT6 string
+
+// latestCodexInstructions 保持既有 GPT-5.5 回退，避免新增模板改变旧模型和未知模型的行为。
+// 若 GPT-5.5 prompt 意外为空则回退到 DefaultInstructions 保证非空。
 func latestCodexInstructions() string {
 	if v := strings.TrimSpace(instructionsGPT55); v != "" {
 		return instructionsGPT55
@@ -80,17 +89,29 @@ func latestCodexInstructions() string {
 
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
+//   - gpt-6 / gpt-6-astra → GPT-6 prompt
+//   - gpt-5.6 / gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna → GPT-5.6 prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
 //   - gpt-5.2 系非 codex 模型 → GPT-5.2 prompt
 //   - gpt-5.1 系非 codex 模型 → GPT-5.1 prompt
-//   - 其它（含 gpt-5.3 / gpt-5.4 / 裸 gpt-5 / 未知模型）→ 回退到最新版本（当前 GPT-5.5）
+//   - 其它（含 gpt-5.3 / gpt-5.4 / 裸 gpt-5 / 未知模型）→ 保持 GPT-5.5 回退
 //
 // 任一专用 prompt 意外为空时回退链最终落到 DefaultInstructions，保证返回非空。
+// @param model 模型基名；服务层负责将已识别的 provider 路径和后缀别名归一化。
+// @return 对应模型的内嵌提示词，未知型号使用既有回退模板。
 func CodexBaseInstructionsForModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	switch {
 	case strings.Contains(m, "codex"):
 		return DefaultInstructions
+	case m == "gpt-6" || m == "gpt-6-astra":
+		if v := strings.TrimSpace(instructionsGPT6); v != "" {
+			return instructionsGPT6
+		}
+	case m == "gpt-5.6" || m == "gpt-5.6-sol" || m == "gpt-5.6-terra" || m == "gpt-5.6-luna":
+		if v := strings.TrimSpace(instructionsGPT56); v != "" {
+			return instructionsGPT56
+		}
 	case strings.HasPrefix(m, "gpt-5.5"):
 		return latestCodexInstructions()
 	case strings.HasPrefix(m, "gpt-5.2"):

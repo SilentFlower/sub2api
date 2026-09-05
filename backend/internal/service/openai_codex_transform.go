@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 var codexModelMap = map[string]string{
@@ -1471,11 +1469,10 @@ func extractPromptLikeInstructionsFromInput(reqBody map[string]any) string {
 
 // defaultCodexSynthInstructions 返回合成路径在 instructions 为空时应填入的默认提示词。
 //
-// 按 model 选择真实 Codex CLI 的 base instructions（codex 系→GPT-5-Codex，
-// gpt-5.2→GPT-5.2，gpt-5.1/gpt-5→GPT-5.1），使合成请求在提示词层面贴近真实 Codex 行为；
+// 与模型目录共用模型及别名选择逻辑，优先使用对应版本的真实 Codex base instructions；
 // 若内嵌 prompt 意外为空，回退到最小占位符以保证字段非空。
 func defaultCodexSynthInstructions(model string) string {
-	if instructions := strings.TrimSpace(openai.CodexBaseInstructionsForModel(model)); instructions != "" {
+	if instructions := strings.TrimSpace(codexBaseInstructionsForModel(model)); instructions != "" {
 		return instructions
 	}
 	return "You are a helpful coding assistant."
