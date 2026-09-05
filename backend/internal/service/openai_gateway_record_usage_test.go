@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -476,6 +477,8 @@ func TestOpenAIGatewayServiceRecordUsage_PeakRateAffectsTokenModeImageOutputToke
 		},
 		User:    &User{ID: 2004},
 		Account: &Account{ID: 3004},
+		// 固定高峰内的定价时刻，避免 23:59 的右开区间边界导致偶发失败。
+		PricingAt: time.Date(2024, time.January, 2, 12, 0, 0, 0, timezone.Location()),
 	})
 
 	require.NoError(t, err)

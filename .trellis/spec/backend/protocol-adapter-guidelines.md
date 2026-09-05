@@ -431,13 +431,13 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalMo
 
 ---
 
-## Scenario: OpenAI reasoning effort 模型候选与 GPT-5.6 `max` 兼容
+## Scenario: OpenAI reasoning effort 模型候选与原生 `max` 兼容
 
 ### 1. Scope / Trigger
 
 - Trigger: 修改 OpenAI-compatible 请求中的 `reasoning.effort` / `reasoning_effort`、模型 effort 后缀、模型映射、billing model、Responses ↔ Chat fallback、Anthropic Messages raw Chat fallback 或 WebSocket usage 元数据时，必须按本节检查。
 - 适用路径：`openai_gateway_request_body.go`、`gateway_request.go`、raw Chat、Messages/Responses fallback、Responses/Chat 兼容转换和 WebSocket passthrough。
-- 目标：显式 effort 与后缀 effort 在模型映射后仍保持正确语义；只有 GPT-5.6 Sol/Terra/Luna 可以在普通请求中保留 `max`，usage 记录必须与最终上游请求或可恢复的模型后缀一致。
+- 目标：显式 effort 与后缀 effort 在模型映射后仍保持正确语义；普通请求按最终模型的原生档位能力保留 `max`，usage 记录必须与最终上游请求或可恢复的模型后缀一致。
 
 ### 2. Signatures
 
@@ -445,7 +445,9 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalMo
 func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string
 func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string
 func normalizeOpenAIReasoningEffortForModel(raw, model string) string
+func supportsOpenAIReasoningEffortMax(model string) bool
 func isOpenAIGPT56Model(model string) bool
+func isOpenAIGPT6AstraModel(model string) bool
 func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, account *Account, body []byte) ([]byte, bool, error)
 ```
 
@@ -455,7 +457,7 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 
 - 显式字段优先级固定为 `reasoning.effort` > `reasoning_effort`；命中显式值时，仅使用第一个非空模型候选判断模型感知归一化。
 - 请求体没有 effort 时，按全部候选顺序推导模型后缀。OAuth/Codex 标准化可能剥离 upstream model 的 `-high` / `-xhigh` / `-max`，因此必须保留 billing 和 original model 候选。
-- `max` 仅在第一个非空候选由 `isOpenAIGPT56Model` 识别为 `gpt-5.6-sol`、`gpt-5.6-terra` 或 `gpt-5.6-luna` 时保留；大小写、provider 路径和日期后缀允许存在。其它模型的 `max` 统一为 `xhigh`。
+- `max` 是否保留由第一个非空候选的 `supportsOpenAIReasoningEffortMax` 结果决定。当前支持 GPT-5.6、GPT-6 Astra 已知别名，以及 `deepseek-v4*`、`glm-*`、`kimi-*`、`moonshot-*`、`k3` / `k3-*`；其它模型统一为 `xhigh`。GPT 家族识别复用对应 helper，不能改成所有 `gpt-*` 都保留。
 - GLM 与 Grok 4.5 继续走 provider-specific 分支：直接读取最终上游 body，不用模型后缀或 thinking fallback 覆盖实际发送值。
 - raw Chat、Messages fallback、Responses fallback 有 billing model 时都必须传入；WebSocket 只有 original/mapped model 时可省略额外候选。
 - OpenAI OAuth 的 `/responses/compact` 是明确例外：GPT-5.6 `max` 在 compact 子请求中降级为 `xhigh`。普通 Responses、OpenAI API Key compact 和其它平台 OAuth 不应用该降级。
@@ -465,8 +467,8 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 
 | 条件 | 必须结果 |
 |---|---|
-| 显式 `max`，首个候选为 GPT-5.6 | 保留 `max` |
-| 显式 `max`，首个候选非 GPT-5.6 | 归一化为 `xhigh`，后续候选不得反转判断 |
+| 显式 `max`，首个候选命中原生 `max` 能力 | 保留 `max` |
+| 显式 `max`，首个候选不支持原生 `max` | 归一化为 `xhigh`，后续候选不得反转判断 |
 | body 无 effort，original model 为 `gpt-5.6-sol-max` | 从后缀恢复 `max` |
 | body 无 effort，original model 为 `gpt-5.4-xhigh` | 从后缀恢复 `xhigh` |
 | GLM/Grok 4.5 已完成 provider 归一化 | usage 记录最终 body 值，不应用后缀或 thinking fallback |
@@ -486,6 +488,7 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 
 - `openai_reasoning_effort_candidates_test.go`：覆盖候选顺序、显式 `max` 首候选判定和后缀恢复。
 - `openai_gpt56_max_test.go`：覆盖 Sol/Terra/Luna、非 GPT-5.6 降级、普通 Responses 与 OAuth compact 例外。
+- `openai_gpt6_test.go`：覆盖 Astra 已知别名保留 `max`、未知 GPT-6 型号继续降为 `xhigh`。
 - raw Chat、Messages/Responses fallback 与 WebSocket 测试必须至少各覆盖一个 mapped/billing/original 候选或 GPT-5.6 `max` 场景。
 - 建议运行：
 
@@ -516,7 +519,63 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 )
 ```
 
-显式值由 upstream model 判断 GPT-5.6 `max` 能力；无显式值时再按 `upstream -> billing -> original` 恢复后缀，provider-specific 模型仍记录最终上游 body。
+显式值由 upstream model 判断原生 `max` 能力；无显式值时再按 `upstream -> billing -> original` 恢复后缀，provider-specific 模型仍记录最终上游 body。
+
+---
+
+## Scenario: GPT-6 Astra 别名与 Codex 模型目录
+
+### 1. Scope / Trigger
+
+- 修改 OpenAI 默认模型、管理端模型预设、Codex 模型归一化或目录能力时，必须同步检查模型名称、请求路由、计费候选及目录投影。
+- 默认列表注册 `gpt-6-astra` 和 `gpt-6`；前端 OpenAI 预设将 `gpt-6` 映射到 `gpt-6-astra`。别名规则由 `openai_model_alias.go` 持有，专项回归放在 `openai_gpt6_test.go`。
+
+### 2. Signatures
+
+```go
+func isOpenAIGPT6AstraModel(model string) bool
+func normalizeCodexModel(model string) string
+func usageBillingModelCandidates(primary string, alternates ...string) []string
+func BuildCodexModelsManifest(modelIDs []string) ([]byte, error)
+func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manifest *CodexModelsManifest, account *Account) error
+```
+
+### 3. Contracts
+
+- Astra 识别先复用大小写、provider 路径、下划线和 `gpt6` 拼写归一化，再识别精确基名、已知 effort 后缀及形如 `YYYY-MM-DD` 的日期后缀；允许末尾 `-openai-compact`。未知型号如 `gpt-6-pro`、`gpt-6-astra-custom`、`gpt-60` 不得归入 Astra。
+- Codex 归一化将已知别名收敛到 `gpt-6-astra`；API Key 原生请求仍遵守既有透传和账号显式映射规则。计费候选保留原名在前，再补规范拼写及 Astra 基名，不覆盖原有定价优先级。
+- 本地生成的 Astra 基础目录保留传入的 `slug`，默认 `context_window=272000`、`max_context_window=872000`、`default_reasoning_level=medium`，档位为 `low/medium/high/xhigh/max/ultra`，声明并行工具、verbosity 和 `priority` 服务档位。这些是本地缺省值，上游已有元数据按既有补全规则优先。
+- API Key 目录补全时，Astra 缺失图像能力可补为 `text/image`；上游显式 `input_modalities=["text"]` 必须保留。
+- API Key 目录中精确 `slug=gpt-6-astra` 或 `gpt-6` 的 `use_responses_lite=true` 改为 `false`，保留其它字段并保证幂等；不得扩展为关闭全部 GPT-6 型号或改写 OAuth 上游目录。
+- Astra 普通请求的 `max` 不降级；既有 GPT-5.6 OAuth compact 专属降级规则不自动扩展到 Astra。目录中的 `ultra` 是客户端编排档位，不能据此新增服务端原始 `ultra` effort 语义。
+
+### 4. Validation & Error Matrix
+
+| 输入或场景 | 必须结果 |
+|---|---|
+| `openai/gpt-6`、`OpenAI/GPT_6_ASTRA`、`gpt-6-astra-max` | Codex 归一化为 `gpt-6-astra` |
+| `gpt-6-pro`、`gpt-6-astra-custom`、`gpt-60` | 不识别为 Astra，未知模型继续原样转发 |
+| Astra API Key 目录缺少图像能力 | 补齐 `text/image` |
+| 上游明确仅支持 `text` | 不提升为图像模型 |
+| Astra API Key 目录声明 Lite | 关闭 Lite，保留自定义字段，再次处理结果不变 |
+| 目录 JSON 非法 | 沿既有解析错误返回，不伪造成功目录 |
+
+### 5. Good/Base/Bad Cases
+
+- Good：`usageBillingModelCandidates("openai/gpt-6")` 按顺序包含 `openai/gpt-6`、`gpt-6`、`gpt-6-astra`。
+- Base：Astra 和别名同时出现在默认列表，模型限制和显式映射仍由账号配置决定。
+- Bad：直接用 `strings.HasPrefix(model, "gpt-6")` 把所有未来型号映射到 Astra。
+
+### 6. Tests Required
+
+- `openai_gpt6_test.go`：覆盖别名与未知边界、`max`、默认目录字段、图像元数据优先级、API Key Lite 幂等及自定义字段保留。
+- `useModelWhitelist.spec.ts`：覆盖模型列表、`gpt-6 -> gpt-6-astra` 预设与最终 `model_mapping` 对象。
+- `openai_model_mapping_test.go`、`openai_oauth_passthrough_test.go` 和 `openai_gateway_chat_completions_test.go`：未知模型使用 `gpt-unknown-model` 等明确测试值，保留上游错误透传和不回退到 GPT-5.4 的断言；新增已知模型后须复核旧 fixture。
+
+### 7. Wrong vs Correct
+
+- 错误：继续用 `gpt6` 代表未知模型，并断言 Codex 归一化后仍为原值。
+- 正确：Astra 别名断言目标为 `gpt-6-astra`；未知模型用独立 fixture 验证不误映射、不静默降级。
 
 ---
 

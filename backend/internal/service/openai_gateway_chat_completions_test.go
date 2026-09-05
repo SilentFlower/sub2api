@@ -160,7 +160,7 @@ func TestForwardAsChatCompletions_UnknownModelWithoutMessagesDispatchKeepsReques
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt6","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	body := []byte(`{"model":"gpt-unknown-model","messages":[{"role":"user","content":"hello"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -189,7 +189,7 @@ func TestForwardAsChatCompletions_UnknownModelWithoutMessagesDispatchKeepsReques
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Equal(t, "gpt6", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-unknown-model", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.NotEqual(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

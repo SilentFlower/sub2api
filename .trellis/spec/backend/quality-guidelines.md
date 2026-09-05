@@ -50,6 +50,7 @@ go generate ./ent
 - 跨表写入要使用事务，优先参考 `userRepository.Create/Update` 的 Ent 事务模式。
 - 高风险输入要在边界校验，service 层保持业务不变量，repository 层保证持久化约束。
 - 测试应覆盖修复过的 bug 或新增业务分支，不写只验证 mock 被调用的空测试。
+- 断言高峰或分时计费时，通过已有请求参数显式固定定价时刻，例如 `OpenAIRecordUsageInput.PricingAt`。高峰区间为左闭右开，`00:00` 到 `23:59` 不等于全天；不得依赖实时时钟使测试在每天最后一分钟偶发失败。
 
 ---
 

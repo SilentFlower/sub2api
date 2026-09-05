@@ -44,8 +44,8 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			account: &Account{
 				Credentials: map[string]any{},
 			},
-			requestedModel: "gpt6",
-			expectedModel:  "gpt6",
+			requestedModel: "gpt-unknown-model",
+			expectedModel:  "gpt-unknown-model",
 		},
 		{
 			name: "account exact mapping overrides messages dispatch model",
@@ -445,7 +445,8 @@ func TestNormalizeCodexModel(t *testing.T) {
 		"gpt-image-2":               "gpt-image-2",
 		"gpt-5.4-nano":              "gpt-5.4-nano",
 		"gpt-5.4-nano-high":         "gpt-5.4-nano",
-		"gpt6":                      "gpt6",
+		"gpt6":                      "gpt-6-astra",
+		"gpt-unknown-model":         "gpt-unknown-model",
 		"claude-opus-4-6":           "claude-opus-4-6",
 	}
 
@@ -484,8 +485,8 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 		{
 			name:    "oauth preserves invalid gpt model",
 			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt6",
-			want:    "gpt6",
+			model:   "gpt-unknown-model",
+			want:    "gpt-unknown-model",
 		},
 		{
 			name:    "oauth normalizes known codex alias",
