@@ -1,0 +1,19 @@
+{
+  "status": "written",
+  "reason": "按 main 0.2.1 与保留功能的最终实现同步 GPT-6、GLM-5.3、协议回退响应头契约。",
+  "evidence": [
+    "check-report.md",
+    "research/validation-results.json",
+    "backend/internal/service/openai_gpt6_test.go",
+    "backend/internal/service/openai_provider_reasoning_effort_test.go",
+    "backend/internal/service/openai_gateway_responses_chat_fallback_test.go"
+  ],
+  "changed_files": [
+    ".trellis/spec/backend/protocol-adapter-guidelines.md"
+  ],
+  "validation": [
+    "git diff --check -- .trellis/spec 通过",
+    "源码签名、路径、索引链接与四个既有场景的七段结构核对通过",
+    "Update-Spec 写入仅位于 .trellis/spec，业务索引树仍为 846e8e3e9cfb049a22b484355b985618361e10b7"
+  ]
+}

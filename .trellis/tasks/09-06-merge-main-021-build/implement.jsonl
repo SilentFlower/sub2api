@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "合并中保留领域所有权与薄入口"}
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "协议桥接与模型兼容契约"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端验证基线"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "组件与最终 locale 验收"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端验证基线"}
+{"file": ".trellis/tasks/09-06-merge-main-021-build/research/report.md", "reason": "冲突预检与基线"}
+{"file": ".trellis/tasks/09-06-merge-main-021-build/research/retention.md", "reason": "用户确认的保留方案"}

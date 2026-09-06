@@ -1,0 +1,20 @@
+{
+  "head": "4e9829519707f0743a7cbcabcf3e73b8dd0beeb0",
+  "merge_head": "ab99d56e9626e6cd731592dae8553c9758a0efa2",
+  "backup": "4e9829519707f0743a7cbcabcf3e73b8dd0beeb0",
+  "version": "0.2.1",
+  "upstream_changed_count": 265,
+  "overlap_count": 63,
+  "upstream_only_count": 202,
+  "upstream_only_mismatches": [
+    "backend/internal/service/gateway_channel_restriction_load_aware_test.go"
+  ],
+  "upstream_only_exception_reason": {
+    "backend/internal/service/gateway_channel_restriction_load_aware_test.go": "仅将测试 fixture 的直接类型断言改为带 ok 检查的断言，修复新增 errcheck 告警，业务语义不变。"
+  },
+  "build_only_new_count": 565,
+  "removed_build_only": [
+    "backend/internal/pkg/openai/instructions_gpt6.txt"
+  ],
+  "unmerged_entries": 0
+}

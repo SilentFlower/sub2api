@@ -1,0 +1,38 @@
+{
+  "id": "merge-main-021-build",
+  "name": "merge-main-021-build",
+  "title": "同步 main 0.2.1 到 build 并保留定制功能",
+  "description": "同步固定 main 0.2.1；GPT-6 按 main，保留已确认的 build 兼容、搜索、图片、Grok、GIF、客户端及工程资产。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-09-06",
+  "completedAt": "2026-09-06",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {},
+  "progress": {
+    "completedSteps": [
+      "固定 main 0.2.1 合并及冲突解决",
+      "build 保留功能核对与验证",
+      "Check-All 与协议规范同步",
+      "合并提交推送与任务记录同步"
+    ],
+    "partialStep": null,
+    "nextStep": "开发任务完成；按授权上线计划执行环境验收",
+    "notes": "7 项必需验证通过，增强 unit lint 新增告警为 0；真实迁移和 provider 行为由上线流程验收。",
+    "updatedAt": "2026-09-06T16:33:51Z"
+  }
+}

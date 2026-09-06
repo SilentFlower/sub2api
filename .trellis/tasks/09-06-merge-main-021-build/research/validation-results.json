@@ -1,0 +1,142 @@
+{
+  "required_validation": {
+    "go-unit-final": {
+      "command": [
+        "go",
+        "test",
+        "-tags=unit",
+        "./..."
+      ],
+      "exit_code": 0,
+      "seconds": 182.4
+    },
+    "go-build": {
+      "command": [
+        "env",
+        "CGO_ENABLED=0",
+        "go",
+        "build",
+        "-o",
+        "../.trellis/.runtime/merge-main-021-validation/server",
+        "./cmd/server"
+      ],
+      "exit_code": 0,
+      "seconds": 56.18
+    },
+    "go-lint-default-safe": {
+      "command": [
+        "/root/.cache/sub2api-main0200/bin/golangci-lint",
+        "run",
+        "--timeout=30m",
+        "./..."
+      ],
+      "exit_code": 0,
+      "seconds": 120.77
+    },
+    "typecheck": {
+      "command": [
+        "pnpm",
+        "typecheck"
+      ],
+      "exit_code": 0,
+      "seconds": 63.59
+    },
+    "frontend-lint": {
+      "command": [
+        "pnpm",
+        "lint:check"
+      ],
+      "exit_code": 0,
+      "seconds": 44.17
+    },
+    "frontend-test": {
+      "command": [
+        "pnpm",
+        "test:run",
+        "--maxWorkers=2",
+        "--minWorkers=2"
+      ],
+      "exit_code": 0,
+      "seconds": 206.0
+    },
+    "frontend-build": {
+      "command": [
+        "pnpm",
+        "build"
+      ],
+      "exit_code": 0,
+      "seconds": 99.4
+    }
+  },
+  "required_passed": 7,
+  "required_total": 7,
+  "focused_verification": {
+    "go-recheck": {
+      "command": [
+        "go",
+        "test",
+        "-tags=unit",
+        "./internal/service",
+        "-run",
+        "TestNormalizeCodexModel$|TestForwardResponses_.*WebRun|TestForwardResponses_.*(Typed|Lite|WebSearch|Bridge)|TestNormalizeGLM|Test.*GPT6|TestForwardAsAnthropic_ForceChatCompletions",
+        "-count=1"
+      ],
+      "exit_code": 0,
+      "seconds": 41.58
+    },
+    "go-recheck-load-aware-safe": {
+      "command": [
+        "go",
+        "test",
+        "-tags=unit",
+        "./internal/service",
+        "-run",
+        "^TestSelectAccountWithLoadAwareness_",
+        "-count=1"
+      ],
+      "exit_code": 0,
+      "seconds": 76.28
+    }
+  },
+  "git": {
+    "working_diff_check": {
+      "exit_code": 0,
+      "output": ""
+    },
+    "index_diff_check": {
+      "exit_code": 0,
+      "output": ""
+    },
+    "unmerged_entries": 0,
+    "head": "4e9829519707f0743a7cbcabcf3e73b8dd0beeb0",
+    "merge_head": "ab99d56e9626e6cd731592dae8553c9758a0efa2",
+    "index_tree": "846e8e3e9cfb049a22b484355b985618361e10b7",
+    "unstaged_paths": [],
+    "changed_tracked_paths": 273,
+    "version": "0.2.1",
+    "conflict_markers": [],
+    "exit_code": 0
+  },
+  "enhanced_unit_lint": {
+    "initial_full_exit_code": 1,
+    "initial_reported_count": 57,
+    "initial_incremental_exit_code": 1,
+    "incremental_issue": "上游新增测试 fixture 未检查类型断言，已补 ok 检查并通过定向测试",
+    "final_incremental_status": "通过",
+    "final_incremental_result": {
+      "command": [
+        "/root/.cache/sub2api-main0200/bin/golangci-lint",
+        "run",
+        "--timeout=30m",
+        "--build-tags=unit",
+        "--new-from-rev=HEAD",
+        "./..."
+      ],
+      "exit_code": 0,
+      "seconds": 151.02,
+      "output": "0 issues."
+    }
+  },
+  "resource_guard": "新 WSL 规则后，重任务统一通过 /root/.local/bin/wsl-safe-run 串行执行；此前成功退出的全量验证复用其真实记录。",
+  "conclusion": "必需验证 7/7 通过；最终定向复测与增强 unit lint 新增告警检查通过，Git 合并检查通过。"
+}

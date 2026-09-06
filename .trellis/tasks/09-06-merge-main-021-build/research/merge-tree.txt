@@ -1,0 +1,113 @@
+862c23a64297381a7c57dbd5e7fdd1d4e0c99415
+100644 772143ac92239d9348767437ca1c2b53c868fb1b 1	backend/internal/pkg/openai/constants.go
+100644 2aeeafaadf806b1424ccd5b1b5cf66d215e166d5 2	backend/internal/pkg/openai/constants.go
+100644 5ee5a3dc7aa530d726fb5e602f9ff1142bbab1c2 3	backend/internal/pkg/openai/constants.go
+100644 f5e4a4d50036a61622959322b71049df1eb2b7b8 1	backend/internal/service/gateway_request.go
+100644 8eaea03183bfc9491342343bccb270fc56ee1d97 2	backend/internal/service/gateway_request.go
+100644 9a3ca9fb88341d04339e87afd06b9dfe44c7c251 3	backend/internal/service/gateway_request.go
+100644 6074c029919e8d714c67bdb13963fb7ba95b753e 1	backend/internal/service/gateway_request_test.go
+100644 2e1782ffcdec49305ecdfbfb2b9697bbf114d0e2 2	backend/internal/service/gateway_request_test.go
+100644 27b71c31fe4e0661fb56bdf9f23ee5eae34a8753 3	backend/internal/service/gateway_request_test.go
+100644 6c97eb9b841e9af9707a7e9b059156b2495f430c 1	backend/internal/service/openai_codex_models_service.go
+100644 5eda74be25c769a935a12ba760e727f87d3d727c 2	backend/internal/service/openai_codex_models_service.go
+100644 9e537a9c782fef3c69be80a9cb46e02a4055acdf 3	backend/internal/service/openai_codex_models_service.go
+100644 fbd14ba9672b7df0f92cf1708c3ae146b585d3ef 1	backend/internal/service/openai_codex_transform.go
+100644 7de991e14eb1ea68711a7db6f8983fe4f7aa3538 2	backend/internal/service/openai_codex_transform.go
+100644 ef722a93c105cfc094f62deff276771463e3aadc 3	backend/internal/service/openai_codex_transform.go
+100644 96e7715d5d7b3ea97f67905e642788bb07c14a28 1	backend/internal/service/openai_codex_transform_test.go
+100644 c6a9e251658eabdde88e691b855eaa1b14cd7bf8 2	backend/internal/service/openai_codex_transform_test.go
+100644 899ba7d9331272bd86d86a517968a9bd3767e14a 3	backend/internal/service/openai_codex_transform_test.go
+100644 c4fcdd772f4c23e7c655349a69cf2149d712e612 1	backend/internal/service/openai_gateway_messages_chat_fallback.go
+100644 e8dd3f3f77437caeaef45b3b6abd79243cf5d2e6 2	backend/internal/service/openai_gateway_messages_chat_fallback.go
+100644 270762a0dccaa6838c72aed5fb9347c437879ad2 3	backend/internal/service/openai_gateway_messages_chat_fallback.go
+100644 46f69b54d645918db88d3acb03cc447a45e573fc 1	backend/internal/service/openai_gateway_request_body.go
+100644 c9abdfb41620fb5385f7ee2259c31cb98a5362dc 2	backend/internal/service/openai_gateway_request_body.go
+100644 9defec9e6555d3899f7320bf3d7dd7c504d5d114 3	backend/internal/service/openai_gateway_request_body.go
+100644 8702ca759534bacb8ef19e04bd96425f6b328bf5 1	frontend/src/components/account/CreateAccountModal.vue
+100644 ffb9b5cb335a85c0151447ae37f177d57ff64c3c 2	frontend/src/components/account/CreateAccountModal.vue
+100644 451ac2a1ef6b6227488991b8b7876a4fae333d37 3	frontend/src/components/account/CreateAccountModal.vue
+100644 8ef424f4d97514ed036ad7a3c0b316a4101d2151 1	frontend/src/components/account/EditAccountModal.vue
+100644 d87e8843a4640d7bb35cab2e498292abac31a639 2	frontend/src/components/account/EditAccountModal.vue
+100644 8968bdc2e0cfeb6f3da99dbc2161c2caf101503c 3	frontend/src/components/account/EditAccountModal.vue
+100644 a172ca3ddd83fb32cf3cd6ad9768eda26b95686a 1	frontend/src/i18n/locales/en/admin/accounts.ts
+100644 8162d63f5b188e82f184eed3355bf8fe01d3d2d6 2	frontend/src/i18n/locales/en/admin/accounts.ts
+100644 601accc20da77b58224fb2ae19f6bed08a7c3fc8 3	frontend/src/i18n/locales/en/admin/accounts.ts
+100644 b4d2684f70710d2722e43fd1c71aca18db40bbd1 1	frontend/src/i18n/locales/zh/admin/accounts.ts
+100644 d00e5d8a18f29c9523f646cedae3f264713534f2 2	frontend/src/i18n/locales/zh/admin/accounts.ts
+100644 ad5cf05d3c042c738a45a8b037d67ae08d97153f 3	frontend/src/i18n/locales/zh/admin/accounts.ts
+
+Auto-merging backend/internal/handler/admin/account_handler.go
+Auto-merging backend/internal/handler/dto/types.go
+Auto-merging backend/internal/handler/openai_chat_completions.go
+Auto-merging backend/internal/handler/openai_gateway_handler.go
+Auto-merging backend/internal/handler/openai_gateway_handler_test.go
+Auto-merging backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go
+Auto-merging backend/internal/pkg/apicompat/chatcompletions_responses_bridge_custom_tools_test.go
+Auto-merging backend/internal/pkg/openai/constants.go
+CONFLICT (content): Merge conflict in backend/internal/pkg/openai/constants.go
+Auto-merging backend/internal/service/antigravity_gateway_claude.go
+Auto-merging backend/internal/service/antigravity_gateway_gemini.go
+Auto-merging backend/internal/service/billing_service.go
+Auto-merging backend/internal/service/gateway_forward_as_chat_completions.go
+Auto-merging backend/internal/service/gateway_forward_as_responses.go
+Auto-merging backend/internal/service/gateway_request.go
+CONFLICT (content): Merge conflict in backend/internal/service/gateway_request.go
+Auto-merging backend/internal/service/gateway_request_test.go
+CONFLICT (content): Merge conflict in backend/internal/service/gateway_request_test.go
+Auto-merging backend/internal/service/gateway_service.go
+Auto-merging backend/internal/service/gemini_chat_completions_compat_service.go
+Auto-merging backend/internal/service/openai_alpha_search.go
+Auto-merging backend/internal/service/openai_codex_models_service.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_codex_models_service.go
+Auto-merging backend/internal/service/openai_codex_models_service_test.go
+Auto-merging backend/internal/service/openai_codex_transform.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_codex_transform.go
+Auto-merging backend/internal/service/openai_codex_transform_test.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_codex_transform_test.go
+Auto-merging backend/internal/service/openai_gateway_cc_pipeline.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions_raw.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions_test.go
+Auto-merging backend/internal/service/openai_gateway_forward.go
+Auto-merging backend/internal/service/openai_gateway_grok.go
+Auto-merging backend/internal/service/openai_gateway_messages.go
+Auto-merging backend/internal/service/openai_gateway_messages_chat_fallback.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_messages_chat_fallback.go
+Auto-merging backend/internal/service/openai_gateway_passthrough.go
+Auto-merging backend/internal/service/openai_gateway_record_usage_test.go
+Auto-merging backend/internal/service/openai_gateway_request_body.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_request_body.go
+Auto-merging backend/internal/service/openai_gateway_responses_chat_fallback.go
+Auto-merging backend/internal/service/openai_gateway_service.go
+Auto-merging backend/internal/service/openai_gpt56_max_test.go
+Auto-merging backend/internal/service/openai_images_responses.go
+Auto-merging backend/internal/service/openai_model_alias.go
+Auto-merging backend/internal/service/openai_ws_forwarder_ingress.go
+Auto-merging backend/internal/service/openai_ws_forwarder_ingress_session_test.go
+Auto-merging backend/internal/service/openai_ws_forwarder_ingress_test.go
+Auto-merging backend/internal/service/openai_ws_http_bridge.go
+Auto-merging backend/internal/service/openai_ws_http_bridge_test.go
+Auto-merging backend/internal/service/openai_ws_v2_passthrough_adapter.go
+Auto-merging backend/internal/service/settings_view.go
+Auto-merging backend/internal/service/usage_log.go
+Auto-merging frontend/src/api/admin/accounts.ts
+Auto-merging frontend/src/api/admin/settings.ts
+Auto-merging frontend/src/components/account/CreateAccountModal.vue
+CONFLICT (content): Merge conflict in frontend/src/components/account/CreateAccountModal.vue
+Auto-merging frontend/src/components/account/EditAccountModal.vue
+CONFLICT (content): Merge conflict in frontend/src/components/account/EditAccountModal.vue
+Auto-merging frontend/src/components/account/__tests__/CreateAccountModal.spec.ts
+Auto-merging frontend/src/components/account/__tests__/EditAccountModal.spec.ts
+Auto-merging frontend/src/components/keys/__tests__/UseKeyModal.spec.ts
+Auto-merging frontend/src/composables/__tests__/useModelWhitelist.spec.ts
+Auto-merging frontend/src/composables/useModelWhitelist.ts
+Auto-merging frontend/src/i18n/locales/en/admin/accounts.ts
+CONFLICT (content): Merge conflict in frontend/src/i18n/locales/en/admin/accounts.ts
+Auto-merging frontend/src/i18n/locales/en/admin/channels.ts
+Auto-merging frontend/src/i18n/locales/en/admin/settings.ts
+Auto-merging frontend/src/i18n/locales/zh/admin/accounts.ts
+CONFLICT (content): Merge conflict in frontend/src/i18n/locales/zh/admin/accounts.ts
+Auto-merging frontend/src/i18n/locales/zh/admin/channels.ts
+Auto-merging frontend/src/i18n/locales/zh/admin/settings.ts
+Auto-merging frontend/src/views/admin/ChannelsView.vue
+Auto-merging frontend/src/views/admin/SettingsView.vue

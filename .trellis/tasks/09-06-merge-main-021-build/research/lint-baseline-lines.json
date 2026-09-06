@@ -1,0 +1,458 @@
+[
+  {
+    "location": "backend/internal/handler/auth_wechat_oauth_test.go:25",
+    "diagnostic": "import 'github.com/Wei-Shaw/sub2api/internal/repository' is not allowed from list 'handler-no-repository': handler must not import repository (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/api_key_service_cache_test.go:16",
+    "diagnostic": "import 'github.com/redis/go-redis/v9' is not allowed from list 'service-no-repository': service must not import redis (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/auth_service_email_bind_test.go:20",
+    "diagnostic": "import 'github.com/Wei-Shaw/sub2api/internal/repository' is not allowed from list 'service-no-repository': service must not import repository (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/auth_service_identity_sync_test.go:16",
+    "diagnostic": "import 'github.com/Wei-Shaw/sub2api/internal/repository' is not allowed from list 'service-no-repository': service must not import repository (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/batch_image_worker_runtime_redis_test.go:12",
+    "diagnostic": "import 'github.com/Wei-Shaw/sub2api/internal/repository' is not allowed from list 'service-no-repository': service must not import repository (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/batch_image_worker_runtime_redis_test.go:15",
+    "diagnostic": "import 'github.com/redis/go-redis/v9' is not allowed from list 'service-no-repository': service must not import redis (depguard)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/handler/auth_wechat_oauth_test.go:46",
+    "diagnostic": "Error return value of `(*github.com/Wei-Shaw/sub2api/ent.Client).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/handler/auth_wechat_oauth_test.go:81",
+    "diagnostic": "Error return value of `(*github.com/Wei-Shaw/sub2api/ent.Client).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/handler/auth_wechat_oauth_test.go:123",
+    "diagnostic": "Error return value of `(*github.com/Wei-Shaw/sub2api/ent.Client).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/pkg/antigravity/gif_compat_test.go:45",
+    "diagnostic": "Error return value is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": false,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/pkg/antigravity/gif_compat_test.go:47",
+    "diagnostic": "Error return value is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": false,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/pkg/antigravity/gif_compat_test.go:48",
+    "diagnostic": "Error return value is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": false,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/auth_service_identity_sync_test.go:477",
+    "diagnostic": "Error return value of `(*database/sql.Rows).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/batch_image_download_test.go:27",
+    "diagnostic": "Error return value of `(io.Closer).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/batch_image_provider_gemini_test.go:186",
+    "diagnostic": "Error return value of `(io.Closer).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/batch_image_provider_vertex_test.go:191",
+    "diagnostic": "Error return value of `(io.Closer).Close` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/gateway_request_test.go:1161",
+    "diagnostic": "Error return value of `(*strings.Builder).WriteString` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/gateway_request_test.go:1166",
+    "diagnostic": "Error return value of `(*strings.Builder).WriteByte` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/gateway_request_test.go:1169",
+    "diagnostic": "Error return value of `(*strings.Builder).WriteString` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/gateway_request_test.go:1171",
+    "diagnostic": "Error return value of `(*strings.Builder).WriteString` is not checked (errcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/handler/auth_current_user_test.go:32",
+    "diagnostic": "File is not properly formatted (gofmt)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/billing_cache_service_user_platform_quota_test.go:772",
+    "diagnostic": "File is not properly formatted (gofmt)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/grok_oauth_service_test.go:255",
+    "diagnostic": "File is not properly formatted (gofmt)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/config/env_reachability_test.go:36",
+    "diagnostic": "inline: Constant reflect.Ptr should be inlined (govet)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/config/env_reachability_test.go:50",
+    "diagnostic": "inline: Constant reflect.Ptr should be inlined (govet)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_bulk_update_test.go:296",
+    "diagnostic": "inline: Constant reflect.Ptr should be inlined (govet)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/handler/user_platform_quotas_handler_test.go:55",
+    "diagnostic": "SA9003: empty branch (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/account_header_override_test.go:151",
+    "diagnostic": "SA1008: keys in http.Header are canonicalized, \"anthropic-beta\" is not canonical; fix the constant or use http.CanonicalHeaderKey (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/account_header_override_test.go:154",
+    "diagnostic": "SA1008: keys in http.Header are canonicalized, \"x-custom\" is not canonical; fix the constant or use http.CanonicalHeaderKey (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:44",
+    "diagnostic": "QF1008: could remove embedded field \"mockAccountRepoForGemini\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:101",
+    "diagnostic": "QF1008: could remove embedded field \"mockAccountRepoForGemini\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:107",
+    "diagnostic": "QF1008: could remove embedded field \"mockAccountRepoForGemini\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:740",
+    "diagnostic": "QF1008: could remove embedded field \"sparkShadowRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:742",
+    "diagnostic": "QF1008: could remove embedded field \"sparkShadowRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_spark_shadow_test.go:743",
+    "diagnostic": "QF1008: could remove embedded field \"sparkShadowRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_update_balance_test.go:32",
+    "diagnostic": "QF1008: could remove embedded field \"userRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_update_balance_test.go:35",
+    "diagnostic": "QF1008: could remove embedded field \"userRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_update_balance_test.go:40",
+    "diagnostic": "QF1008: could remove embedded field \"userRepoStub\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/auth_service_register_test.go:730",
+    "diagnostic": "QF1008: could remove embedded field \"Time\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/auth_service_register_test.go:755",
+    "diagnostic": "QF1008: could remove embedded field \"Time\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/email_service_smtp_test.go:157",
+    "diagnostic": "QF1001: could apply De Morgan's law (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/email_service_smtp_test.go:230",
+    "diagnostic": "QF1001: could apply De Morgan's law (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/openai_gateway_grok_test.go:999",
+    "diagnostic": "SA1008: keys in http.Header are canonicalized, \"x-grok-client-version\" is not canonical; fix the constant or use http.CanonicalHeaderKey (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/openai_gateway_grok_test.go:1001",
+    "diagnostic": "SA1008: keys in http.Header are canonicalized, \"x-relay-token\" is not canonical; fix the constant or use http.CanonicalHeaderKey (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": false
+  },
+  {
+    "location": "backend/internal/service/payment_webhook_provider_test.go:50",
+    "diagnostic": "SA1019: github.com/Wei-Shaw/sub2api/internal/payment.Encrypt is deprecated: payment provider configs are now stored as plaintext JSON. This function is kept only for seeding legacy ciphertext in tests and for the transitional Decrypt fallback. Scheduled for removal after all live deployments complete migration by re-saving their configs. (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/scheduler_snapshot_batch_query_test.go:148",
+    "diagnostic": "QF1008: could remove embedded field \"batchSnapshotCache\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/scheduler_snapshot_batch_query_test.go:180",
+    "diagnostic": "QF1008: could remove embedded field \"batchSnapshotCache\" from selector (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/setting_service_oidc_config_test.go:65",
+    "diagnostic": "QF1012: Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...))) (staticcheck)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/pkg/antigravity/client_test.go:826",
+    "diagnostic": "type roundTripperFunc is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/pkg/antigravity/client_test.go:828",
+    "diagnostic": "func roundTripperFunc.RoundTrip is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/admin_service_group_test.go:15",
+    "diagnostic": "func ptrString is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": false,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/billing_cache_service_user_platform_quota_test.go:112",
+    "diagnostic": "func (*fakeFullCache).getDeleteCalls is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/gateway_multiplatform_test.go:2066",
+    "diagnostic": "type mockConcurrencyService is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/gateway_multiplatform_test.go:2072",
+    "diagnostic": "func (*mockConcurrencyService).GetAccountsLoadBatch is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/gateway_multiplatform_test.go:2092",
+    "diagnostic": "func (*mockConcurrencyService).GetAccountWaitingCount is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/model_plaza_service_test.go:360",
+    "diagnostic": "func plazaModelsByName is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": false,
+    "file_unchanged_from_main": true
+  },
+  {
+    "location": "backend/internal/service/testhelpers_test.go:15",
+    "diagnostic": "func testPtrBool is unused (unused)",
+    "line_in_build": true,
+    "line_in_main": true,
+    "file_unchanged_from_build": true,
+    "file_unchanged_from_main": true
+  }
+]
