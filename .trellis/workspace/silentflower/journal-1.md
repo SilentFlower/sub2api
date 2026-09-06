@@ -869,3 +869,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 同步 main 0.2.1 到 build 并归档
+
+**Date**: 2026-09-07
+**Task**: 同步 main 0.2.1 到 build 并归档
+**Branch**: `build`
+
+### Summary
+
+完成固定 main 0.2.1 合并，GPT-6 按 main，保留 build 搜索、Lite、兼容、生图、Grok、GIF、UA 和 GPT-5.6 定制；解决冲突并通过本地验证，提交推送后补齐上线记录并归档。
+
+### Main Changes
+
+- 复核 63 个共同修改文件，解决 12 个冲突文件，保留已确认的 build 功能。
+- 同步协议规范，记录四个数据库迁移、配置核对、回退和上线验收事项。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6884f7234` | (see git log) |
+| `71e30a704` | (see git log) |
+
+### Testing
+
+- [OK] 必需验证 7/7 通过；前端 271 个文件、1936 个用例通过。
+- [OK] 后端标准 lint 和增强 unit lint 新增告警检查均为 0 issues；既存测试告警已记录。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按授权上线计划核对镜像、数据库迁移及真实 provider 行为。
