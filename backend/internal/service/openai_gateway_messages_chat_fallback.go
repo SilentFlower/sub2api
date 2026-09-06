@@ -280,6 +280,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
 			RequestID:                   requestID,
+			UpstreamHeaders:             resp.Header,
 			Usage:                       usage,
 			Model:                       originalModel,
 			BillingModel:                billingModel,
@@ -301,6 +302,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
+		UpstreamHeaders:             resp.Header,
 		Usage:                       usage,
 		Model:                       originalModel,
 		BillingModel:                billingModel,
@@ -338,6 +340,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended unexpectedly")
 		return &OpenAIForwardResult{
 			RequestID:                   requestID,
+			UpstreamHeaders:             resp.Header,
 			Usage:                       scan.Usage,
 			Model:                       originalModel,
 			BillingModel:                billingModel,
@@ -366,6 +369,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
+		UpstreamHeaders:             resp.Header,
 		Usage:                       scan.Usage,
 		Model:                       originalModel,
 		BillingModel:                billingModel,

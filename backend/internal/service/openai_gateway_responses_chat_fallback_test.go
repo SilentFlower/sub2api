@@ -693,6 +693,7 @@ func TestForwardResponses_WebRunCompletesAfterSearchRoundLimit(t *testing.T) {
 	require.Equal(t, 5, result.WebSearchCalls)
 	require.Equal(t, 5, providerCalls)
 	require.Len(t, upstream.bodies, 7)
+	require.Equal(t, "round_final", result.UpstreamHeaders.Get("x-request-id"))
 	finalRequest := upstream.bodies[6]
 	require.False(t, gjson.GetBytes(finalRequest, "tools").Exists())
 	require.False(t, gjson.GetBytes(finalRequest, "tool_choice").Exists())
@@ -736,6 +737,7 @@ func TestForwardResponses_WebRunProviderFailureContinuesWithoutBilling(t *testin
 	require.Equal(t, 1, searchCalls)
 	require.Zero(t, result.WebSearchCalls)
 	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "rid_provider_failure_2", result.UpstreamHeaders.Get("x-request-id"))
 	toolOutput := gjson.GetBytes(upstream.bodies[1], "messages.2.content").String()
 	require.Contains(t, toolOutput, "web_search_failed")
 	require.Equal(t, "call_provider_failure", gjson.GetBytes(upstream.bodies[1], "messages.2.tool_call_id").String())
@@ -1676,7 +1678,7 @@ func openAIResponsesCodexLiteBridgeTestBody(stream bool, choice string) []byte {
 func openAIResponsesWebRunTestResponse(requestID, body string) *http.Response {
 	return &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{requestID}},
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{requestID}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }

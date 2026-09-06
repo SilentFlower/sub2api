@@ -175,6 +175,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.Equal(t, "medium", *result.ReasoningEffort)
 	require.Nil(t, result.ServiceTier)
 	require.Equal(t, "priority", result.UpstreamResponseServiceTier)
+	require.Equal(t, upstream.resp.Header, result.UpstreamHeaders)
 	require.False(t, result.Stream)
 }
 
@@ -316,6 +317,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 	require.Equal(t, 4, result.Usage.InputTokens)
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
+	require.Equal(t, upstream.resp.Header, result.UpstreamHeaders)
 	require.NotNil(t, result.FirstTokenMs)
 }
 

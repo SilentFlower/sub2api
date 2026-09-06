@@ -13,7 +13,7 @@ func codexBaseInstructionsForModel(model string) string {
 	// 只归一化新模板对应的型号，避免改变旧版本专用模板和 codex 模型的优先级。
 	if !strings.Contains(strings.ToLower(model), "codex") {
 		switch normalized := normalizeKnownOpenAICodexModel(model); normalized {
-		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra":
+		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
 			model = normalized
 		}
 	}

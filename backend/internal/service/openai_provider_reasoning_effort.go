@@ -17,13 +17,19 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 	if !isGLMOpenAIReasoningEffortModel(mappedModel) {
 		return body, false
 	}
-	return normalizeOpenAIReasoningEffortBody(body, normalizeGLMOpenAIReasoningEffort)
+	return normalizeOpenAIReasoningEffortBody(body, func(raw string) string {
+		// GLM-5.3 原生支持 low；其它 GLM 版本继续使用既有 high/max 映射。
+		if isGLM53Model(mappedModel) && compactOpenAIReasoningEffort(raw) == "low" {
+			return "low"
+		}
+		return normalizeGLMOpenAIReasoningEffort(raw)
+	})
 }
 
 func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool) {
 	switch {
 	case isGLMOpenAIReasoningEffortModel(mappedModel):
-		return normalizeOpenAIReasoningEffortBody(body, normalizeGLMOpenAIReasoningEffort)
+		return NormalizeGLMOpenAIReasoningEffort(body, mappedModel)
 	case isGrok45OpenAIReasoningEffortModel(mappedModel):
 		return normalizeOpenAIReasoningEffortBody(body, normalizeGrok45OpenAIReasoningEffort)
 	default:
@@ -92,6 +98,44 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 
 func isGLMOpenAIReasoningEffortModel(mappedModel string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "glm-")
+}
+
+func isGLM53Model(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
+}
+
+// NormalizeGLM53AnthropicThinking 将显式思考偏好映射到 GLM-5.3 的原生档位。
+// @param body 待发送的 Anthropic 请求体。
+// @param mappedModel 最终上游模型。
+// @return 改写后的请求体，以及是否应用了档位映射；无偏好时保持上游默认行为。
+func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool) {
+	if !isGLM53Model(mappedModel) {
+		return body, false
+	}
+	raw := gjson.GetBytes(body, "output_config.effort").String()
+	if strings.TrimSpace(raw) == "" {
+		raw = gjson.GetBytes(body, "thinking.type").String()
+	}
+	var effort string
+	switch compactOpenAIReasoningEffort(raw) {
+	case "disabled", "off", "none", "minimal", "low":
+		effort = "low"
+	case "enabled", "adaptive", "medium", "high":
+		effort = "high"
+	case "xhigh", "max", "ultra":
+		effort = "max"
+	default:
+		return body, false
+	}
+	modified, err := sjson.SetBytes(body, "thinking.type", "enabled")
+	if err != nil {
+		return body, false
+	}
+	modified, err = sjson.SetBytes(modified, "output_config.effort", effort)
+	if err != nil {
+		return body, false
+	}
+	return modified, true
 }
 
 func isGrok45OpenAIReasoningEffortModel(mappedModel string) bool {

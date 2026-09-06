@@ -14,10 +14,7 @@ func TestNormalizeCodexModelGPT6Astra(t *testing.T) {
 	t.Parallel()
 
 	for _, model := range []string{
-		"gpt-6-astra", "gpt-6", "gpt6", "openai/gpt-6",
-		"OpenAI/GPT_6_ASTRA", "gpt-6-high", "gpt-6-max", "gpt-6-ultra",
-		"gpt-6-astra-max", "gpt-6-astra-ultra", "gpt-6-astra-2026-07-09",
-		"gpt-6-astra-openai-compact",
+		"gpt-6-astra", "gpt-6", "openai/gpt-6", "OpenAI/GPT_6_ASTRA",
 	} {
 		t.Run(model, func(t *testing.T) {
 			require.Equal(t, "gpt-6-astra", normalizeCodexModel(model))
@@ -25,7 +22,7 @@ func TestNormalizeCodexModelGPT6Astra(t *testing.T) {
 		})
 	}
 
-	for _, model := range []string{"gpt-6-pro", "gpt-6-astra-custom", "gpt-60", "gpt-5.5"} {
+	for _, model := range []string{"gpt-6-pro", "gpt-60", "gpt-5.5"} {
 		t.Run(model, func(t *testing.T) {
 			require.Equal(t, model, normalizeCodexModel(model))
 			require.False(t, isOpenAIGPT6AstraModel(model))
@@ -56,9 +53,9 @@ func TestBuildCodexModelsManifestGPT6Astra(t *testing.T) {
 	for i, model := range models {
 		require.Equal(t, modelIDs[i], model["slug"])
 		require.Equal(t, "medium", model["default_reasoning_level"])
-		require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromManifestModel(t, model))
-		require.EqualValues(t, 272_000, model["context_window"])
-		require.EqualValues(t, 872_000, model["max_context_window"])
+		require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromManifestModel(t, model))
+		require.EqualValues(t, 1_050_000, model["context_window"])
+		require.EqualValues(t, 1_050_000, model["max_context_window"])
 		require.Equal(t, true, model["support_verbosity"])
 		require.Equal(t, true, model["supports_parallel_tool_calls"])
 		require.Equal(t, "list", model["visibility"])
@@ -105,10 +102,10 @@ func TestAdjustAPIKeyCodexModelsManifestGPT6Astra(t *testing.T) {
 	t.Parallel()
 
 	body := []byte(`{"models":[{"slug":"gpt-6-astra","use_responses_lite":true,"custom":1},{"slug":"gpt-6","use_responses_lite":true},{"slug":"gpt-6-pro","use_responses_lite":true}],"revision":2}`)
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"models":[{"slug":"gpt-6-astra","use_responses_lite":false,"custom":1},{"slug":"gpt-6","use_responses_lite":false},{"slug":"gpt-6-pro","use_responses_lite":true}],"revision":2}`, string(adjusted))
-	unchanged, err := adjustAPIKeyCodexModelsManifest(adjusted)
+	unchanged, err := adjustAPIKeyCodexModelsManifest(adjusted, nil)
 	require.NoError(t, err)
 	require.Equal(t, adjusted, unchanged)
 }

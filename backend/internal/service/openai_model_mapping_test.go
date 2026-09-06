@@ -445,7 +445,7 @@ func TestNormalizeCodexModel(t *testing.T) {
 		"gpt-image-2":               "gpt-image-2",
 		"gpt-5.4-nano":              "gpt-5.4-nano",
 		"gpt-5.4-nano-high":         "gpt-5.4-nano",
-		"gpt6":                      "gpt-6-astra",
+		"gpt6":                      "gpt6",
 		"gpt-unknown-model":         "gpt-unknown-model",
 		"claude-opus-4-6":           "claude-opus-4-6",
 	}

@@ -25,6 +25,11 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 		{name: "flat x-high maps to max", model: "GLM-5.2", input: `{"model":"glm-5.2","reasoning_effort":"x-high","messages":[]}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "max"},
 		{name: "flat ultracode maps to max", model: "glm-5.2", input: `{"model":"glm-5.2","reasoning_effort":"ultracode","messages":[]}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "max"},
 		{name: "flat medium maps to high", model: "glm-5.2", input: `{"model":"glm-5.2","reasoning_effort":"medium","messages":[]}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "high"},
+		{name: "5.2 的 low 仍映射为 high", model: "glm-5.2", input: `{"reasoning_effort":"low"}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "high"},
+		{name: "5.3 保留原生 low", model: "glm-5.3", input: `{"reasoning_effort":"low"}`, wantUnchanged: true},
+		{name: "5.3 归一化 low 大小写", model: " GLM-5.3 ", input: `{"reasoning":{"effort":" LOW "}}`, wantApplied: true, wantPath: "reasoning.effort", wantValue: "low"},
+		{name: "5.3 的 medium 映射为 high", model: "glm-5.3", input: `{"reasoning_effort":"medium"}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "high"},
+		{name: "5.3 嵌套空值仍优先于平铺值", model: "glm-5.3", input: `{"reasoning":{"effort":""},"reasoning_effort":"xhigh"}`, wantUnchanged: true},
 		{name: "nested high case-normalizes", model: "glm-5.2", input: `{"model":"glm-5.2","reasoning":{"effort":"HIGH"},"messages":[]}`, wantApplied: true, wantPath: "reasoning.effort", wantValue: "high"},
 		{name: "flat none case-normalizes", model: "glm-5.2", input: `{"model":"glm-5.2","reasoning_effort":"NONE","messages":[]}`, wantApplied: true, wantPath: "reasoning_effort", wantValue: "none"},
 		{name: "nested minimal trims and case-normalizes", model: "glm-5.2", input: `{"model":"glm-5.2","reasoning":{"effort":" Minimal "},"messages":[]}`, wantApplied: true, wantPath: "reasoning.effort", wantValue: "minimal"},
@@ -36,13 +41,46 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, applied := NormalizeGLMOpenAIReasoningEffort([]byte(tt.input), tt.model)
-			require.Equal(t, tt.wantApplied, applied)
-			if tt.wantUnchanged {
-				require.Equal(t, tt.input, string(got))
+			for _, normalize := range []func([]byte, string) ([]byte, bool){NormalizeGLMOpenAIReasoningEffort, normalizeOpenAIReasoningEffortForProvider} {
+				got, applied := normalize([]byte(tt.input), tt.model)
+				require.Equal(t, tt.wantApplied, applied)
+				if tt.wantUnchanged {
+					require.Equal(t, tt.input, string(got))
+					continue
+				}
+				require.Equal(t, tt.wantValue, gjson.GetBytes(got, tt.wantPath).String())
+			}
+		})
+	}
+}
+
+// TestNormalizeGLM53AnthropicThinking 验证显式偏好优先级与其它模型的隔离。
+// @param t 测试上下文。
+// @return 无。
+func TestNormalizeGLM53AnthropicThinking(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		model string
+		body  string
+		want  string
+	}{
+		{name: "关闭思考映射为 low", model: "glm-5.3", body: `{"thinking":{"type":"disabled"}}`, want: "low"},
+		{name: "自适应思考映射为 high", model: " GLM-5.3 ", body: `{"thinking":{"type":"adaptive"}}`, want: "high"},
+		{name: "effort 优先于 thinking", model: "glm-5.3", body: `{"output_config":{"effort":" X-HIGH "},"thinking":{"type":"disabled"}}`, want: "max"},
+		{name: "空 effort 回退到 thinking", model: "glm-5.3", body: `{"output_config":{"effort":" "},"thinking":{"type":"enabled"}}`, want: "high"},
+		{name: "未知显式 effort 保留请求", model: "glm-5.3", body: `{"output_config":{"effort":"custom"},"thinking":{"type":"enabled"}}`},
+		{name: "缺少偏好使用上游默认", model: "glm-5.3", body: `{"messages":[]}`},
+		{name: "其它 GLM 版本不受影响", model: "glm-5.2", body: `{"thinking":{"type":"disabled"}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, applied := NormalizeGLM53AnthropicThinking([]byte(tt.body), tt.model)
+			require.Equal(t, tt.want != "", applied)
+			if tt.want == "" {
+				require.Equal(t, tt.body, string(got))
 				return
 			}
-			require.Equal(t, tt.wantValue, gjson.GetBytes(got, tt.wantPath).String())
+			require.Equal(t, tt.want, gjson.GetBytes(got, "output_config.effort").String())
+			require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
 		})
 	}
 }

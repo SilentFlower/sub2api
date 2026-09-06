@@ -31,9 +31,9 @@ func TestCodexBaseInstructionsForModel(t *testing.T) {
 		{"gpt-5.6-terra", "You are Codex, an agent based on GPT-5."},
 		{"gpt-5.6-luna", "You are Codex, an agent based on GPT-5."},
 		{" GPT-5.6-SOL ", "You are Codex, an agent based on GPT-5."},
-		{"gpt-6", "You are Codex, an agent based on GPT-6."},
-		{"gpt-6-astra", "You are Codex, an agent based on GPT-6."},
-		{" GPT-6-ASTRA ", "You are Codex, an agent based on GPT-6."},
+		{"gpt-6", "You are Codex, a coding agent based on GPT-5"},
+		{"gpt-6-astra", "You are Codex, a coding agent based on GPT-5"},
+		{" GPT-6-ASTRA ", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-5.6-pro", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-5.60", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-6-pro", "You are Codex, a coding agent based on GPT-5"},
@@ -65,11 +65,11 @@ func TestCodexBaseInstructionsForModel(t *testing.T) {
 // @param t 测试上下文。
 // @return 无。
 func TestCodexBaseInstructionsNewModelsFallback(t *testing.T) {
-	original55, original56, original6 := instructionsGPT55, instructionsGPT56, instructionsGPT6
+	original55, original56 := instructionsGPT55, instructionsGPT56
 	t.Cleanup(func() {
-		instructionsGPT55, instructionsGPT56, instructionsGPT6 = original55, original56, original6
+		instructionsGPT55, instructionsGPT56 = original55, original56
 	})
-	instructionsGPT56, instructionsGPT6 = "", " \n\t"
+	instructionsGPT56 = " \n\t"
 	for _, model := range []string{"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6", "gpt-6-astra"} {
 		if got := CodexBaseInstructionsForModel(model); got != original55 {
 			t.Errorf("模型 %q 未回退到 GPT-5.5", model)

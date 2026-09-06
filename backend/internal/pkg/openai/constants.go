@@ -19,11 +19,11 @@ type Model struct {
 // DefaultModels OpenAI models list
 var DefaultModels = []Model{
 	{ID: "gpt-5.6-sol", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Sol"},
-	{ID: "gpt-6-astra", Object: "model", Created: 1783616400, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
-	{ID: "gpt-6", Object: "model", Created: 1783616400, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 (Astra)"},
+	{ID: "gpt-6", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 (Astra)"},
 	{ID: "gpt-5.6", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 (Sol)"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
+	{ID: "gpt-6-astra", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
 	{ID: "gpt-5.5", Object: "model", Created: 1776873600, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.5"},
 	{ID: "gpt-5.4", Object: "model", Created: 1738368000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.4"},
 	{ID: "gpt-5.4-mini", Object: "model", Created: 1738368000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.4 Mini"},
@@ -69,14 +69,11 @@ var instructionsGPT52 string
 //go:embed instructions_gpt5_5.txt
 var instructionsGPT55 string
 
-// instructionsGPT56 和 instructionsGPT6 同步自 CLIProxyAPI 的 Codex 客户端目录。
+// instructionsGPT56 同步自 CLIProxyAPI 的 Codex 客户端目录。
 // GPT-5.6 的 Sol、Terra、Luna 共用同一份 base instructions。
 //
 //go:embed instructions_gpt5_6.txt
 var instructionsGPT56 string
-
-//go:embed instructions_gpt6.txt
-var instructionsGPT6 string
 
 // latestCodexInstructions 保持既有 GPT-5.5 回退，避免新增模板改变旧模型和未知模型的行为。
 // 若 GPT-5.5 prompt 意外为空则回退到 DefaultInstructions 保证非空。
@@ -89,7 +86,6 @@ func latestCodexInstructions() string {
 
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
-//   - gpt-6 / gpt-6-astra → GPT-6 prompt
 //   - gpt-5.6 / gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna → GPT-5.6 prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
 //   - gpt-5.2 系非 codex 模型 → GPT-5.2 prompt
@@ -104,10 +100,6 @@ func CodexBaseInstructionsForModel(model string) string {
 	switch {
 	case strings.Contains(m, "codex"):
 		return DefaultInstructions
-	case m == "gpt-6" || m == "gpt-6-astra":
-		if v := strings.TrimSpace(instructionsGPT6); v != "" {
-			return instructionsGPT6
-		}
 	case m == "gpt-5.6" || m == "gpt-5.6-sol" || m == "gpt-5.6-terra" || m == "gpt-5.6-luna":
 		if v := strings.TrimSpace(instructionsGPT56); v != "" {
 			return instructionsGPT56

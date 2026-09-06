@@ -761,6 +761,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunResult(
 	c.JSON(http.StatusOK, responsesResp)
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
+		UpstreamHeaders:             upstreamHeaders,
 		ResponseID:                  responsesResp.ID,
 		Usage:                       usage,
 		Model:                       options.OriginalModel,
@@ -825,6 +826,7 @@ func (s *OpenAIGatewayService) writeOpenAIResponsesWebRunStream(
 	}
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
+		UpstreamHeaders:             upstreamHeaders,
 		ResponseID:                  responseID,
 		Usage:                       usage,
 		Model:                       options.OriginalModel,

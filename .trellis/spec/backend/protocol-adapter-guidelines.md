@@ -20,6 +20,7 @@
 - 流式响应转换：`ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 流式收尾：`FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 非流式折叠：`ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, model string) *AnthropicResponse`
+- 网关结果：`OpenAIForwardResult.UpstreamHeaders`（`http.Header`），由 `openai_gateway_messages_chat_fallback.go` 接续。
 
 ### 3. Contracts
 
@@ -45,6 +46,7 @@
   `cache_creation_input_tokens` 优先读取 `cache_write_tokens`，缺失时读取
   `cache_creation_tokens`；`input_tokens = max(prompt_tokens - cached_tokens - cache_creation_input_tokens, 0)`。
   `cache_write_tokens` 与 `cache_creation_tokens` 是同一数量的两种字段名，不得相加。
+- 网关 Chat fallback 的流式、非流式折叠及不完整响应结果必须携带实际 `resp.Header` 到 `OpenAIForwardResult.UpstreamHeaders`，供 usage 提取配置的上游请求 ID；不能用下游筛选后的 Header 替代，也不能因此向下游直接透传全部上游响应头。
 - `/v1/messages` 账号粘性 key 优先级必须是：显式 `session_id` / `conversation_id` / `prompt_cache_key` > Anthropic `metadata.user_id` > content fallback。`metadata.user_id` 只用于账号 sticky，不直接作为上游 `prompt_cache_key`，避免固定上游缓存键压住后续 turn 的缓存滚动。
 
 ### 4. Validation & Error Matrix
@@ -311,7 +313,8 @@ updatePayload.extra = newExtra
 
 - Trigger: 修改 Grok 4.5 或 GLM 的 OpenAI-compatible `reasoning.effort` / `reasoning_effort` 改写、Responses ↔ Chat fallback、Anthropic Messages 桥接、WebSocket HTTP bridge 或 `usage_logs.reasoning_effort` 取值时，必须按本节检查。
 - 适用后端路径：
-  - `backend/internal/service/gateway_request.go`
+  - `backend/internal/service/openai_provider_reasoning_effort.go`
+  - `backend/internal/service/openai_gateway_messages_anthropic_native.go`
   - `backend/internal/service/openai_gateway_grok.go`
   - `backend/internal/service/openai_gateway_chat_completions_raw.go`
   - `backend/internal/service/openai_gateway_messages.go`
@@ -325,6 +328,7 @@ updatePayload.extra = newExtra
 
 ```go
 func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool)
+func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool)
 func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool)
 func extractFinalOpenAIReasoningEffort(body []byte) *string
 func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string
@@ -342,7 +346,7 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 
 ### 3. Contracts
 
-- 字段定位优先级固定为：已存在的 `reasoning.effort` > 已存在的 `reasoning_effort`。只改写命中的现有路径，不新增字段。
+- OpenAI-compatible 字段定位优先级固定为：已存在的 `reasoning.effort` > 已存在的 `reasoning_effort`。只改写命中的现有路径，不新增字段。
 - 别名识别前执行 trim、转小写，并移除 `-`、`_`、空格；未知值返回空映射并保持原请求值。
 - GLM guard：最终模型 trim/lower 后以 `glm-` 开头。
 - Grok guard：最终模型必须大小写不敏感地精确等于 `grok-4.5`；不得使用 `grok-` 前缀匹配，避免改坏 `grok-4.20-multi-agent` 等支持 `xhigh` 的模型。
@@ -352,14 +356,16 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 |---|---|---|
 | `none` | `none` | `low` |
 | `minimal` | `minimal` | `low` |
-| `low` | `high` | `low` |
+| `low` | 精确 `glm-5.3` 为 `low`，其它 GLM 为 `high` | `low` |
 | `medium` | `high` | `medium` |
 | `high` | `high` | `high` |
 | `xhigh` / `extra high` | `max` | `high` |
 | `max` / `ultracode` | `max` | `high` |
 | 未知值 | 原样透传 | 原样透传 |
 
-- Grok / GLM 的 `OpenAIForwardResult.ReasoningEffort` 必须在完成模型改写、provider 归一化和 fast policy 后，从最终请求体提取；只 trim，不做白名单过滤。
+- GLM-5.3 原生 Anthropic 路径在最终模型 trim 后大小写不敏感地精确匹配 `glm-5.3` 时，调用 `NormalizeGLM53AnthropicThinking`。优先读取非空 `output_config.effort`，为空才读取 `thinking.type`；非空未知 effort 不回退到 thinking，原请求保持不变。
+- Anthropic 映射为：`disabled/off/none/minimal/low -> low`，`enabled/adaptive/medium/high -> high`，`xhigh/max/ultra -> max`。识别后同时写入 `thinking.type=enabled` 和 `output_config.effort`；缺失偏好、未知值或其它模型保持原请求，不替上游补默认值。该映射独立于 OpenAI-compatible 的 `none/minimal` 保留规则。
+- OpenAI-compatible Grok / GLM 的 `OpenAIForwardResult.ReasoningEffort` 必须在完成模型改写、provider 归一化和 fast policy 后，从最终请求体提取；只 trim，不做白名单过滤。
 - 最终请求体没有 effort 时，结果保持 `nil`，不得调用 `ApplyThinkingEnabledFallback` 猜测 `high`。
 - 其它 provider 继续沿用既有模型后缀提取和 thinking fallback，不能因本规则发生全局行为变化。
 - `/v1/messages` 默认 Responses 路径与强制 Chat 路径保持既有缺省差异：Responses 转换器当前会发 `medium`；强制 Chat 未产生 effort 时继续省略，不互相补默认值。
@@ -368,18 +374,20 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 ### 4. Validation & Error Matrix
 
 - 已知别名 + 命中 GLM/Grok guard -> 改写命中路径，返回 `changed=true`。
-- 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
+- OpenAI-compatible 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
 - `banana` 等未知值 -> 请求体原样透传；上游接受时日志保留 trim 后实际值，上游拒绝时沿用现有错误路径。
-- effort 字段缺失或 trim 后为空 -> 不新增字段，最终日志为 `nil`。
+- OpenAI-compatible effort 字段缺失或 trim 后为空 -> 不新增字段，最终日志为 `nil`。
 - 同时存在嵌套和扁平字段 -> 只处理、记录嵌套字段，扁平字段保持原样。
 - 最终模型为 `grok-4.20-multi-agent` / `grok-4.3` -> 跳过 Grok 4.5 归一化。
-- GLM `thinking.type=enabled` 但最终 body 没有 effort -> 日志为 `nil`，不得补 `high`。
-- GLM `thinking.type=enabled` 且最终 body 为 `minimal` -> 上游和日志均为 `minimal`。
+- OpenAI-compatible GLM `thinking.type=enabled` 但最终 body 没有 effort -> 日志为 `nil`，不得补 `high`。
+- OpenAI-compatible GLM `thinking.type=enabled` 且最终 body 为 `minimal` -> 上游和日志均为 `minimal`。
+- GLM-5.3 的 OpenAI-compatible `low` 保持 `low`，GLM-5.2 的 `low` 仍改为 `high`；嵌套 effort 即使为空也优先于平铺字段。
+- 原生 Anthropic GLM-5.3 的 `output_config.effort=xhigh` 与 `thinking.type=disabled` 同时存在 -> 写入 `effort=max`、`thinking.type=enabled`；无偏好则原样保留。
 
 ### 5. Good/Base/Bad Cases
 
 - Good: 客户端向 `grok` 别名发送 `xhigh`，模型映射先得到 `grok-4.5`，最终上游 body 和 usage 日志都为 `high`。
-- Good: GLM 收到 `MINIMAL`，最终上游 body 和 usage 日志都为小写 `minimal`，即使 thinking 已开启也不误记为 `high`。
+- Good: OpenAI-compatible GLM 收到 `MINIMAL`，最终上游 body 和 usage 日志都为小写 `minimal`，即使 thinking 已开启也不误记为 `high`。
 - Good: Responses、原生 Chat、Messages 两种分支和 Grok WebSocket HTTP bridge 复用同一 provider 分派和最终值提取逻辑。
 - Base: 未提供 effort 时保持缺失；Grok 上游自身的默认档位不写入本地日志。
 - Base: 非 Grok 4.5 模型继续原样接收 `xhigh`。
@@ -389,7 +397,7 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 
 ### 6. Tests Required
 
-- `gateway_request_test.go`：覆盖完整映射表、大小写/分隔符、嵌套优先、未知值、缺失值、非 4.5 Grok 模型和最终值提取。
+- `openai_provider_reasoning_effort_test.go`：覆盖完整映射表、GLM-5.3/5.2 的 low 差异、公开函数与 provider 分派入口、大小写/分隔符、嵌套空值优先、未知值、缺失值、非 4.5 Grok 模型和最终值提取；原生 Anthropic 另测 effort 优先、空 effort 回退、未知显式 effort、缺失偏好及非 5.3 隔离。
 - `openai_gateway_grok_test.go`：覆盖 Grok Responses、原生 Chat、Messages Responses 的上游 body 与结果 effort 一致。
 - `openai_gateway_chat_completions_raw_test.go`：覆盖 GLM `xhigh -> max`、`MINIMAL -> minimal` 及结果日志一致。
 - `openai_gateway_messages_chat_fallback_test.go`：覆盖 Grok/GLM 强制 Chat，并锁定强制 Chat 不补默认 effort。
@@ -528,13 +536,14 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 ### 1. Scope / Trigger
 
 - 修改 OpenAI 默认模型、管理端模型预设、Codex 模型归一化或目录能力时，必须同步检查模型名称、请求路由、计费候选及目录投影。
-- 默认列表注册 `gpt-6-astra` 和 `gpt-6`；前端 OpenAI 预设将 `gpt-6` 映射到 `gpt-6-astra`。别名规则由 `openai_model_alias.go` 持有，专项回归放在 `openai_gpt6_test.go`。
+- 默认列表注册 `gpt-6-astra` 和 `gpt-6`；前端 OpenAI 预设保留 `gpt-6 -> gpt-6` 和 `gpt-6-astra -> gpt-6-astra`。别名规则由 `openai_model_alias.go` 持有，专项回归放在 `openai_gpt6_test.go`。
 
 ### 2. Signatures
 
 ```go
 func isOpenAIGPT6AstraModel(model string) bool
 func normalizeCodexModel(model string) string
+func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, error)
 func usageBillingModelCandidates(primary string, alternates ...string) []string
 func BuildCodexModelsManifest(modelIDs []string) ([]byte, error)
 func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manifest *CodexModelsManifest, account *Account) error
@@ -542,25 +551,28 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 
 ### 3. Contracts
 
-- Astra 识别先复用大小写、provider 路径、下划线和 `gpt6` 拼写归一化，再识别精确基名、已知 effort 后缀及形如 `YYYY-MM-DD` 的日期后缀；允许末尾 `-openai-compact`。未知型号如 `gpt-6-pro`、`gpt-6-astra-custom`、`gpt-60` 不得归入 Astra。
-- Codex 归一化将已知别名收敛到 `gpt-6-astra`；API Key 原生请求仍遵守既有透传和账号显式映射规则。计费候选保留原名在前，再补规范拼写及 Astra 基名，不覆盖原有定价优先级。
-- 本地生成的 Astra 基础目录保留传入的 `slug`，默认 `context_window=272000`、`max_context_window=872000`、`default_reasoning_level=medium`，档位为 `low/medium/high/xhigh/max/ultra`，声明并行工具、verbosity 和 `priority` 服务档位。这些是本地缺省值，上游已有元数据按既有补全规则优先。
+- GPT-6 行为以 main 0.2.1 为准，不能恢复旧 build 的目录容量、`ultra` 档位或专用提示词覆盖。
+- Astra 能力识别复用大小写、provider 路径、下划线等拼写归一化，匹配精确 `gpt-6`、`gpt-6-astra` 或 `gpt-6-astra-` 前缀。因此 `gpt-6-astra-custom` 也会命中能力识别；`gpt6`、`gpt-6-pro`、`gpt-60` 不命中。
+- 能力识别与 Codex 名称归一化是两个契约：`gpt-6`、`gpt-6-astra` 及其 provider/大小写/下划线变体归一到 `gpt-6-astra`；不能根据能力前缀匹配把所有 Astra 后缀名都强制改成基名。未知名称继续原样转发，`gpt6` 保留原值。API Key 原生请求仍遵守既有透传和账号显式映射规则。
+- 计费候选保留原名在前，再补规范拼写及 Astra 基名，不覆盖原有定价优先级。
+- 本地生成的 Astra 基础目录保留传入 `slug`，`context_window=max_context_window=1050000`，`default_reasoning_level=medium`，档位为 `low/medium/high/xhigh/max`；声明并行工具、verbosity 和仅 `priority` 服务档位，不包含 `ultra` effort 或 `ultrafast` 服务档位。上游已有元数据按既有补全规则优先。
 - API Key 目录补全时，Astra 缺失图像能力可补为 `text/image`；上游显式 `input_modalities=["text"]` 必须保留。
-- API Key 目录中精确 `slug=gpt-6-astra` 或 `gpt-6` 的 `use_responses_lite=true` 改为 `false`，保留其它字段并保证幂等；不得扩展为关闭全部 GPT-6 型号或改写 OAuth 上游目录。
-- Astra 普通请求的 `max` 不降级；既有 GPT-5.6 OAuth compact 专属降级规则不自动扩展到 Astra。目录中的 `ultra` 是客户端编排档位，不能据此新增服务端原始 `ultra` effort 语义。
-- GPT-5.6 与 GPT-6 的本地 Codex 提示词分别内嵌于 `internal/pkg/openai/instructions_gpt5_6.txt`、`instructions_gpt6.txt`，来源为 CLIProxyAPI `c77b1369` 的 `internal/registry/models/codex_client_models.json`；GPT-5.6 Sol/Terra/Luna 的 `base_instructions` 与 `model_messages.instructions_template` 共用同一份原文。
-- 本地目录的 `model_messages.instructions_template` 与请求的空 `instructions` 补全共用服务层 `codexBaseInstructionsForModel(model string) string`；仅将既有规则识别的新型号别名归一化后交给 `openai.CodexBaseInstructionsForModel`。含 `codex` 的模型保持通用 Codex 模板优先级，GPT-5.1/GPT-5.2 专用模板及旧型号、未知型号的 GPT-5.5 回退保持不变。
-- 默认补全保留客户端非空 `instructions` 和 API Key 上游已有 `instructions_template`；`SkipDefaultInstructions` 仍可跳过请求补全。新模板为空时回退 GPT-5.5，再回退通用 Codex 模板，不能将 Astra 模板作为全部未知模型的新默认值。
+- API Key 目录的 Lite 策略先通过 `account.GetMappedModel(slug)` 得到目标模型（无 account 时使用 slug），再按 Astra 能力规则匹配并归为 `gpt-6-astra`。命中禁用集合且原值为布尔 `true` 时，将 `use_responses_lite` 改为 `false`；保留其它字段并保证幂等。不得跳过账号映射或改写 OAuth 上游目录；通用 HTTP/WS Lite 阻止名单仍由独立策略负责。
+- Astra 普通请求的 `max` 不降级；既有 GPT-5.6 OAuth compact 专属降级规则不自动扩展到 Astra。
+- GPT-6 本地没有专用内嵌提示词，沿用 main 的 GPT-5.5 回退；GPT-5.6 Sol/Terra/Luna 继续共用 `internal/pkg/openai/instructions_gpt5_6.txt`，来源为 CLIProxyAPI `c77b1369` 的 `internal/registry/models/codex_client_models.json`。
+- 本地目录的 `model_messages.instructions_template` 与请求的空 `instructions` 补全共用服务层 `codexBaseInstructionsForModel(model string) string`；仅将 GPT-5.6 专用模板对应的别名归一化后交给 `openai.CodexBaseInstructionsForModel`。含 `codex` 的模型保持通用 Codex 模板优先级，GPT-5.1/GPT-5.2 专用模板及旧型号、未知型号的 GPT-5.5 回退保持不变。
+- 默认补全保留客户端非空 `instructions` 和 API Key 上游已有 `instructions_template`；`SkipDefaultInstructions` 仍可跳过请求补全。GPT-5.6 模板为空时回退 GPT-5.5，再回退通用 Codex 模板。
 
 ### 4. Validation & Error Matrix
 
 | 输入或场景 | 必须结果 |
 |---|---|
-| `openai/gpt-6`、`OpenAI/GPT_6_ASTRA`、`gpt-6-astra-max` | Codex 归一化为 `gpt-6-astra` |
-| `gpt-6-pro`、`gpt-6-astra-custom`、`gpt-60` | 不识别为 Astra，未知模型继续原样转发 |
+| `gpt-6`、`gpt-6-astra`、`openai/gpt-6`、`OpenAI/GPT_6_ASTRA` | Codex 归一化为 `gpt-6-astra` |
+| `gpt6`、`gpt-6-pro`、`gpt-60` | 不识别为 Astra，未知模型继续原样转发 |
+| `gpt-6-astra-max`、`gpt-6-astra-custom` | 命中 Astra 能力识别，不据此强制归一化名称 |
 | Astra API Key 目录缺少图像能力 | 补齐 `text/image` |
 | 上游明确仅支持 `text` | 不提升为图像模型 |
-| Astra API Key 目录声明 Lite | 关闭 Lite，保留自定义字段，再次处理结果不变 |
+| API Key 目录映射后的目标命中 Astra，且声明 Lite | 关闭 Lite，保留自定义字段，再次处理结果不变 |
 | 目录 JSON 非法 | 沿既有解析错误返回，不伪造成功目录 |
 
 ### 5. Good/Base/Bad Cases
@@ -572,14 +584,14 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 ### 6. Tests Required
 
 - `openai_gpt6_test.go`：覆盖别名与未知边界、`max`、默认目录字段、图像元数据优先级、API Key Lite 幂等及自定义字段保留。
-- `internal/pkg/openai/instructions_test.go`、`openai_codex_base_instructions_test.go`：覆盖 GPT-5.6/GPT-6 模板、别名、未知型号及空模板回退，验证目录与请求模板一致、客户端与上游内容优先、跳过补全开关及目录补全幂等。
-- `useModelWhitelist.spec.ts`：覆盖模型列表、`gpt-6 -> gpt-6-astra` 预设与最终 `model_mapping` 对象。
+- `internal/pkg/openai/instructions_test.go`、`openai_codex_base_instructions_test.go`：覆盖 GPT-5.6 专用模板、GPT-6 沿用 GPT-5.5、别名、未知型号及空模板回退，验证目录与请求模板一致、客户端与上游内容优先、跳过补全开关及目录补全幂等。
+- `useModelWhitelist.spec.ts`：覆盖模型列表、`gpt-6 -> gpt-6` 预设与最终 `model_mapping` 对象。
 - `openai_model_mapping_test.go`、`openai_oauth_passthrough_test.go` 和 `openai_gateway_chat_completions_test.go`：未知模型使用 `gpt-unknown-model` 等明确测试值，保留上游错误透传和不回退到 GPT-5.4 的断言；新增已知模型后须复核旧 fixture。
 
 ### 7. Wrong vs Correct
 
-- 错误：继续用 `gpt6` 代表未知模型，并断言 Codex 归一化后仍为原值。
-- 正确：Astra 别名断言目标为 `gpt-6-astra`；未知模型用独立 fixture 验证不误映射、不静默降级。
+- 错误：用旧 build 规则把 `gpt6` 强制改为 Astra，或因旧测试期望而恢复 GPT-6 专用提示词、`ultra` 档位。
+- 正确：`gpt6` 保留原值；已知 Astra 别名按 main 归一化，能力识别单独使用 Astra guard，本地 GPT-6 提示词沿用 GPT-5.5 回退。
 
 ---
 
@@ -1440,6 +1452,7 @@ channel.features_config.codex_web_search_bridge.openai: boolean
 - 同一轮只允许一个内部 Web 工具调用；内部搜索与客户端工具并行返回时必须返回 `502 api_error`，不能部分执行。达到全局 5 轮或 typed Web Search 的 `max_uses` 后，网关必须回灌 `search_limit_reached` tool result，移除已耗尽的内部搜索工具并继续生成最终回答；不得向客户端返回内部轮次限制的 `502` 或 `response.failed`。仍有客户端工具时把遗留的强制 `tool_choice` 降级为 `auto`，没有剩余工具时清除 `tool_choice`。
 - 已消费的内部 `web.run` function call 不能下发给客户端。每个已尝试的 `search_query` 必须投影为标准 Responses `web_search_call`：使用稳定 `ws_` ID、`action.type="search"`、原查询文本以及 `completed/failed` 状态，并排列在最终文本或其它客户端工具之前。
 - 流式客户端必须收到 `response.output_item.added/done` 的 `web_search_call` 生命周期，后续最终响应事件的 `output_index` 必须按搜索项数量整体偏移，`response.completed.output` 也必须包含同一批搜索项。内部模型轮次仍保持缓冲，只有循环结束后才提交下游 SSE，避免搜索代理 failover 或后续模型错误发生在响应已提交之后。
+- 搜索循环的最终流式和非流式 `OpenAIForwardResult.UpstreamHeaders` 必须来自最后一次模型响应，包含达到搜索上限或 provider 失败后继续回答的路径；usage 请求 ID 不得取首轮响应头。
 - 所有内部模型轮次的 token usage 必须累加；`WebSearchCalls` 只累计真实成功完成的 provider 查询。参数错误、未支持命令、provider 失败和未实际执行的工具调用不计 Web Search 次数。
 - `tool_choice=none` 或明确选择其它工具时不搜索；混合工具的空 choice、`auto`、`required` 不得被直接摘要模拟器抢先接管，只能由模型驱动的 `chat_tool_loop` 决定是否搜索。
 - typed Web Search 真实成功后，普通文本响应在模型原文末尾追加 `Sources:`，来源仅取本次成功 provider 结果，按去掉 fragment 后的规范化 HTTP(S) URL 去重，最多 5 条。`url_citation` 的 rune 索引只覆盖网关追加的 URL；流式 delta、annotation、done、item 和 completed 快照必须一致。
@@ -1531,6 +1544,7 @@ channel.features_config.codex_web_search_bridge.openai: boolean
 - 前端必须覆盖：账号三态严格布尔归一化、`inherit` 删除字段、未知 `extra` 保留、渠道 OpenAI-only 序列化、未知 `features_config` 保留、管理页面回填/保存、全局配置不可用时的展示条件和最终中英文 key。
 - typed Web Search 循环必须覆盖：模型不搜索、选择 function/custom/namespace/tool_search、代理名冲突、重复 typed 工具、无等价字段、`max_uses`、并行客户端调用、provider 失败、代理 failover、usage/成功调用数累计、流式/非流式来源、Unicode rune 索引、结构化文本和客户端断连。
 - `web.run` 循环必须覆盖：顶层和 `additional_tools` 识别、Schema 收窄、天气改走普通搜索、非法/未支持参数、recency 警告、provider 失败、代理 failover、缺失 call ID、单次 4 查询边界、跨轮次累计 5 查询上限、5 轮软终止、无 `response.failed`、usage/成功调用数累计、流式缓冲和其它客户端工具回程。
+- `openai_gateway_responses_chat_fallback_test.go` 必须断言搜索超限和 provider 失败后最终结果的 `UpstreamHeaders.Get("x-request-id")` 来自最后一次模型响应；fixture 用 `Header.Set` 或规范键 `X-Request-Id` 构造响应头。
 - `web.run` 客户端可见事件必须断言：非流式 `output` 的搜索项位于最终消息之前；流式 `web_search_call added/done` 位于最终文本事件之前；所有后续 `output_index` 正确偏移；provider 普通失败投影为 `status=failed`；任何响应都不泄漏 `namespace=web` 的内部调用。
 - 原生 Anthropic 桥必须覆盖：请求字段映射、无等价字段拒绝、非流式 search completed/failed、查询提取、URL citation、流式完整生命周期。
 - SSE 聚合回归必须使用真实稀疏 index，并覆盖 citation 在搜索结果停止后、最终文本开始前到达的顺序；断言查询、搜索前文本、最终文本和 URL citation 都保留。
