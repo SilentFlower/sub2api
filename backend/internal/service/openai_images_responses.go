@@ -466,7 +466,7 @@ func shouldPassOpenAIImagesN(model string, n int) bool {
 func (s *OpenAIGatewayService) openAIImagesResponsesRequestOptions(ctx context.Context) openAIImagesResponsesRequestOptions {
 	if s == nil || s.settingService == nil {
 		return openAIImagesResponsesRequestOptions{
-			MainModel:       openAIImagesResponsesMainModel,
+			MainModel:       openAIImagesResponsesMainModelValue(),
 			ReasoningEffort: openAIImageGenerationReasoningEffortDefault,
 		}
 	}
@@ -478,7 +478,7 @@ func (s *OpenAIGatewayService) openAIImagesResponsesRequestOptions(ctx context.C
 
 func (s *OpenAIGatewayService) openAIImageGenerationMainModel(ctx context.Context) string {
 	if s == nil || s.settingService == nil {
-		return openAIImagesResponsesMainModel
+		return openAIImagesResponsesMainModelValue()
 	}
 	return s.settingService.GetOpenAIImageGenerationMainModel(ctx)
 }
@@ -938,7 +938,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
-	requestedModel ...string,
+	requestedModel string,
+	mainModel string,
 ) (*OpenAIForwardResult, error) {
 	body := s.readUpstreamErrorBody(resp)
 
@@ -1010,11 +1011,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		return nil, upErr
 	}
 
-	// Track rate limits / decide whether to disable the account (secondary failover).
-	var modelForCooldown string
-	if len(requestedModel) > 0 {
-		modelForCooldown = strings.TrimSpace(requestedModel[0])
+	// 使用本次出站模型识别主控模型错误，避免设置变化或环境变量差异导致误冷却生图账号。
+	if account.IsOpenAIOAuthLike() && mainModel != "" &&
+		isOpenAICodexPlanGatedModelError(resp.StatusCode, body) &&
+		strings.Contains(extractUpstreamErrorMessage(body), "'"+mainModel+"'") {
+		upErr := openAIImagesUpstreamErrorFromHTTP(resp.StatusCode, resp.Header, body)
+		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
+		return nil, upErr
 	}
+
+	// Track rate limits / decide whether to disable the account (secondary failover).
+	modelForCooldown := strings.TrimSpace(requestedModel)
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, modelForCooldown)
 	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
@@ -1214,8 +1221,13 @@ func openAIImagesToolUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !inputOK || !outputOK || !imageOutputOK {
 		return OpenAIUsage{}, false
 	}
+	imageInputTokens, _ := boundedJSONNonNegativeInt(value.Get("input_tokens_details.image_tokens"))
+	if imageInputTokens > inputTokens {
+		imageInputTokens = inputTokens
+	}
 	return OpenAIUsage{
 		InputTokens:       inputTokens,
+		ImageInputTokens:  imageInputTokens,
 		OutputTokens:      outputTokens,
 		ImageOutputTokens: imageOutputTokens,
 	}, true
@@ -1888,7 +1900,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+		if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -1912,7 +1924,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			)
 		}
-		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, requestModel)
+		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, requestModel, gjson.GetBytes(responsesBody, "model").String())
 	}
 	defer func() { _ = resp.Body.Close() }()
 

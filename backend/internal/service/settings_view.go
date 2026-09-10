@@ -202,6 +202,7 @@ type SystemSettings struct {
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
 	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy (admin settings; empty mapping falls back to these).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`
@@ -240,7 +241,7 @@ type SystemSettings struct {
 	RewriteMessageCacheControl                  bool     // 是否改写 messages[*].content[*].cache_control（默认 false）
 	AntigravityUserAgentVersion                 string   // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	OpenAICodexUserAgent                        string   // OpenAI Codex 上游完整 User-Agent；空值使用内置默认
-	OpenAIImageGenerationMainModel              string   // OpenAI OAuth 生图 Responses 请求的对话主模型；空值使用内置默认
+	OpenAIImageGenerationMainModel              string   // OpenAI OAuth 生图主模型；空值先使用环境变量，再回退内置默认
 	OpenAIImageGenerationReasoningEffort        string   // OpenAI OAuth 生图 Responses 请求的 reasoning.effort；空值使用 medium
 	OpenAIResponsesLiteHeaderBlockedModels      []string // 按最终上游模型阻止 Responses Lite Header/metadata 透传的规则
 	EnableDeepSeekMissingReasoningAutoDowngrade bool     // DeepSeek 工具调用历史缺失推理内容时自动关闭 thinking（默认 true）
@@ -386,6 +387,7 @@ type PublicSettings struct {
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
 	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy (admin settings).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`

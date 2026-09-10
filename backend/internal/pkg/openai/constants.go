@@ -33,6 +33,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-image-1", Object: "model", Created: 1733875200, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 1"},
 	{ID: "gpt-image-1.5", Object: "model", Created: 1735689600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 1.5"},
 	{ID: "gpt-image-2", Object: "model", Created: 1738368000, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2"},
+	{ID: "gpt-image-2.5-flare", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Flare"},
+	{ID: "gpt-image-2.5-sunburst", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Sunburst"},
 }
 
 // DefaultModelIDs returns the default model ID list
@@ -56,8 +58,8 @@ const CodexUsageProbeModel = "codex-auto-review"
 //go:embed instructions.txt
 var DefaultInstructions string
 
-// instructionsGPT51 / instructionsGPT52 / instructionsGPT55 为 gpt-5.1 / gpt-5.2 / gpt-5.5
-// 非 codex 模型对应的真实 Codex 编码 agent base prompt，用于模型感知的 instructions 选择。
+// instructionsGPT51 / instructionsGPT52 / instructionsGPT55 / instructionsGPT56 / instructionsGPT6Astra
+// 为对应非 codex 模型的真实 Codex 编码 agent base prompt，用于模型感知的 instructions 选择。
 // GPT-5.5 保持作为兼容 fallback（覆盖 5.3 / 5.4 等未单独维护 prompt 的版本）。
 //
 //go:embed instructions_gpt5_1.txt
@@ -75,6 +77,11 @@ var instructionsGPT55 string
 //go:embed instructions_gpt5_6.txt
 var instructionsGPT56 string
 
+// instructionsGPT6Astra 来自 openai/codex 121f91fd5d9d 的 codex-rs/models-manager/models.json。
+//
+//go:embed instructions_gpt6_astra.txt
+var instructionsGPT6Astra string
+
 // latestCodexInstructions 保持既有 GPT-5.5 回退，避免新增模板改变旧模型和未知模型的行为。
 // 若 GPT-5.5 prompt 意外为空则回退到 DefaultInstructions 保证非空。
 func latestCodexInstructions() string {
@@ -84,7 +91,49 @@ func latestCodexInstructions() string {
 	return DefaultInstructions
 }
 
+// CanonicalizeOpenAIModelAliasSpelling normalizes provider prefixes, case,
+// separators, and known compact spellings used by OpenAI model aliases.
+func CanonicalizeOpenAIModelAliasSpelling(model string) string {
+	model = strings.TrimSpace(model)
+	if slash := strings.LastIndexByte(model, '/'); slash >= 0 {
+		model = strings.TrimSpace(model[slash+1:])
+	}
+	model = strings.ToLower(model)
+	if model == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(model, "_", "-")
+	normalized = strings.Join(strings.Fields(normalized), "-")
+	for strings.Contains(normalized, "--") {
+		normalized = strings.ReplaceAll(normalized, "--", "-")
+	}
+
+	if strings.HasPrefix(normalized, "gpt5") {
+		normalized = "gpt-5" + strings.TrimPrefix(normalized, "gpt5")
+	}
+	if !strings.HasPrefix(normalized, "gpt-") && !strings.Contains(normalized, "codex") {
+		return ""
+	}
+
+	replacements := []struct {
+		from string
+		to   string
+	}{
+		{"gpt-5.4mini", "gpt-5.4-mini"},
+		{"gpt-5.4nano", "gpt-5.4-nano"},
+		{"gpt-5.3-codexspark", "gpt-5.3-codex-spark"},
+		{"gpt-5.3codexspark", "gpt-5.3-codex-spark"},
+		{"gpt-5.3codex", "gpt-5.3-codex"},
+	}
+	for _, replacement := range replacements {
+		normalized = strings.ReplaceAll(normalized, replacement.from, replacement.to)
+	}
+	return normalized
+}
+
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
+//   - gpt-6 / gpt-6-astra（含供应商前缀与日期变体）→ GPT-6 Astra prompt
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
 //   - gpt-5.6 / gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna → GPT-5.6 prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
@@ -96,21 +145,25 @@ func latestCodexInstructions() string {
 // @param model 模型基名；服务层负责将已识别的 provider 路径和后缀别名归一化。
 // @return 对应模型的内嵌提示词，未知型号使用既有回退模板。
 func CodexBaseInstructionsForModel(model string) string {
-	m := strings.ToLower(strings.TrimSpace(model))
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
 	switch {
-	case strings.Contains(m, "codex"):
+	case canonical == "gpt-6" || canonical == "gpt-6-astra" || strings.HasPrefix(canonical, "gpt-6-astra-"):
+		if v := strings.TrimSpace(instructionsGPT6Astra); v != "" {
+			return instructionsGPT6Astra
+		}
+	case strings.Contains(canonical, "codex"):
 		return DefaultInstructions
-	case m == "gpt-5.6" || m == "gpt-5.6-sol" || m == "gpt-5.6-terra" || m == "gpt-5.6-luna":
+	case canonical == "gpt-5.6" || canonical == "gpt-5.6-sol" || canonical == "gpt-5.6-terra" || canonical == "gpt-5.6-luna":
 		if v := strings.TrimSpace(instructionsGPT56); v != "" {
 			return instructionsGPT56
 		}
-	case strings.HasPrefix(m, "gpt-5.5"):
+	case strings.HasPrefix(canonical, "gpt-5.5"):
 		return latestCodexInstructions()
-	case strings.HasPrefix(m, "gpt-5.2"):
+	case strings.HasPrefix(canonical, "gpt-5.2"):
 		if v := strings.TrimSpace(instructionsGPT52); v != "" {
 			return instructionsGPT52
 		}
-	case strings.HasPrefix(m, "gpt-5.1"):
+	case strings.HasPrefix(canonical, "gpt-5.1"):
 		if v := strings.TrimSpace(instructionsGPT51); v != "" {
 			return instructionsGPT51
 		}

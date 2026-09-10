@@ -155,6 +155,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		return nil, err
 	}
+	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
 	chatBody, err = s.applyDeepSeekMissingReasoningAutoDowngrade(
 		ctx,
 		account,

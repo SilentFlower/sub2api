@@ -34,16 +34,16 @@ func TestCodexBaseInstructionsModelAliases(t *testing.T) {
 		{"gpt-5.6-luna-openai-compact", "gpt-5.6-luna"},
 		{"gpt-6", "gpt-6-astra"},
 		{"gpt-6-astra", "gpt-6-astra"},
-		{"gpt6", "gpt-6-astra"},
+		{"gpt6", "gpt-5.5"},
 		{"openai/gpt-6", "gpt-6-astra"},
 		{" OpenAI/GPT_6_ASTRA ", "gpt-6-astra"},
-		{"gpt-6-high", "gpt-6-astra"},
-		{"gpt-6-max", "gpt-6-astra"},
+		{"gpt-6-high", "gpt-5.5"},
+		{"gpt-6-max", "gpt-5.5"},
 		{"gpt-6-astra-ultra", "gpt-6-astra"},
 		{"gpt-6-astra-2026-07-09", "gpt-6-astra"},
 		{"gpt-6-astra-openai-compact", "gpt-6-astra"},
 		{"gpt-6-pro", "gpt-5.5"},
-		{"gpt-6-astra-custom", "gpt-5.5"},
+		{"gpt-6-astra-custom", "gpt-6-astra"},
 		{"gpt-60", "gpt-5.5"},
 		{"gpt-5.6-pro", "gpt-5.5"},
 		{"gpt-5.60", "gpt-5.5"},
@@ -143,7 +143,7 @@ func TestCompleteAPIKeyCodexModelsManifestNewModelInstructions(t *testing.T) {
 					"models": []any{map[string]any{"slug": model, "model_messages": messages}},
 				})
 				require.NoError(t, err)
-				manifest := &CodexModelsManifest{Body: body}
+				manifest := &OpenAIModelsResponse{Body: body}
 				service := &OpenAIGatewayService{}
 				account := newCodexModelsAPIKeyTestAccount("https://upstream.example/v1")
 				require.NoError(t, service.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))

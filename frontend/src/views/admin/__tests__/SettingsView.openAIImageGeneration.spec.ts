@@ -32,4 +32,19 @@ describe('SettingsView OpenAI 生图设置', () => {
       })
     )
   })
+
+  it('空模型保存后继续使用环境变量与默认值', async () => {
+    settingsViewBuildFeatureMocks.getSettings.mockResolvedValueOnce({
+      ...buildFeatureSettingsResponse,
+      openai_image_generation_main_model: ''
+    })
+    const wrapper = mountSettingsViewBuildFeature()
+    await flushPromises()
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(settingsViewBuildFeatureMocks.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ openai_image_generation_main_model: '' })
+    )
+    wrapper.unmount()
+  })
 })

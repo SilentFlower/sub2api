@@ -19,6 +19,11 @@ func TestCodexBaseInstructionsForModel(t *testing.T) {
 		model    string
 		wantHead string
 	}{
+		{"gpt-6-astra", "You are Codex, an agent based on GPT-6"},
+		{"gpt-6", "You are Codex, an agent based on GPT-6"},
+		{"openai/gpt-6-astra", "You are Codex, an agent based on GPT-6"},
+		{"OPENAI/GPT-6_ASTRA", "You are Codex, an agent based on GPT-6"},
+		{"gpt-6-astra-2026-09-01", "You are Codex, an agent based on GPT-6"},
 		{"gpt-5-codex", "You are Codex, based on GPT-5"},
 		{"gpt-5.3-codex", "You are Codex, based on GPT-5"},
 		{"gpt-5.3-codex-spark", "You are Codex, based on GPT-5"},
@@ -31,13 +36,11 @@ func TestCodexBaseInstructionsForModel(t *testing.T) {
 		{"gpt-5.6-terra", "You are Codex, an agent based on GPT-5."},
 		{"gpt-5.6-luna", "You are Codex, an agent based on GPT-5."},
 		{" GPT-5.6-SOL ", "You are Codex, an agent based on GPT-5."},
-		{"gpt-6", "You are Codex, a coding agent based on GPT-5"},
-		{"gpt-6-astra", "You are Codex, a coding agent based on GPT-5"},
-		{" GPT-6-ASTRA ", "You are Codex, a coding agent based on GPT-5"},
+		{" GPT-6-ASTRA ", "You are Codex, an agent based on GPT-6"},
 		{"gpt-5.6-pro", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-5.60", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-6-pro", "You are Codex, a coding agent based on GPT-5"},
-		{"gpt-6-astra-custom", "You are Codex, a coding agent based on GPT-5"},
+		{"gpt-6-astra-custom", "You are Codex, an agent based on GPT-6"},
 		{"gpt-60", "You are Codex, a coding agent based on GPT-5"},
 		{"gpt-5.5", "You are Codex, a coding agent based on GPT-5"},
 		{" GPT-5.5 ", "You are Codex, a coding agent based on GPT-5"},
@@ -66,10 +69,13 @@ func TestCodexBaseInstructionsForModel(t *testing.T) {
 // @return 无。
 func TestCodexBaseInstructionsNewModelsFallback(t *testing.T) {
 	original55, original56 := instructionsGPT55, instructionsGPT56
+	originalAstra := instructionsGPT6Astra
 	t.Cleanup(func() {
 		instructionsGPT55, instructionsGPT56 = original55, original56
+		instructionsGPT6Astra = originalAstra
 	})
 	instructionsGPT56 = " \n\t"
+	instructionsGPT6Astra = " \n\t"
 	for _, model := range []string{"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6", "gpt-6-astra"} {
 		if got := CodexBaseInstructionsForModel(model); got != original55 {
 			t.Errorf("模型 %q 未回退到 GPT-5.5", model)

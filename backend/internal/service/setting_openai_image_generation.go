@@ -29,7 +29,7 @@ type openAIImageGenerationSettingsResult struct {
 
 func defaultOpenAIImageGenerationSettings() openAIImageGenerationSettingsResult {
 	return openAIImageGenerationSettingsResult{
-		mainModel:       openAIImagesResponsesMainModel,
+		mainModel:       openAIImagesResponsesMainModelValue(),
 		reasoningEffort: openAIImageGenerationReasoningEffortDefault,
 	}
 }
@@ -38,7 +38,7 @@ func normalizeOpenAIImageGenerationMainModel(value string) string {
 	if trimmed := strings.TrimSpace(value); trimmed != "" {
 		return trimmed
 	}
-	return openAIImagesResponsesMainModel
+	return openAIImagesResponsesMainModelValue()
 }
 
 // NormalizeOpenAIImageGenerationReasoningEffort 归一化 OpenAI 生图请求的思考预算。
@@ -127,7 +127,7 @@ func (s *SettingService) getOpenAIImageGenerationSettingsCached(ctx context.Cont
 // GetOpenAIImageGenerationMainModel 返回 OpenAI OAuth 生图请求使用的主模型。
 //
 // @param ctx 请求上下文。
-// @return 后台设置值；为空、缺失或读取失败时回退内置默认模型。
+// @return 后台设置值；为空、缺失或读取失败时先回退环境变量，再使用内置默认模型。
 func (s *SettingService) GetOpenAIImageGenerationMainModel(ctx context.Context) string {
 	return s.getOpenAIImageGenerationSettingsCached(ctx).mainModel
 }

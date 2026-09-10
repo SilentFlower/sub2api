@@ -53,7 +53,7 @@ func TestBuildCodexModelsManifestGPT6Astra(t *testing.T) {
 	for i, model := range models {
 		require.Equal(t, modelIDs[i], model["slug"])
 		require.Equal(t, "medium", model["default_reasoning_level"])
-		require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromManifestModel(t, model))
+		require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromManifestModel(t, model))
 		require.EqualValues(t, 1_050_000, model["context_window"])
 		require.EqualValues(t, 1_050_000, model["max_context_window"])
 		require.Equal(t, true, model["support_verbosity"])
@@ -75,7 +75,7 @@ func TestCompleteAPIKeyCodexModelsManifestGPT6Astra(t *testing.T) {
 	for _, baseURL := range []string{"", "https://openai-compatible.example.test/v1"} {
 		t.Run(baseURL, func(t *testing.T) {
 			svc := &OpenAIGatewayService{}
-			manifest := &CodexModelsManifest{Body: []byte(`{"models":[{"slug":"gpt-6-astra"},{"slug":"gpt-6"}]}`)}
+			manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{"slug":"gpt-6-astra"},{"slug":"gpt-6"}]}`)}
 			account := newCodexModelsAPIKeyTestAccount(baseURL)
 			require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
 			models := decodeCodexManifestModels(t, manifest.Body)
@@ -87,7 +87,7 @@ func TestCompleteAPIKeyCodexModelsManifestGPT6Astra(t *testing.T) {
 	}
 
 	svc := &OpenAIGatewayService{}
-	manifest := &CodexModelsManifest{Body: []byte(`{"models":[{"slug":"gpt-6-astra","input_modalities":["text"]}]}`)}
+	manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{"slug":"gpt-6-astra","input_modalities":["text"]}]}`)}
 	account := newCodexModelsAPIKeyTestAccount("https://openai-compatible.example.test/v1")
 	require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
 	models := decodeCodexManifestModels(t, manifest.Body)

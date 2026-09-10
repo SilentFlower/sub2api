@@ -546,20 +546,20 @@ func normalizeCodexModel(model string) string
 func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, error)
 func usageBillingModelCandidates(primary string, alternates ...string) []string
 func BuildCodexModelsManifest(modelIDs []string) ([]byte, error)
-func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manifest *CodexModelsManifest, account *Account) error
+func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manifest *OpenAIModelsResponse, account *Account) error
 ```
 
 ### 3. Contracts
 
-- GPT-6 行为以 main 0.2.1 为准，不能恢复旧 build 的目录容量、`ultra` 档位或专用提示词覆盖。
+- GPT-6 行为以 main 0.2.4 为准：采用上游 Astra 专用提示词及 `ultra` 档位；GPT-5.6 保留 build 专用提示词。
 - Astra 能力识别复用大小写、provider 路径、下划线等拼写归一化，匹配精确 `gpt-6`、`gpt-6-astra` 或 `gpt-6-astra-` 前缀。因此 `gpt-6-astra-custom` 也会命中能力识别；`gpt6`、`gpt-6-pro`、`gpt-60` 不命中。
 - 能力识别与 Codex 名称归一化是两个契约：`gpt-6`、`gpt-6-astra` 及其 provider/大小写/下划线变体归一到 `gpt-6-astra`；不能根据能力前缀匹配把所有 Astra 后缀名都强制改成基名。未知名称继续原样转发，`gpt6` 保留原值。API Key 原生请求仍遵守既有透传和账号显式映射规则。
 - 计费候选保留原名在前，再补规范拼写及 Astra 基名，不覆盖原有定价优先级。
-- 本地生成的 Astra 基础目录保留传入 `slug`，`context_window=max_context_window=1050000`，`default_reasoning_level=medium`，档位为 `low/medium/high/xhigh/max`；声明并行工具、verbosity 和仅 `priority` 服务档位，不包含 `ultra` effort 或 `ultrafast` 服务档位。上游已有元数据按既有补全规则优先。
-- API Key 目录补全时，Astra 缺失图像能力可补为 `text/image`；上游显式 `input_modalities=["text"]` 必须保留。
+- 本地生成的 Astra 基础目录保留传入 `slug`，`context_window=max_context_window=1050000`，`default_reasoning_level=medium`，档位为 `low/medium/high/xhigh/max/ultra`；声明并行工具、verbosity 和仅 `priority` 服务档位，不包含 `ultrafast` 服务档位。上游已有元数据按既有补全规则优先。
+- API Key 目录补全时，Astra 缺失图像能力可补为 `text/image`；兼容服务商显式 `input_modalities=["text"]` 必须保留，官方 OpenAI 账号的过期 Astra 纯文本能力快照则按上游规则修正。
 - API Key 目录的 Lite 策略先通过 `account.GetMappedModel(slug)` 得到目标模型（无 account 时使用 slug），再按 Astra 能力规则匹配并归为 `gpt-6-astra`。命中禁用集合且原值为布尔 `true` 时，将 `use_responses_lite` 改为 `false`；保留其它字段并保证幂等。不得跳过账号映射或改写 OAuth 上游目录；通用 HTTP/WS Lite 阻止名单仍由独立策略负责。
 - Astra 普通请求的 `max` 不降级；既有 GPT-5.6 OAuth compact 专属降级规则不自动扩展到 Astra。
-- GPT-6 本地没有专用内嵌提示词，沿用 main 的 GPT-5.5 回退；GPT-5.6 Sol/Terra/Luna 继续共用 `internal/pkg/openai/instructions_gpt5_6.txt`，来源为 CLIProxyAPI `c77b1369` 的 `internal/registry/models/codex_client_models.json`。
+- GPT-6 Astra 使用 main 的 `internal/pkg/openai/instructions_gpt6_astra.txt`，来源为 openai/codex `121f91fd5d9d`；GPT-5.6 Sol/Terra/Luna 继续共用 `internal/pkg/openai/instructions_gpt5_6.txt`，来源为 CLIProxyAPI `c77b1369` 的 `internal/registry/models/codex_client_models.json`。
 - 本地目录的 `model_messages.instructions_template` 与请求的空 `instructions` 补全共用服务层 `codexBaseInstructionsForModel(model string) string`；仅将 GPT-5.6 专用模板对应的别名归一化后交给 `openai.CodexBaseInstructionsForModel`。含 `codex` 的模型保持通用 Codex 模板优先级，GPT-5.1/GPT-5.2 专用模板及旧型号、未知型号的 GPT-5.5 回退保持不变。
 - 默认补全保留客户端非空 `instructions` 和 API Key 上游已有 `instructions_template`；`SkipDefaultInstructions` 仍可跳过请求补全。GPT-5.6 模板为空时回退 GPT-5.5，再回退通用 Codex 模板。
 
@@ -571,7 +571,8 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 | `gpt6`、`gpt-6-pro`、`gpt-60` | 不识别为 Astra，未知模型继续原样转发 |
 | `gpt-6-astra-max`、`gpt-6-astra-custom` | 命中 Astra 能力识别，不据此强制归一化名称 |
 | Astra API Key 目录缺少图像能力 | 补齐 `text/image` |
-| 上游明确仅支持 `text` | 不提升为图像模型 |
+| 兼容服务商明确仅支持 `text` | 不提升为图像模型 |
+| 官方 OpenAI 的 Astra 过期纯文本能力快照 | 恢复图像能力 |
 | API Key 目录映射后的目标命中 Astra，且声明 Lite | 关闭 Lite，保留自定义字段，再次处理结果不变 |
 | 目录 JSON 非法 | 沿既有解析错误返回，不伪造成功目录 |
 
@@ -584,14 +585,14 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 ### 6. Tests Required
 
 - `openai_gpt6_test.go`：覆盖别名与未知边界、`max`、默认目录字段、图像元数据优先级、API Key Lite 幂等及自定义字段保留。
-- `internal/pkg/openai/instructions_test.go`、`openai_codex_base_instructions_test.go`：覆盖 GPT-5.6 专用模板、GPT-6 沿用 GPT-5.5、别名、未知型号及空模板回退，验证目录与请求模板一致、客户端与上游内容优先、跳过补全开关及目录补全幂等。
+- `internal/pkg/openai/instructions_test.go`、`openai_codex_base_instructions_test.go`：覆盖 GPT-5.6 与 Astra 专用模板、别名、未知型号及空模板回退，验证目录与请求模板一致、客户端与上游内容优先、跳过补全开关及目录补全幂等。
 - `useModelWhitelist.spec.ts`：覆盖模型列表、`gpt-6 -> gpt-6` 预设与最终 `model_mapping` 对象。
 - `openai_model_mapping_test.go`、`openai_oauth_passthrough_test.go` 和 `openai_gateway_chat_completions_test.go`：未知模型使用 `gpt-unknown-model` 等明确测试值，保留上游错误透传和不回退到 GPT-5.4 的断言；新增已知模型后须复核旧 fixture。
 
 ### 7. Wrong vs Correct
 
-- 错误：用旧 build 规则把 `gpt6` 强制改为 Astra，或因旧测试期望而恢复 GPT-6 专用提示词、`ultra` 档位。
-- 正确：`gpt6` 保留原值；已知 Astra 别名按 main 归一化，能力识别单独使用 Astra guard，本地 GPT-6 提示词沿用 GPT-5.5 回退。
+- 错误：把未知 `gpt6` 强制改为 Astra，或因旧测试期望而删除上游 Astra 专用提示词、`ultra` 档位。
+- 正确：`gpt6` 保留原值；已知 Astra 别名按 main 归一化，能力识别单独使用 Astra guard，GPT-5.6 与 Astra 分别使用各自专用提示词。
 
 ---
 
@@ -1163,6 +1164,60 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 ```
 
 共享解析函数拥有分支顺序；下游只消费最终模型，不重新解释账号类型、透传模式或 compact 映射。
+
+---
+
+## Scenario: OpenAI 生图主模型配置优先级
+
+### 1. Scope / Trigger
+
+- 修改 OpenAI OAuth 生图、图片模型转 Responses、账号测试生图或后台生图设置时，统一检查配置读取、管理端保存及错误识别。
+
+### 2. Signatures
+
+```go
+func (s *SettingService) GetOpenAIImageGenerationMainModel(ctx context.Context) string
+func normalizeOpenAIImageGenerationMainModel(value string) string
+func openAIImagesResponsesMainModelValue() string
+func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any, mainModel string) bool
+```
+
+### 3. Contracts
+
+- Responses 主模型按 trim 后的后台 `openai_image_generation_main_model` 非空值、环境变量 `SUB2API_IMAGES_MAIN_MODEL` 非空值、内置 `gpt-5.6-luna` 的顺序取值；与 `image_generation` 工具模型分别选择。
+- 新安装初始化保存空字符串；管理端 GET 返回原始配置的 trim 值，空值仍为空。保存其他设置不得把环境变量或内置默认值固化到数据库。
+- 已存储的非空值是显式配置，包括 `gpt-5.4-mini`，不得在合并或默认值升级时自动覆盖。
+- 正式转发、图片模型转 Responses 与账号测试生图共用设置读取逻辑；无设置服务或读取失败时也按环境变量、内置默认值回退。
+- 生图错误识别使用本次出站请求的主模型。OAuth 类账号遇到符合 plan-gated 判定且错误明确点名该主模型时返回对应上游错误，不将其误作图片模型故障并冷却账号；图片模型自身错误继续使用原有冷却与 failover 规则。
+
+### 4. Validation & Error Matrix
+
+| 配置或场景 | 必须结果 |
+|---|---|
+| 后台非空，环境变量非空 | 后台配置优先 |
+| 后台空，环境变量非空 | 使用环境变量 |
+| 后台与环境变量缺失或仅空白 | 使用 `gpt-5.6-luna` |
+| GET 空配置后保存其他设置 | 数据库仍保留空值 |
+| 显式配置为 `gpt-5.4-mini` | 保留显式配置 |
+| 错误点名实际主模型，而环境变量另有取值 | 按实际出站模型识别，不误冷却图片账号 |
+
+### 5. Good/Base/Bad Cases
+
+- Good：后台配置 `gpt-5.6-terra`，环境变量为 `gpt-5.6-sol`，账号测试与正式请求均使用 Terra。
+- Base：两处配置均为空时使用 Luna，管理端输入框保持为空。
+- Bad：管理端 GET 返回有效默认值，导致保存无关设置时意外覆盖环境变量优先级。
+
+### 6. Tests Required
+
+- `setting_openai_image_generation_test.go`：覆盖三层优先级、空白、存量显式值、新安装空值、GET/保存往返及无设置服务。
+- `account_test_service_openai_image_test.go`：断言后台配置覆盖环境变量，出站主模型与 SSE 测试信息一致。
+- `openai_images_model_test.go`：覆盖实际主模型与环境变量不同的拒绝错误，以及图片模型错误的原有处理。
+- 前端设置测试覆盖空字符串提交、中英文提示中的优先级和 `gpt-5.6-luna` 占位符。
+
+### 7. Wrong vs Correct
+
+- 错误：各入口直接读取默认常量，或错误处理时重新读取环境变量猜测已发送的模型。
+- 正确：入口共用配置解析，错误处理传入本次实际出站模型；管理端保留空值以维持自动选择。
 
 ---
 
