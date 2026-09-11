@@ -7,7 +7,7 @@ description: "手动检查和执行已安装 Flower/Trellis 强化包升级。�
 
 用于用户主动要求升级已安装的 Flower/Trellis 强化层时。自动 SessionStart 提示的 snooze、skip 和 cooldown 只是不主动打扰，不能阻止用户显式要求升级。
 
-本 skill 不是发版入口。用户说“我想发版了”、release、打 tag、npm publish、更新 package 版本号或准备发布包时，不使用本 skill；按当前项目的 release SOP、`trellis-release` 或发布规范处理。
+本 skill 不是发版入口。用户说“我想发版了”、release、打 tag、npm publish、更新 package 版本号或准备发布包时，不使用本 skill；按当前项目的 release SOP 或发布规范处理。
 
 ## Workflow
 

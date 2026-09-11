@@ -85,15 +85,7 @@ untracked helper 只存游标：findings 或新编辑回 `implement`；通过且
 
 ### Step 4：统一报告与分流
 
-读取 `references/reporting-and-disposition.md`。报告先自然说明实际改动及行为影响，再展示：
-
-- `check_profile`；
-- 三个维度状态；
-- 自动修复的 `DOC-*` 内容；
-- 剩余 `CHK-*` 主路径问题与 `FBK-*` 兜底问题；
-- 每个剩余问题的未处置或已接受风险状态；
-- 已执行验证、未覆盖风险和 `[上线后验证]`；
-- 与当前结论匹配的唯一下一步。
+读取 `references/reporting-and-disposition.md`，按其完整模板与分流规则在对话中输出报告；默认不新建报告文件，落盘例外由该 reference 定义。
 
 ---
 
