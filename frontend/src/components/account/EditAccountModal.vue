@@ -1862,6 +1862,14 @@
         </div>
       </div>
 
+      <!-- Responses Lite 降级（build 私有）：API Key 且 openai / 国产供应商 -->
+      <div
+        v-if="canConfigureResponsesLiteDowngrade"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <ResponsesLiteDowngradeToggle v-model="responsesLiteDowngradeEnabled" />
+      </div>
+
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'apikey'"
@@ -2982,6 +2990,12 @@ import {
 } from '@/features/codexCustomClients/extra'
 import OpenAIJSONSchemaField from '@/features/openAICompatibility/OpenAIJSONSchemaField.vue'
 import OpenAIResponsesModeField from '@/features/openAICompatibility/OpenAIResponsesModeField.vue'
+import ResponsesLiteDowngradeToggle from '@/features/responsesLite/ResponsesLiteDowngradeToggle.vue'
+import {
+  applyResponsesLiteDowngradeExtra,
+  readResponsesLiteDowngrade,
+  supportsResponsesLiteDowngrade
+} from '@/features/responsesLite/extra'
 import {
   applyOpenAICompatibilityExtra,
   readOpenAICompatibilityExtra
@@ -3428,6 +3442,7 @@ const editPlanType = ref<string>('')
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIJSONSchemaDowngradeEnabled = ref(false)
+const responsesLiteDowngradeEnabled = ref(false)
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -3601,6 +3616,9 @@ const openAITextGenerationCapabilityEnabled = computed(() =>
 const canConfigureResponsesMode = computed(() =>
   (props.account?.platform === 'openai' && props.account?.type === 'apikey') ||
   supportsGrokForceChat(props.account?.platform, props.account?.type)
+)
+const canConfigureResponsesLiteDowngrade = computed(() =>
+  supportsResponsesLiteDowngrade(props.account?.platform, props.account?.type)
 )
 const responsesModeSelectDisabled = computed(() =>
   props.account?.platform === 'openai' &&
@@ -3918,6 +3936,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
   openAIJSONSchemaDowngradeEnabled.value = false
+  responsesLiteDowngradeEnabled.value = readResponsesLiteDowngrade(extra)
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -5521,6 +5540,13 @@ const handleSubmit = async () => {
       }
 
       updatePayload.extra = newExtra
+    }
+
+    // Responses Lite 降级开关（build 私有）：API Key 且 openai / 国产供应商账号，
+    // 在各平台 extra 块之后统一写入，避免被平台块从账号快照重建时覆盖。
+    if (canConfigureResponsesLiteDowngrade.value) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
+      updatePayload.extra = applyResponsesLiteDowngradeExtra(currentExtra, responsesLiteDowngradeEnabled.value)
     }
 
     // Grok 复用 OpenAI Responses 路由覆盖键，仅增删该键，避免覆盖 OAuth 额度快照等 extra 信息。

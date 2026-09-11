@@ -561,10 +561,13 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 
 	out, err := ResponsesToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.Len(t, out.Tools, 1, "namespace 子工具中仅 function 类型被摊平")
+	require.Len(t, out.Tools, 2, "namespace 子工具中 function 与 custom 都被摊平")
 
 	assert.Equal(t, "gmail__send", out.Tools[0].Function.Name)
 	assert.Equal(t, "Send mail", out.Tools[0].Function.Description)
+	// custom 子工具与顶层 custom 一样降级为单一 input 参数的 function。
+	assert.Equal(t, "gmail__ignored_child", out.Tools[1].Function.Name)
+	assert.JSONEq(t, customToolInputSchema, string(out.Tools[1].Function.Parameters))
 }
 
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
@@ -788,9 +791,11 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	}
 
 	m := NamespaceToolNames(tools)
-	require.Len(t, m, 2)
+	require.Len(t, m, 3)
 	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "send"}, m["gmail__send"])
 	assert.Equal(t, NamespacedToolName{Namespace: "crm", Name: "query"}, m["crm__query"])
+	// custom 子工具同样进入映射并标记 Custom，回程据此还原为 custom_tool_call。
+	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "skip_me", Custom: true}, m["gmail__skip_me"])
 
 	// 摊平名超长时截断加哈希，无法按字符串切分还原，必须经映射反查。
 	longNS := "very_long_namespace_prefix_for_testing_purposes"
@@ -1175,4 +1180,186 @@ func TestChatCompletionsChunkToResponsesEvents_FunctionToolStreamUnaffected(t *t
 		}
 	}
 	assert.True(t, sawArgsDelta, "function 工具应保持原有参数增量事件")
+}
+
+// ---------------------------------------------------------------------------
+// Codex Responses Lite：所有 function/custom 工具收进 additional_tools 里的
+// functions 命名空间；custom 子工具（code mode 的 exec、apply_patch）必须与顶层
+// custom 同样降级、回程还原为带 namespace 的 custom_tool_call。
+// ---------------------------------------------------------------------------
+
+func liteFunctionsNamespaceRequest() *ResponsesRequest {
+	return &ResponsesRequest{
+		Model: "deepseek-reasoner",
+		Input: json.RawMessage(`[
+			{"type":"additional_tools","role":"developer","tools":[
+				{"type":"namespace","name":"functions","description":"Tools","tools":[
+					{"type":"custom","name":"exec","description":"Run a command","format":{"type":"text"}},
+					{"type":"function","name":"wait","parameters":{"type":"object"}}
+				]},
+				{"type":"namespace","name":"mcp_demo","tools":[
+					{"type":"function","name":"lookup","parameters":{"type":"object"}}
+				]}
+			]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}
+		]`),
+	}
+}
+
+func TestResponsesToChatCompletionsRequest_LiteFunctionsNamespaceCustomChild(t *testing.T) {
+	req := liteFunctionsNamespaceRequest()
+
+	out, err := ResponsesToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, out.Tools, 3)
+	assert.Equal(t, "functions__exec", out.Tools[0].Function.Name)
+	assert.Equal(t, "Run a command", out.Tools[0].Function.Description)
+	assert.JSONEq(t, customToolInputSchema, string(out.Tools[0].Function.Parameters))
+	assert.Equal(t, "functions__wait", out.Tools[1].Function.Name)
+	assert.Equal(t, "mcp_demo__lookup", out.Tools[2].Function.Name)
+
+	effective, err := EffectiveResponsesTools(req)
+	require.NoError(t, err)
+	names := NamespaceToolNames(effective)
+	assert.Equal(t, NamespacedToolName{Namespace: "functions", Name: "exec", Custom: true}, names["functions__exec"])
+	assert.Equal(t, NamespacedToolName{Namespace: "functions", Name: "wait"}, names["functions__wait"])
+	assert.Nil(t, CustomToolNames(effective), "namespace 内的 custom 子工具不计入顶层 custom 集合")
+}
+
+func TestResponsesInputToChatMessages_NamespacedCustomToolCallHistory(t *testing.T) {
+	input := json.RawMessage(`[
+		{"role":"user","content":"pwd"},
+		{"type":"custom_tool_call","call_id":"call_1","name":"exec","namespace":"functions","input":"pwd"},
+		{"type":"custom_tool_call_output","call_id":"call_1","output":"/tmp"}
+	]`)
+
+	messages, err := responsesInputToChatMessages("", input)
+	require.NoError(t, err)
+	require.Len(t, messages, 3)
+	require.Len(t, messages[1].ToolCalls, 1)
+	toolCall := messages[1].ToolCalls[0]
+	assert.Equal(t, "functions__exec", toolCall.Function.Name, "历史调用名必须与请求方向的摊平名一致")
+	assert.JSONEq(t, `{"input":"pwd"}`, toolCall.Function.Arguments)
+	assert.Equal(t, "call_1", messages[2].ToolCallID)
+}
+
+func TestChatCompletionsResponseToResponses_NamespaceCustomChildRestoresWithNamespace(t *testing.T) {
+	req := liteFunctionsNamespaceRequest()
+	effective, err := EffectiveResponsesTools(req)
+	require.NoError(t, err)
+	customTools := CustomToolNames(effective)
+	functionTools := FunctionToolNames(effective)
+	namespaceTools := NamespaceToolNames(effective)
+
+	resp := &ChatCompletionsResponse{Choices: []ChatChoice{{Message: ChatMessage{ToolCalls: []ChatToolCall{
+		{ID: "call_exec", Function: ChatFunctionCall{Name: "functions__exec", Arguments: `{"input":"pwd"}`}},
+		{ID: "call_bare", Function: ChatFunctionCall{Name: "exec", Arguments: `{"input":"ls"}`}},
+		{ID: "call_wait", Function: ChatFunctionCall{Name: "functions__wait", Arguments: `{"cell_id":"1"}`}},
+	}}}}}
+
+	out := ChatCompletionsResponseToResponses(resp, req.Model, customTools, functionTools, false, namespaceTools)
+	require.Len(t, out.Output, 3)
+
+	assert.Equal(t, "custom_tool_call", out.Output[0].Type)
+	assert.Equal(t, "exec", out.Output[0].Name)
+	assert.Equal(t, "functions", out.Output[0].Namespace)
+	assert.Equal(t, "pwd", out.Output[0].Input)
+	assert.Equal(t, "call_exec", out.Output[0].CallID)
+
+	// 模型省略摊平前缀、只剩裸名且唯一归属时同样还原。
+	assert.Equal(t, "custom_tool_call", out.Output[1].Type)
+	assert.Equal(t, "exec", out.Output[1].Name)
+	assert.Equal(t, "functions", out.Output[1].Namespace)
+	assert.Equal(t, "ls", out.Output[1].Input)
+
+	assert.Equal(t, "function_call", out.Output[2].Type)
+	assert.Equal(t, "wait", out.Output[2].Name)
+	assert.Equal(t, "functions", out.Output[2].Namespace)
+	assert.JSONEq(t, `{"cell_id":"1"}`, out.Output[2].Arguments)
+}
+
+func TestChatCompletionsChunkToResponsesEvents_NamespaceCustomChildStream(t *testing.T) {
+	state := NewChatCompletionsToResponsesStreamState("deepseek-reasoner")
+	state.NamespaceTools = map[string]NamespacedToolName{
+		"functions__exec": {Namespace: "functions", Name: "exec", Custom: true},
+		"functions__wait": {Namespace: "functions", Name: "wait"},
+	}
+
+	idx := 0
+	chunk := &ChatCompletionsChunk{Choices: []ChatChunkChoice{{Delta: ChatDelta{ToolCalls: []ChatToolCall{{
+		Index: &idx, ID: "call_exec", Function: ChatFunctionCall{Name: "functions__exec", Arguments: `{"input":"pwd"}`},
+	}}}}}}
+	events := ChatCompletionsChunkToResponsesEvents(chunk, state)
+	require.NoError(t, state.ValidateToolCallArguments(), "custom 调用的自由文本 input 不做 JSON 校验")
+	events = append(events, FinalizeChatCompletionsResponsesStream(state)...)
+
+	var added, inputDone, itemDone *ResponsesStreamEvent
+	for i := range events {
+		evt := &events[i]
+		switch evt.Type {
+		case "response.output_item.added":
+			if evt.Item != nil && evt.Item.Type == "custom_tool_call" {
+				added = evt
+			}
+		case "response.custom_tool_call_input.done":
+			inputDone = evt
+		case "response.output_item.done":
+			if evt.Item != nil && evt.Item.Type == "custom_tool_call" {
+				itemDone = evt
+			}
+		case "response.function_call_arguments.delta", "response.function_call_arguments.done":
+			t.Fatalf("namespace custom 调用不应产出 function_call 参数事件: %s", evt.Type)
+		}
+	}
+	require.NotNil(t, added)
+	assert.Equal(t, "exec", added.Item.Name)
+	assert.Equal(t, "functions", added.Item.Namespace)
+	require.NotNil(t, inputDone)
+	assert.Equal(t, "exec", inputDone.Name)
+	assert.Equal(t, "pwd", inputDone.Input)
+	require.NotNil(t, itemDone)
+	assert.Equal(t, "exec", itemDone.Item.Name)
+	assert.Equal(t, "functions", itemDone.Item.Namespace)
+	assert.Equal(t, "pwd", itemDone.Item.Input)
+	assert.Equal(t, "call_exec", itemDone.Item.CallID)
+
+	final := events[len(events)-1]
+	require.Equal(t, "response.completed", final.Type)
+	require.Len(t, final.Response.Output, 1)
+	assert.Equal(t, "custom_tool_call", final.Response.Output[0].Type)
+	assert.Equal(t, "exec", final.Response.Output[0].Name)
+	assert.Equal(t, "functions", final.Response.Output[0].Namespace)
+	assert.Equal(t, "pwd", final.Response.Output[0].Input)
+}
+
+func TestResolveCustomToolCall_NamespaceCustomAmbiguityGuards(t *testing.T) {
+	// 顶层 custom exec 与 functions/exec 并存：各自精确还原，互不改判。
+	customTools := map[string]bool{"exec": true}
+	namespaceTools := map[string]NamespacedToolName{
+		"functions__exec": {Namespace: "functions", Name: "exec", Custom: true},
+	}
+	resolved, ok := resolveCustomToolCall("exec", customTools, nil, namespaceTools)
+	require.True(t, ok)
+	assert.Equal(t, resolvedCustomToolCall{Name: "exec"}, resolved)
+	resolved, ok = resolveCustomToolCall("functions__exec", customTools, nil, namespaceTools)
+	require.True(t, ok)
+	assert.Equal(t, resolvedCustomToolCall{Name: "exec", Namespace: "functions"}, resolved)
+
+	// 两个 namespace 各自声明 custom exec：裸名无法判定归属，保持 function_call。
+	ambiguous := map[string]NamespacedToolName{
+		"functions__exec": {Namespace: "functions", Name: "exec", Custom: true},
+		"shell__exec":     {Namespace: "shell", Name: "exec", Custom: true},
+	}
+	_, ok = resolveCustomToolCall("exec", nil, nil, ambiguous)
+	assert.False(t, ok)
+
+	// 裸名与顶层 function 同名时优先按 function 处理。
+	_, ok = resolveCustomToolCall("exec", nil, map[string]bool{"exec": true}, namespaceTools)
+	assert.False(t, ok)
+
+	// namespace function 子工具的摊平名不是 custom。
+	_, ok = resolveCustomToolCall("functions__wait", nil, nil, map[string]NamespacedToolName{
+		"functions__wait": {Namespace: "functions", Name: "wait"},
+	})
+	assert.False(t, ok)
 }

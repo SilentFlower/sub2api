@@ -715,3 +715,127 @@ func TestResponsesClientToolStreamRestorer_RestoresAllTerminalEvents(t *testing.
 		})
 	}
 }
+
+// Codex Responses Lite 把 custom exec 收进 functions 命名空间；function-only 上游
+// 的原生路径必须把该子工具与顶层 custom 一样降级，并在回程还原为带 namespace 的
+// custom_tool_call。
+func TestAdaptResponsesClientTools_LowersNamespaceCustomChildren(t *testing.T) {
+	req := map[string]any{
+		"tools": []any{
+			map[string]any{"type": "namespace", "name": "functions", "tools": []any{
+				map[string]any{"type": "custom", "name": "exec", "description": "Run", "format": map[string]any{"type": "text"}},
+				map[string]any{"type": "function", "name": "wait", "parameters": map[string]any{"type": "object"}},
+			}},
+		},
+		"input": []any{
+			map[string]any{"type": "custom_tool_call", "id": "ctc_client", "call_id": "c1", "namespace": "functions", "name": "exec", "input": "pwd"},
+			map[string]any{"type": "custom_tool_call_output", "id": "ctco_client", "call_id": "c1", "output": "/tmp"},
+			map[string]any{"type": "function_call", "call_id": "n1", "namespace": "functions", "name": "wait", "arguments": "{}"},
+		},
+	}
+
+	mapping, changed, err := AdaptResponsesClientTools(req)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Empty(t, mapping.CustomTools, "namespace 内的 custom 子工具不计入顶层 custom 集合")
+	require.Equal(t, ResponsesNamespaceName{Namespace: "functions", Name: "exec", Custom: true}, mapping.NamespaceTools["functions__exec"])
+	require.Equal(t, ResponsesNamespaceName{Namespace: "functions", Name: "wait"}, mapping.NamespaceTools["functions__wait"])
+
+	tools := requireResponsesClientToolValue[[]any](t, req["tools"])
+	require.Len(t, tools, 2)
+	exec := requireResponsesClientToolValue[map[string]any](t, tools[0])
+	require.Equal(t, "function", exec["type"])
+	require.Equal(t, "functions__exec", exec["name"])
+	require.Equal(t, "Run", exec["description"])
+	require.NotContains(t, exec, "format")
+	parameters := requireResponsesClientToolValue[json.RawMessage](t, exec["parameters"])
+	require.JSONEq(t, customToolInputSchema, string(parameters))
+	wait := requireResponsesClientToolValue[map[string]any](t, tools[1])
+	require.Equal(t, "functions__wait", wait["name"])
+
+	input := requireResponsesClientToolValue[[]any](t, req["input"])
+	customCall := requireResponsesClientToolValue[map[string]any](t, input[0])
+	require.Equal(t, "function_call", customCall["type"])
+	require.Equal(t, "functions__exec", customCall["name"])
+	require.Equal(t, "fc_client", customCall["id"])
+	require.NotContains(t, customCall, "namespace")
+	require.NotContains(t, customCall, "input")
+	require.JSONEq(t, `{"input":"pwd"}`, requireResponsesClientToolValue[string](t, customCall["arguments"]))
+	customOutput := requireResponsesClientToolValue[map[string]any](t, input[1])
+	require.Equal(t, "function_call_output", customOutput["type"])
+	namespaceCall := requireResponsesClientToolValue[map[string]any](t, input[2])
+	require.Equal(t, "functions__wait", namespaceCall["name"])
+}
+
+func TestFlattenResponsesNamespacesExcept_KeepsCustomChildrenForNativeUpstreams(t *testing.T) {
+	// OAuth 摊平路径的上游原生支持 custom 工具，不能把 custom 子工具降级。
+	req := map[string]any{
+		"tools": []any{
+			map[string]any{"type": "namespace", "name": "functions", "tools": []any{
+				map[string]any{"type": "custom", "name": "exec"},
+				map[string]any{"type": "function", "name": "wait"},
+			}},
+		},
+	}
+	names, changed, err := FlattenResponsesNamespacesExcept(req, nil)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.NotContains(t, names, "functions__exec")
+	require.Equal(t, ResponsesNamespaceName{Namespace: "functions", Name: "wait"}, names["functions__wait"])
+	tools := requireResponsesClientToolValue[[]any](t, req["tools"])
+	require.Len(t, tools, 1)
+}
+
+func TestRestoreResponsesClientToolPayload_RestoresNamespaceCustomChild(t *testing.T) {
+	mapping := ResponsesClientToolMapping{
+		NamespaceTools: map[string]ResponsesNamespaceName{
+			"functions__exec": {Namespace: "functions", Name: "exec", Custom: true},
+			"functions__wait": {Namespace: "functions", Name: "wait"},
+		},
+	}
+	payload := []byte(`{"id":"resp","output":[{"type":"function_call","id":"fc_1","call_id":"c1","name":"functions__exec","arguments":"{\"input\":\"pwd\"}"},{"type":"function_call","id":"fc_2","call_id":"c2","name":"functions__wait","arguments":"{}"}]}`)
+
+	restored, changed, err := RestoreResponsesClientToolPayload(payload, mapping)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.JSONEq(t, `{"id":"resp","output":[{"type":"custom_tool_call","id":"ctc_1","call_id":"c1","name":"exec","namespace":"functions","input":"pwd"},{"type":"function_call","id":"fc_2","call_id":"c2","name":"wait","namespace":"functions","arguments":"{}"}]}`, string(restored))
+}
+
+func TestResponsesClientToolStreamRestorer_RestoresNamespaceCustomChildLifecycle(t *testing.T) {
+	restorer := NewResponsesClientToolStreamRestorer(ResponsesClientToolMapping{
+		NamespaceTools: map[string]ResponsesNamespaceName{
+			"functions__exec": {Namespace: "functions", Name: "exec", Custom: true},
+		},
+	})
+
+	added := restorer.Restore(ResponsesStreamEvent{Type: "response.output_item.added", SequenceNumber: 1, OutputIndex: 0, Item: &ResponsesOutput{Type: "function_call", ID: "fc_1", CallID: "c1", Name: "functions__exec", Status: "in_progress"}})
+	require.Len(t, added, 1)
+	require.Equal(t, "custom_tool_call", added[0].Item.Type)
+	require.Equal(t, "ctc_1", added[0].Item.ID)
+	require.Equal(t, "exec", added[0].Item.Name)
+	require.Equal(t, "functions", added[0].Item.Namespace)
+
+	require.Empty(t, restorer.Restore(ResponsesStreamEvent{Type: "response.function_call_arguments.delta", SequenceNumber: 2, ItemID: "fc_1", Name: "functions__exec", Delta: `{"input":"pw`}))
+	done := restorer.Restore(ResponsesStreamEvent{Type: "response.function_call_arguments.done", SequenceNumber: 3, ItemID: "fc_1", CallID: "c1", Name: "functions__exec", Arguments: `{"input":"pwd"}`})
+	require.Len(t, done, 2)
+	require.Equal(t, "response.custom_tool_call_input.delta", done[0].Type)
+	require.Equal(t, "pwd", done[0].Delta)
+	require.Equal(t, "response.custom_tool_call_input.done", done[1].Type)
+	require.Equal(t, "exec", done[1].Name)
+	require.Equal(t, "pwd", done[1].Input)
+
+	closed := restorer.Restore(ResponsesStreamEvent{Type: "response.output_item.done", SequenceNumber: 4, OutputIndex: 0, Item: &ResponsesOutput{Type: "function_call", ID: "fc_1", CallID: "c1", Name: "functions__exec", Arguments: `{"input":"pwd"}`, Status: "completed"}})
+	require.Len(t, closed, 1)
+	require.Equal(t, "custom_tool_call", closed[0].Item.Type)
+	require.Equal(t, "ctc_1", closed[0].Item.ID)
+	require.Equal(t, "exec", closed[0].Item.Name)
+	require.Equal(t, "functions", closed[0].Item.Namespace)
+	require.Equal(t, "pwd", closed[0].Item.Input)
+
+	completed := restorer.Restore(ResponsesStreamEvent{Type: "response.completed", SequenceNumber: 5, Response: &ResponsesResponse{Output: []ResponsesOutput{{Type: "function_call", ID: "fc_1", CallID: "c1", Name: "functions__exec", Arguments: `{"input":"pwd"}`, Status: "completed"}}}})
+	require.Len(t, completed, 1)
+	require.Equal(t, "custom_tool_call", completed[0].Response.Output[0].Type)
+	require.Equal(t, "exec", completed[0].Response.Output[0].Name)
+	require.Equal(t, "functions", completed[0].Response.Output[0].Namespace)
+	require.Equal(t, "pwd", completed[0].Response.Output[0].Input)
+}

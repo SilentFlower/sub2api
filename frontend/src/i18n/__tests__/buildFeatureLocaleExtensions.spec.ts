@@ -3,6 +3,7 @@ import enAccounts from '../locales/en/admin/accounts'
 import enAccountsCodexCustomClients from '../locales/en/admin/accountsCodexCustomClients'
 import enAccountsOpenAICompatibility from '../locales/en/admin/accountsOpenAICompatibility'
 import enAccountsOpenAIImageGeneration from '../locales/en/admin/accountsOpenAIImageGenerationOverrides'
+import enAccountsResponsesLite from '../locales/en/admin/accountsResponsesLite'
 import enAccountsWebSearch from '../locales/en/admin/accountsWebSearch'
 import enChannels from '../locales/en/admin/channels'
 import enChannelsOpenAIImageGeneration from '../locales/en/admin/channelsOpenAIImageGenerationOverrides'
@@ -16,6 +17,7 @@ import zhAccounts from '../locales/zh/admin/accounts'
 import zhAccountsCodexCustomClients from '../locales/zh/admin/accountsCodexCustomClients'
 import zhAccountsOpenAICompatibility from '../locales/zh/admin/accountsOpenAICompatibility'
 import zhAccountsOpenAIImageGeneration from '../locales/zh/admin/accountsOpenAIImageGenerationOverrides'
+import zhAccountsResponsesLite from '../locales/zh/admin/accountsResponsesLite'
 import zhAccountsWebSearch from '../locales/zh/admin/accountsWebSearch'
 import zhChannels from '../locales/zh/admin/channels'
 import zhChannelsOpenAIImageGeneration from '../locales/zh/admin/channelsOpenAIImageGenerationOverrides'
@@ -44,6 +46,7 @@ const localeExtensionPairs: Array<[string, unknown, unknown]> = [
   ['accounts Codex custom clients', enAccountsCodexCustomClients, zhAccountsCodexCustomClients],
   ['accounts OpenAI compatibility', enAccountsOpenAICompatibility, zhAccountsOpenAICompatibility],
   ['accounts OpenAI image generation', enAccountsOpenAIImageGeneration, zhAccountsOpenAIImageGeneration],
+  ['accounts Responses Lite', enAccountsResponsesLite, zhAccountsResponsesLite],
   ['accounts Web Search', enAccountsWebSearch, zhAccountsWebSearch],
   ['settings OpenAI image generation', enSettingsOpenAIImageGeneration, zhSettingsOpenAIImageGeneration],
   ['settings Responses Lite', enSettingsResponsesLite, zhSettingsResponsesLite],
@@ -62,6 +65,8 @@ describe('build 功能 locale 扩展', () => {
     expect(getPath(enAccounts, 'accounts.openai.codexCLIOnlyCustomUA')).toBe('Custom allowed UA prefixes')
     expect(getPath(enAccounts, 'accounts.openai.codexImageToolDesc')).toContain('only to non-Responses Lite requests')
     expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('仅适用于非 Responses Lite 请求')
+    expect(getPath(enAccounts, 'accounts.openai.responsesLiteDowngrade')).toBe('Responses Lite downgrade')
+    expect(getPath(zhAccounts, 'accounts.openai.responsesLiteDowngradeDesc')).toContain('additional_tools')
     expect(getPath(enSettings, 'settings.gatewayForwarding.openaiResponsesLiteBlockedModels')).toBe(
       'Responses Lite Header blocked models'
     )

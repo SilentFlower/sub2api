@@ -683,3 +683,33 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(extra?.images_url_to_b64_json).toBe(true)
   })
 })
+
+describe('CreateAccountModal Responses Lite 降级开关', () => {
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
+  })
+
+  it('OpenAI API Key 创建时把开启状态写入 extra', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    const toggle = wrapper.get('[data-testid="responses-lite-downgrade-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await toggle.trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('openai account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({
+      openai_responses_lite_downgrade: true
+    })
+  })
+
+  it('OpenAI OAuth 类别不显示开关', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(false)
+  })
+})

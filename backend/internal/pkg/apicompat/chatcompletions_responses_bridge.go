@@ -207,6 +207,10 @@ func FunctionToolNames(tools []ResponsesTool) map[string]bool {
 type NamespacedToolName struct {
 	Namespace string
 	Name      string
+	// Custom 标记子工具在 Responses 声明中为 type=custom（如 Codex code mode 把
+	// custom exec 收进 functions 命名空间的 Lite 形态），回程需还原为
+	// custom_tool_call 而不是 function_call。
+	Custom bool
 }
 
 // NamespaceToolNames 收集 Responses 请求中 namespace 子工具的摊平名 →（namespace,
@@ -214,7 +218,7 @@ type NamespacedToolName struct {
 // 的 function_call 项：codex 按 namespace+name 路由，平铺名会被判为 unsupported
 // call；摊平名超长时带截断哈希（见 flattenNamespaceToolName），无法按字符串切分还原。
 // 摊平名撞名的请求已在转换阶段被显式拒绝（见 namespaceChildrenToChatTools），
-// 此处映射不存在歧义。
+// 此处映射不存在歧义。custom 子工具同样记录并标记 Custom。
 func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 	var out map[string]NamespacedToolName
 	for _, tool := range tools {
@@ -226,7 +230,7 @@ func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 			children = tool.Children
 		}
 		for _, child := range children {
-			if child.Type != "function" || child.Name == "" {
+			if (child.Type != "function" && child.Type != "custom") || child.Name == "" {
 				continue
 			}
 			if out == nil {
@@ -235,27 +239,41 @@ func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName {
 			out[flattenNamespaceToolName(tool.Name, child.Name)] = NamespacedToolName{
 				Namespace: tool.Name,
 				Name:      child.Name,
+				Custom:    child.Type == "custom",
 			}
 		}
 	}
 	return out
 }
 
-// customToolCallName restores both the exact downgraded custom-tool name and
+// resolvedCustomToolCall 描述回程中被判定为 custom 工具的调用：裸工具名与其
+// namespace 归属（顶层 custom 为空）。
+type resolvedCustomToolCall struct {
+	Name      string
+	Namespace string
+}
+
+// resolveCustomToolCall restores both the exact downgraded custom-tool name and
 // namespace-prefixed aliases that chat models sometimes infer from neighboring
 // flattened namespace tools (for example functions__exec beside
 // functions__wait). A real declared namespace child always owns its flattened
-// name, and ambiguous aliases are left as ordinary function calls.
-func customToolCallName(name string, customTools, functionTools map[string]bool, namespaceTools map[string]NamespacedToolName) (string, bool) {
+// name; namespace custom children (Codex Lite functions/exec) restore with their
+// namespace, and a bare child name is accepted only when exactly one namespace
+// custom child owns it. Ambiguous aliases are left as ordinary function calls.
+func resolveCustomToolCall(name string, customTools, functionTools map[string]bool, namespaceTools map[string]NamespacedToolName) (resolvedCustomToolCall, bool) {
 	if functionTools[name] {
-		return "", false
+		return resolvedCustomToolCall{}, false
 	}
 	if customTools[name] {
-		return name, true
+		return resolvedCustomToolCall{Name: name}, true
 	}
-	if _, ok := namespaceTools[name]; ok {
-		return "", false
+	if ns, ok := namespaceTools[name]; ok {
+		if ns.Custom {
+			return resolvedCustomToolCall{Name: ns.Name, Namespace: ns.Namespace}, true
+		}
+		return resolvedCustomToolCall{}, false
 	}
+	// 别名 A：顶层 custom 被模型套上了相邻 namespace 的摊平前缀。
 	match := ""
 	for customName := range customTools {
 		for _, namespaceTool := range namespaceTools {
@@ -263,19 +281,41 @@ func customToolCallName(name string, customTools, functionTools map[string]bool,
 				continue
 			}
 			if match != "" && match != customName {
-				return "", false
+				return resolvedCustomToolCall{}, false
 			}
 			match = customName
 		}
 	}
-	return match, match != ""
+	if match != "" {
+		return resolvedCustomToolCall{Name: match}, true
+	}
+	// 别名 B：namespace custom 子工具被模型省略了摊平前缀。只有唯一归属时才还原，
+	// 多个 namespace 各自声明同名 custom 子工具时无法判定，保持普通 function_call。
+	var bare NamespacedToolName
+	owners := 0
+	for _, namespaceTool := range namespaceTools {
+		if namespaceTool.Custom && namespaceTool.Name == name {
+			owners++
+			bare = namespaceTool
+		}
+	}
+	if owners == 1 {
+		return resolvedCustomToolCall{Name: bare.Name, Namespace: bare.Namespace}, true
+	}
+	return resolvedCustomToolCall{}, false
 }
 
-func customNameForStreamTool(state *ChatCompletionsToResponsesStreamState, name string) string {
-	if customName, ok := customToolCallName(name, state.CustomTools, state.FunctionTools, state.NamespaceTools); ok {
-		return customName
+// customIdentityForStreamTool 返回流式 custom 调用收尾时应下发的裸名与 namespace。
+// 宣告时已记录 namespace 归属（Codex Lite functions/exec）则直接复用，保证
+// added/done 项一致；否则按当前名字重新解析。
+func customIdentityForStreamTool(state *ChatCompletionsToResponsesStreamState, idx int, name string) (string, string) {
+	if ns, ok := state.toolNamespace[idx]; ok && ns.Custom {
+		return ns.Name, ns.Namespace
 	}
-	return name
+	if resolved, ok := resolveCustomToolCall(name, state.CustomTools, state.FunctionTools, state.NamespaceTools); ok {
+		return resolved.Name, resolved.Namespace
+	}
+	return name, ""
 }
 
 // HasToolSearchTool 判断 Responses 请求是否声明了 tool_search 服务端工具。chat 桥
@@ -473,11 +513,17 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			// 的 {"input": ...} 参数，与请求方向的工具降级（customToolInputSchema）
 			// 保持一致，模型才能把历史与当前工具定义对上。
 			arguments, _ := json.Marshal(map[string]string{"input": rawString(item["input"])})
+			name := rawString(item["name"])
+			// namespace 内 custom 子工具（Codex Lite functions/exec）的历史调用带
+			// namespace 字段，需与请求方向的摊平命名保持一致。
+			if ns := rawString(item["namespace"]); ns != "" {
+				name = flattenNamespaceToolName(ns, name)
+			}
 			toolCall := ChatToolCall{
 				ID:   rawString(item["call_id"]),
 				Type: "function",
 				Function: ChatFunctionCall{
-					Name:      rawString(item["name"]),
+					Name:      name,
 					Arguments: string(arguments),
 				},
 			}
@@ -1088,11 +1134,11 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]bool, 
 	}
 	var out []ChatTool
 	for _, child := range children {
-		if child.Type != "function" || child.Name == "" {
+		if (child.Type != "function" && child.Type != "custom") || child.Name == "" {
 			continue
 		}
 		flat := flattenNamespaceToolName(tool.Name, child.Name)
-		entry := NamespacedToolName{Namespace: tool.Name, Name: child.Name}
+		entry := NamespacedToolName{Namespace: tool.Name, Name: child.Name, Custom: child.Type == "custom"}
 		if topLevel[flat] {
 			return nil, fmt.Errorf("namespace tool %q/%q flattens to %q which conflicts with a top-level tool of the same name; this upstream cannot disambiguate them, rename one of the tools", tool.Name, child.Name, flat)
 		}
@@ -1103,12 +1149,18 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]bool, 
 			return nil, fmt.Errorf("namespace tools %q/%q and %q/%q both flatten to %q; this upstream cannot disambiguate them, rename one of the tools", prev.Namespace, prev.Name, tool.Name, child.Name, flat)
 		}
 		flatOwner[flat] = entry
+		// custom 子工具与顶层 custom 同样降级为单一 input 字符串参数的 function，
+		// 否则 Codex Lite 把 exec/apply_patch 收进 functions 命名空间后会整体丢失。
+		parameters := child.Parameters
+		if child.Type == "custom" {
+			parameters = json.RawMessage(customToolInputSchema)
+		}
 		out = append(out, ChatTool{
 			Type: "function",
 			Function: &ChatFunction{
 				Name:        flat,
 				Description: child.Description,
-				Parameters:  child.Parameters,
+				Parameters:  parameters,
 				Strict:      child.Strict,
 			},
 		})
@@ -1318,14 +1370,15 @@ func chatMessageToResponsesOutput(message ChatMessage, customTools, functionTool
 		if strings.TrimSpace(arguments) == "" {
 			arguments = "{}"
 		}
-		if customName, ok := customToolCallName(toolCall.Function.Name, customTools, functionTools, namespaceTools); ok {
+		if resolved, ok := resolveCustomToolCall(toolCall.Function.Name, customTools, functionTools, namespaceTools); ok {
 			outputs = append(outputs, ResponsesOutput{
-				Type:   "custom_tool_call",
-				ID:     generateItemID(),
-				CallID: toolCall.ID,
-				Name:   customName,
-				Input:  extractCustomToolCallInput(arguments),
-				Status: "completed",
+				Type:      "custom_tool_call",
+				ID:        generateItemID(),
+				CallID:    toolCall.ID,
+				Name:      resolved.Name,
+				Namespace: resolved.Namespace,
+				Input:     extractCustomToolCallInput(arguments),
+				Status:    "completed",
 			})
 			continue
 		}
@@ -1977,7 +2030,7 @@ func announceChatToolItem(
 		return nil
 	}
 	state.toolAnnounced[idx] = true
-	customName, isCustom := customToolCallName(stored.Function.Name, state.CustomTools, state.FunctionTools, state.NamespaceTools)
+	resolvedCustom, isCustom := resolveCustomToolCall(stored.Function.Name, state.CustomTools, state.FunctionTools, state.NamespaceTools)
 	isToolSearch := !isCustom && state.ToolSearchDeclared && stored.Function.Name == toolSearchProxyName
 	state.toolIsCustom[idx] = isCustom
 	state.toolIsToolSearch[idx] = isToolSearch
@@ -1990,9 +2043,13 @@ func announceChatToolItem(
 	}
 	// namespace 子工具的调用仍按 function_call 生命周期下发，但 added/done 项要
 	// 还原为裸子工具名 + namespace 字段（codex 按 namespace+name 路由）。
+	// namespace 内的 custom 子工具同样记录归属，收尾时 custom_tool_call 项带 namespace。
 	itemName, itemNamespace := stored.Function.Name, ""
 	if isCustom {
-		itemName = customName
+		itemName, itemNamespace = resolvedCustom.Name, resolvedCustom.Namespace
+		if itemNamespace != "" {
+			state.toolNamespace[idx] = NamespacedToolName{Namespace: itemNamespace, Name: itemName, Custom: true}
+		}
 	}
 	if ns, ok := state.NamespaceTools[stored.Function.Name]; ok && !isCustom && !isToolSearch {
 		state.toolNamespace[idx] = ns
@@ -2051,6 +2108,7 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 			// custom 调用按 custom_tool_call 生命周期收尾：input 在此处一次性下发
 			// （流中不产出增量，见 ChatCompletionsChunkToResponsesEvents）。
 			input := extractCustomToolCallInput(arguments)
+			customName, customNamespace := customIdentityForStreamTool(state, i, toolCall.Function.Name)
 			if input != "" {
 				events = append(events, chatToResponsesEvent(state, "response.custom_tool_call_input.delta", &ResponsesStreamEvent{
 					OutputIndex: outputIndex,
@@ -2063,18 +2121,19 @@ func closeChatToolItems(state *ChatCompletionsToResponsesStreamState) []Response
 					OutputIndex: outputIndex,
 					ItemID:      itemID,
 					CallID:      toolCall.ID,
-					Name:        customNameForStreamTool(state, toolCall.Function.Name),
+					Name:        customName,
 					Input:       input,
 				}),
 				chatToResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
 					OutputIndex: outputIndex,
 					Item: &ResponsesOutput{
-						Type:   "custom_tool_call",
-						ID:     itemID,
-						CallID: toolCall.ID,
-						Name:   customNameForStreamTool(state, toolCall.Function.Name),
-						Input:  input,
-						Status: "completed",
+						Type:      "custom_tool_call",
+						ID:        itemID,
+						CallID:    toolCall.ID,
+						Name:      customName,
+						Namespace: customNamespace,
+						Input:     input,
+						Status:    "completed",
 					},
 				}),
 			)
@@ -2159,13 +2218,15 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 			arguments = "{}"
 		}
 		if state.toolIsCustom[i] {
+			customName, customNamespace := customIdentityForStreamTool(state, i, toolCall.Function.Name)
 			outputs = append(outputs, ResponsesOutput{
-				Type:   "custom_tool_call",
-				ID:     generateItemID(),
-				CallID: toolCall.ID,
-				Name:   customNameForStreamTool(state, toolCall.Function.Name),
-				Input:  extractCustomToolCallInput(arguments),
-				Status: "completed",
+				Type:      "custom_tool_call",
+				ID:        generateItemID(),
+				CallID:    toolCall.ID,
+				Name:      customName,
+				Namespace: customNamespace,
+				Input:     extractCustomToolCallInput(arguments),
+				Status:    "completed",
 			})
 			continue
 		}

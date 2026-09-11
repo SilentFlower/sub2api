@@ -20,7 +20,32 @@ func FlattenResponsesNamespaces(req map[string]any) (map[string]ResponsesNamespa
 
 // FlattenResponsesNamespacesExcept is FlattenResponsesNamespaces with a set of
 // service-owned namespace names that must remain native in the request.
+// Custom children stay untouched here: this variant serves upstreams that accept
+// custom tools natively, so only function children are flattened.
 func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]bool) (map[string]ResponsesNamespaceName, bool, error) {
+	return flattenResponsesNamespaces(req, preserved, false)
+}
+
+// flattenResponsesNamespacesForClientTools flattens namespaces for function-only
+// upstreams: custom children (Codex Lite functions/exec) are lowered to function
+// tools with the shared customToolInputSchema and marked Custom so the reverse
+// path restores custom_tool_call items.
+func flattenResponsesNamespacesForClientTools(req map[string]any) (map[string]ResponsesNamespaceName, bool, error) {
+	return flattenResponsesNamespaces(req, nil, true)
+}
+
+func namespaceChildFlattenable(child map[string]any, lowerCustomChildren bool) bool {
+	switch strings.TrimSpace(stringValue(child["type"])) {
+	case "function":
+		return true
+	case "custom":
+		return lowerCustomChildren
+	default:
+		return false
+	}
+}
+
+func flattenResponsesNamespaces(req map[string]any, preserved map[string]bool, lowerCustomChildren bool) (map[string]ResponsesNamespaceName, bool, error) {
 	if req == nil {
 		return nil, false, nil
 	}
@@ -54,7 +79,7 @@ func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]b
 		}
 		for _, rawChild := range namespaceChildren(tool) {
 			child, ok := rawChild.(map[string]any)
-			if !ok || strings.TrimSpace(stringValue(child["type"])) != "function" {
+			if !ok || !namespaceChildFlattenable(child, lowerCustomChildren) {
 				continue
 			}
 			name := strings.TrimSpace(stringValue(child["name"]))
@@ -62,7 +87,11 @@ func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]b
 				continue
 			}
 			flat := flattenNamespaceToolName(namespace, name)
-			entry := ResponsesNamespaceName{Namespace: namespace, Name: name}
+			entry := ResponsesNamespaceName{
+				Namespace: namespace,
+				Name:      name,
+				Custom:    strings.TrimSpace(stringValue(child["type"])) == "custom",
+			}
 			if topLevel[flat] {
 				return nil, false, fmt.Errorf("namespace tool %q/%q flattens to %q which conflicts with a top-level tool of the same name; this upstream cannot disambiguate them, rename one of the tools", namespace, name, flat)
 			}
@@ -91,7 +120,7 @@ func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]b
 		}
 		for _, rawChild := range namespaceChildren(tool) {
 			child, ok := rawChild.(map[string]any)
-			if !ok || strings.TrimSpace(stringValue(child["type"])) != "function" {
+			if !ok || !namespaceChildFlattenable(child, lowerCustomChildren) {
 				continue
 			}
 			name := strings.TrimSpace(stringValue(child["name"]))
@@ -105,6 +134,12 @@ func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]b
 				flatChild[key] = value
 			}
 			flatChild["name"] = flat
+			if names[flat].Custom {
+				// custom 子工具与顶层 custom 一致降级为单一 input 参数的 function。
+				flatChild["type"] = "function"
+				flatChild["parameters"] = json.RawMessage(customToolInputSchema)
+				delete(flatChild, "format")
+			}
 			flattened = append(flattened, flatChild)
 		}
 	}
@@ -159,8 +194,11 @@ func rewriteNamespaceQualifiedCalls(value any, names map[string]ResponsesNamespa
 			rewriteNamespaceQualifiedCalls(item, names)
 		}
 	case map[string]any:
-		if strings.TrimSpace(stringValue(typed["type"])) == "function_call" {
+		switch strings.TrimSpace(stringValue(typed["type"])) {
+		case "function_call":
 			rewriteNamespaceQualifiedCall(typed, names)
+		case "custom_tool_call":
+			rewriteNamespaceQualifiedCustomCall(typed, names)
 		}
 		for _, child := range typed {
 			rewriteNamespaceQualifiedCalls(child, names)
@@ -184,6 +222,30 @@ func rewriteNamespaceQualifiedCall(item map[string]any, names map[string]Respons
 	return true
 }
 
+// rewriteNamespaceQualifiedCustomCall lowers a namespaced custom_tool_call
+// history item (Codex Lite functions/exec) to the function_call shape its
+// flattened declaration now uses, mirroring the top-level custom lowering in
+// rewriteClientToolHistory. Entries not marked Custom are left untouched.
+func rewriteNamespaceQualifiedCustomCall(item map[string]any, names map[string]ResponsesNamespaceName) bool {
+	namespace := strings.TrimSpace(stringValue(item["namespace"]))
+	name := strings.TrimSpace(stringValue(item["name"]))
+	if namespace == "" || name == "" {
+		return false
+	}
+	flat := flattenNamespaceToolName(namespace, name)
+	entry, ok := names[flat]
+	if !ok || !entry.Custom || entry.Namespace != namespace || entry.Name != name {
+		return false
+	}
+	item["type"] = "function_call"
+	item["name"] = flat
+	item["arguments"] = customToolCallArguments(stringValue(item["input"]))
+	delete(item, "input")
+	delete(item, "namespace")
+	normalizeLoweredFunctionItemID(item)
+	return true
+}
+
 func restoreResponsesNamespaceValue(value any, names map[string]ResponsesNamespaceName) bool {
 	changed := false
 	switch typed := value.(type) {
@@ -196,6 +258,14 @@ func restoreResponsesNamespaceValue(value any, names map[string]ResponsesNamespa
 			if entry, ok := names[strings.TrimSpace(stringValue(typed["name"]))]; ok {
 				typed["name"] = entry.Name
 				typed["namespace"] = entry.Namespace
+				if entry.Custom {
+					// namespace 内 custom 子工具按 custom_tool_call 还原，与顶层
+					// custom 的 restoreClientToolValue 保持同一 payload 形态。
+					typed["type"] = "custom_tool_call"
+					typed["input"] = extractCustomToolCallInput(rawObjectString(typed["arguments"]))
+					delete(typed, "arguments")
+					retypeResponsesToolCallItemID(typed, "custom_tool_call")
+				}
 				changed = true
 			}
 		}

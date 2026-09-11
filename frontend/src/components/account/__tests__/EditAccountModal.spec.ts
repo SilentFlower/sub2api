@@ -1866,3 +1866,56 @@ describe('EditAccountModal OpenAI 自动使用重置卡', () => {
     wrapper.unmount()
   })
 })
+
+describe('EditAccountModal Responses Lite 降级开关', () => {
+  beforeEach(() => {
+    updateAccountMock.mockReset().mockResolvedValue(buildAccount())
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('OpenAI API Key 账号显示开关并把开启状态写入 extra', async () => {
+    const wrapper = mountModal(buildAccount())
+    const toggle = wrapper.get('[data-testid="responses-lite-downgrade-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      openai_responses_lite_downgrade: true
+    })
+  })
+
+  it('关闭开关时删除 extra 键并保留其它键', async () => {
+    const account = buildAccount()
+    account.extra = { openai_responses_lite_downgrade: true, keep_me: 1 } as Record<string, unknown>
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="responses-lite-downgrade-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra as Record<string, unknown>
+    expect(extra).not.toHaveProperty('openai_responses_lite_downgrade')
+    expect(extra.keep_me).toBe(1)
+  })
+
+  it('DeepSeek API Key 账号显示开关，OpenAI OAuth 账号不显示', () => {
+    const deepseek = buildAccount()
+    deepseek.platform = 'deepseek'
+    deepseek.credentials = {
+      api_key: 'sk-ds',
+      account_mode: 'payg',
+      api_protocol: 'responses',
+      base_url: 'https://api.deepseek.com'
+    } as typeof deepseek.credentials
+    expect(mountModal(deepseek).find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(true)
+
+    const oauth = buildAccount()
+    oauth.type = 'oauth'
+    oauth.credentials = { access_token: 'token' } as unknown as typeof oauth.credentials
+    expect(mountModal(oauth).find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(false)
+  })
+})

@@ -247,6 +247,18 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		body = adaptedBody
 		setOpenAIResponsesClientToolMapping(c, mapping)
+	} else if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+		!isOpenAIResponsesCompactPath(c) && openAIResponsesLiteDowngraded(c) {
+		// Lite 降级提升出来的顶层 namespace 声明即使不含 custom 也要摊平
+		// （见 openai_responses_lite_downgrade.go）。
+		adaptedBody, mapping, adapted, adaptErr := adaptOpenAIResponsesLiteDowngradedClientTools(body)
+		if adaptErr != nil {
+			return nil, adaptErr
+		}
+		if adapted {
+			body = adaptedBody
+			setOpenAIResponsesClientToolMapping(c, mapping)
+		}
 	}
 
 	sanitizedBody, sanitized, err := sanitizeEmptyBase64InputImagesInOpenAIBody(body)

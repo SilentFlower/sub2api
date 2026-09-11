@@ -1297,6 +1297,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - OpenAI 最终模型未命中阻止列表时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header；OAuth 类账号执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化，API Key 账号仅归一化 `parallel_tool_calls`，保持工具布局和客户端 context。
 - OpenAI 最终模型命中阻止列表时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
 - 命中阻止列表只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
+- 例外：账号显式开启 `openai_responses_lite_downgrade`（仅 API Key 的 openai / 国产供应商账号）时，在本节判定之前先执行 Lite -> 标准 Responses 降级并删除入站 Lite 头，后续按非 Lite 处理；契约见 "Scenario: Responses Lite 降级与 namespace custom 子工具"。
 - 非 OpenAI 平台不得收到该内部标记；Grok 普通 Responses、媒体请求和 WS HTTP bridge 都必须保持 Header 为空。
 - `image_generation` 是 OpenAI Responses hosted 工具，由上游执行；已有该工具时不得重复注入，旧 `format` / `compression` 字段仍按既有兼容契约归一化。
 - `image_gen` 是 Codex 客户端工具。只有 namespace 内含 `type=function,name=imagegen` 时才视为可执行；兼容扁平形态严格匹配 `type=function,name=image_gen.imagegen`。
@@ -1416,6 +1417,107 @@ s.enforceOpenAIResponsesLiteHTTPHeader(ctx, req, account, finalModel)
 body 归一化只接受真实入站 Lite 信号；Header 在请求构造的最后边界按最终模型再次收口，Header Override 不能绕过协议所有权。图片 bridge 先按入站 Lite 信号排除自动注入，非 Lite 请求再由权限、图片策略及原生/客户端工具分类决定是否注入。
 
 ---
+
+## Scenario: Responses Lite 降级与 namespace custom 子工具
+
+### 1. Scope / Trigger
+
+- Trigger: 修改 Responses -> Chat 桥接或原生 Responses 客户端工具适配对 `namespace` 子工具的处理、`NamespacedToolName` 契约、账号级 `openai_responses_lite_downgrade` 开关及其接线、`custom_tool_call` 的 wire 序列化时，必须按本节检查。
+- 背景：Codex 以 Responses Lite 形态请求时（`codex-rs/tools/src/tool_spec.rs` `create_tools_json_for_responses_lite`），所有 function/custom 工具都被收进 `input[].additional_tools` 里名为 `functions` 的 namespace；code mode 的执行工具 `exec` 与 `apply_patch` 是 `type=custom`。桥接若只展开 function 子工具，chat 上游会静默丢失全部执行工具。
+- 适用路径：
+  - `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`
+  - `backend/internal/pkg/apicompat/responses_namespace.go`
+  - `backend/internal/pkg/apicompat/responses_client_tools.go`
+  - `backend/internal/pkg/apicompat/responses_stream_event_wire.go`
+  - `backend/internal/service/openai_responses_lite_downgrade.go`（build 私有领域 owner）
+  - `backend/internal/service/openai_gateway_forward.go`、`openai_gateway_passthrough.go`（薄接线）
+  - `frontend/src/features/responsesLite/extra.ts`、`ResponsesLiteDowngradeToggle.vue`
+- 目标：chat 回退桥接对 Lite 形态无条件正确；原生 Responses 上游只在账号显式开启降级时把 Lite 还原为标准 Responses。
+
+### 2. Signatures
+
+```go
+// apicompat：两条路径共用的 namespace 映射契约（ResponsesNamespaceName 是其别名）
+type NamespacedToolName struct {
+	Namespace string
+	Name      string
+	Custom    bool // 子工具声明为 type=custom，回程还原为 custom_tool_call
+}
+
+func NamespaceToolNames(tools []ResponsesTool) map[string]NamespacedToolName
+func resolveCustomToolCall(name string, customTools, functionTools map[string]bool, namespaceTools map[string]NamespacedToolName) (resolvedCustomToolCall, bool)
+func customIdentityForStreamTool(state *ChatCompletionsToResponsesStreamState, idx int, name string) (string, string)
+
+// OAuth 摊平路径：custom 子工具保持原样；function-only 上游路径：custom 子工具降级并标记 Custom
+func FlattenResponsesNamespacesExcept(req map[string]any, preserved map[string]bool) (map[string]ResponsesNamespaceName, bool, error)
+func flattenResponsesNamespacesForClientTools(req map[string]any) (map[string]ResponsesNamespaceName, bool, error)
+
+// service：账号级 Lite 降级
+const accountExtraKeyOpenAIResponsesLiteDowngrade = "openai_responses_lite_downgrade"
+func (a *Account) IsOpenAIResponsesLiteDowngradeEnabled() bool
+func applyOpenAIResponsesLiteDowngrade(c *gin.Context, account *Account, body []byte) ([]byte, bool, error)
+func openAIResponsesLiteDowngraded(c *gin.Context) bool
+func adaptOpenAIResponsesLiteDowngradedClientTools(body []byte) ([]byte, apicompat.ResponsesClientToolMapping, bool, error)
+```
+
+账号 extra 字段：
+
+```json
+{ "openai_responses_lite_downgrade": true }
+```
+
+### 3. Contracts
+
+- `NamespaceToolNames` 与 `namespaceChildrenToChatTools` 同时收录 `function` 与 `custom` 子工具；custom 子工具与顶层 custom 一样降级为参数 `customToolInputSchema` 的 function，摊平名仍为 `flattenNamespaceToolName(ns, name)`，顶层同名与摊平撞名的既有拒绝规则不变。`CustomToolNames` / `FunctionToolNames` 只收顶层工具。
+- 历史方向：`custom_tool_call` 输入项带 `namespace` 时，chat 桥用摊平名，原生路径 `rewriteNamespaceQualifiedCall` 把它降为 `function_call{name: 摊平名, arguments: {"input": ...}}` 并 `normalizeLoweredFunctionItemID`；无 namespace 或映射条目非 Custom 时不改。
+- 回程判定顺序固定：顶层 function 精确 -> 顶层 custom 精确 -> namespace 映射精确（Custom 决定类型）-> `functions__<顶层custom>` 别名 -> 唯一裸名别名（裸名恰好只被一个 Custom 子工具拥有）。任何歧义保持普通 `function_call`，不跨类型改判。
+- namespace custom 子工具回程一律输出 `custom_tool_call{name: 裸名, namespace: 原 namespace, input}`；chat 桥非流式、流式 added/`custom_tool_call_input.*`/done/最终 output 与 wire 序列化都必须带 `namespace`；原生路径非流式与流式还原同样带 `namespace`，item id 重打为 `ctc_` 前缀。`ValidateToolCallArguments` 对 custom 调用跳过 JSON 校验。
+- `FlattenResponsesNamespacesExcept`（OAuth 摊平）不得降级 custom 子工具，上游原生支持 custom；只有 `AdaptResponsesClientTools` 走 `flattenResponsesNamespacesForClientTools`。
+- 降级开关：仅 `type=apikey` 且平台为 `openai` 或国产 OpenAI 兼容供应商的账号可开启；OAuth、Grok、Anthropic 恒为 false。缺失、非布尔或 false 视为关闭。
+- 开启且入站 HTTP 头 `X-OpenAI-Internal-Codex-Responses-Lite: true` 时，在 `Forward` 的 Lite 段最前执行：`input[].additional_tools[].tools` 追加到顶层 `tools` 并删除该输入项；删除 `reasoning.context`（reasoning 因此为空时整体删除）；删除入站 Lite 头并写上下文标记；随后 `responsesLite` 判定、ingress policy、出站头传播统一按非 Lite 处理。非 Lite 请求或开关关闭时 body 与头原样不动。
+- 降级后原生适配条件：CN 原生（DeepSeek/Kimi/MiniMax）或 OpenAI API-key 托管路径无条件调用 `adaptOpenAIResponsesLiteDowngradedClientTools`（不以 custom/tool_search 出现为前置，只含 function 的 namespace 也要摊平）；OpenAI API-key passthrough 在既有 custom/tool_search 触发之外补同样的降级分支。既有 DeepSeek 原生适配条件保持不变。
+- chat 回退桥接对 Lite 形态的处理不受开关控制；开关开启时 chat 路径先降级再桥接，两种形态结果一致。
+- WebSocket 入站 Lite metadata 不参与降级；BulkEditAccountModal 不提供该开关。
+- 已知未处理（已接受风险，见任务 `09-11-responses-lite-namespace-custom-tools`）：降级删除入站头后，handler 级账号 failover 的后续尝试读不到 Lite 头；图片桥接门禁 `codexImageGenerationBridgeEnabled` 在降级后读不到 Lite 头。后续修法为在领域文件内记录入站 Lite 标记并按需回填，门禁同时判断 `openAIResponsesLiteDowngraded(c)`。
+
+### 4. Validation & Error Matrix
+
+| 条件 | chat 回退桥接 | 原生 Responses（开关关闭） | 原生 Responses（开关开启） |
+|---|---|---|---|
+| Lite：`functions` namespace 含 custom `exec` + function `wait` | tools=`functions__exec`(input schema)、`functions__wait`；回程 `custom_tool_call{exec, functions}` / `function_call{wait, functions}` | body 原样透传，`additional_tools` 不动（DeepSeek 官方忽略未知输入项，上游零工具） | 顶层 tools=`functions__exec`(function)、`functions__wait`；无 `additional_tools`、无 `reasoning.context`、无 Lite 头；回程 `custom_tool_call{exec, functions}` |
+| 上游返回裸名 `exec` 且唯一归属 | `custom_tool_call{exec, functions}` | N/A | 按原生还原规则（精确摊平名） |
+| 两个 namespace 各含 custom `exec`，上游返回裸名 `exec` | 保持 `function_call{exec}` | N/A | N/A |
+| 顶层 custom `exec` 与 `functions/exec` 并存 | `exec` -> 顶层 custom；`functions__exec` -> namespace custom | N/A | 同左 |
+| 非 Lite 请求 + 开关开启 | 既有行为 | 既有行为 | 既有行为，不降级 |
+| OAuth 账号 / Grok / Anthropic 平台 | N/A | `IsOpenAIResponsesLiteDowngradeEnabled()` 恒 false | 恒 false |
+| `additional_tools.tools` 非数组 | `EffectiveResponsesTools` 返回 400 | 原样 | `lift responses Lite additional_tools: ...` 错误 |
+
+### 5. Scenarios and Examples
+
+- Normal: Codex `gpt-6-astra`（`tool_mode=code_mode_only`, `use_responses_lite=true`）经 chat-only DeepSeek 账号：上游 chat tools 含 `functions__exec`，DeepSeek 返回 `functions__exec` 调用后客户端收到 `{"type":"custom_tool_call","name":"exec","namespace":"functions","input":"pwd"}`，Codex 正常执行。
+- Base: 同一请求打到 `api_protocol=responses` 且开启降级的 DeepSeek 账号：上游收到标准 Responses（顶层 function 工具、无 `additional_tools`、无 Lite 头），流式回程还原为带 namespace 的 `custom_tool_call`，item id 为 `ctc_` 前缀。
+- Base: OpenAI API-key 账号未开启降级：保持既有 Lite 透传与 Lite 头规则，`additional_tools` 不动。
+- Incorrect use: 把 `FlattenResponsesNamespacesExcept` 改为也降级 custom 子工具，会让 OAuth 摊平路径向 chatgpt.com 发送 `{"input": ...}` 包裹的 function，而该上游原生支持 custom。Correct: 只有 function-only 上游走 `flattenResponsesNamespacesForClientTools`。
+- Incorrect use: 回程只按 `CustomTools`（顶层）判定 custom，namespace 内的 custom 子工具会以 `function_call{functions__exec}` 回给 Codex，报 `unsupported call`。Correct: 先查 `NamespaceTools[name].Custom`，再做别名判定。
+- Incorrect use: 在 chat 回退路径也用开关门控 custom 子工具修复。Correct: 桥接修复无条件生效，开关只管原生上游是否降级。
+
+### 6. Tests Required
+
+- apicompat chat 桥：`TestResponsesToChatCompletionsRequest_LiteFunctionsNamespaceCustomChild`、`TestResponsesInputToChatMessages_NamespacedCustomToolCallHistory`、`TestChatCompletionsResponseToResponses_NamespaceCustomChildRestoresWithNamespace`、`TestChatCompletionsChunkToResponsesEvents_NamespaceCustomChildStream`、`TestResolveCustomToolCall_NamespaceCustomAmbiguityGuards`，断言摊平名、input schema、`Custom:true` 映射、回程类型/裸名/namespace/input、歧义保持 function_call、`ValidateToolCallArguments` 不报错。
+- apicompat 原生路径：`TestAdaptResponsesClientTools_LowersNamespaceCustomChildren`、`TestFlattenResponsesNamespacesExcept_KeepsCustomChildrenForNativeUpstreams`、`TestRestoreResponsesClientToolPayload_RestoresNamespaceCustomChild`、`TestResponsesClientToolStreamRestorer_RestoresNamespaceCustomChildLifecycle`，断言 custom 子工具降级、历史改写、`ctc_` 重打 id、流式 added/input done/done/completed 均带 namespace。
+- service：`TestForwardResponses_LiteDowngradeDisabledKeepsNativeBody`、`TestForwardResponses_LiteDowngradeEnabledDeepSeekNative`、`TestForwardResponses_LiteDowngradeIgnoresNonLiteRequests`、`TestForwardResponses_LiteDowngradeOpenAIAPIKeyPaths`（managed/passthrough × enabled/disabled）、`TestForwardResponses_ChatFallbackHandlesLiteFunctionsNamespaceWithoutDowngrade`、`TestAccount_IsOpenAIResponsesLiteDowngradeEnabled`、`TestApplyOpenAIResponsesLiteDowngrade_Body`，断言上游 body/头形态与客户端 SSE 还原。
+- 前端：`features/responsesLite/__tests__/extra.spec.ts`、`ResponsesLiteDowngradeToggle.spec.ts`、`EditAccountModal.spec.ts` 与 `CreateAccountModal.spec.ts` 的开关用例，断言显示条件（openai/deepseek apikey 显示，oauth 隐藏）与 payload `extra.openai_responses_lite_downgrade`；`buildFeatureLocaleExtensions.spec.ts` 覆盖 `accountsResponsesLite` 中英文 key 一致。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/pkg/apicompat -count=1
+go test -tags=unit ./internal/service -run 'LiteDowngrade|ChatFallbackHandlesLiteFunctionsNamespace|IsOpenAIResponsesLiteDowngradeEnabled' -count=1
+
+cd ../frontend
+pnpm vitest run src/features/responsesLite src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts \
+  src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/CreateAccountModal.spec.ts
+```
 
 ## Scenario: OpenAI Structured Outputs 降级与多路径 Web Search 桥接
 

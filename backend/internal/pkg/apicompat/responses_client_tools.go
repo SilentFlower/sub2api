@@ -67,7 +67,9 @@ func AdaptResponsesClientTools(req map[string]any) (ResponsesClientToolMapping, 
 	}
 
 	// Namespace flattening also rewrites namespace-qualified history and choice.
-	names, flattened, err := FlattenResponsesNamespaces(req)
+	// Function-only upstreams cannot execute custom children either, so namespace
+	// custom tools (Codex Lite functions/exec) are lowered alongside functions.
+	names, flattened, err := flattenResponsesNamespacesForClientTools(req)
 	if err != nil {
 		return ResponsesClientToolMapping{}, false, err
 	}
@@ -549,6 +551,12 @@ type ResponsesClientToolStreamRestorer struct {
 type responsesClientToolStreamCall struct {
 	kind string
 	name string
+	// clientName / clientNamespace are the identity emitted to the client for a
+	// custom call. A namespace custom child (Codex Lite functions/exec) keeps
+	// its flattened upstream name in name for event matching but restores to
+	// the bare child name plus namespace.
+	clientName      string
+	clientNamespace string
 	// callID and itemID stay as the upstream sent them so later upstream
 	// events keep matching this call; clientItemID is what we emit.
 	callID       string
@@ -585,9 +593,10 @@ func (r *ResponsesClientToolStreamRestorer) Restore(event ResponsesStreamEvent) 
 		if call := r.recordItem(event); call != nil {
 			if call.kind == "custom" {
 				event.Item.Type = "custom_tool_call"
+				event.Item.Name = call.clientName
 				event.Item.Input = ""
 				event.Item.Arguments = ""
-				event.Item.Namespace = ""
+				event.Item.Namespace = call.clientNamespace
 			} else {
 				event.Item.Type = "tool_search_call"
 				event.Item.Name = ""
@@ -616,7 +625,7 @@ func (r *ResponsesClientToolStreamRestorer) Restore(event ResponsesStreamEvent) 
 				if input != "" {
 					emit(ResponsesStreamEvent{Type: "response.custom_tool_call_input.delta", OutputIndex: call.outputIdx, ItemID: call.clientItemID, Delta: input})
 				}
-				emit(ResponsesStreamEvent{Type: "response.custom_tool_call_input.done", OutputIndex: call.outputIdx, ItemID: call.clientItemID, CallID: call.callID, Name: call.name, Input: input})
+				emit(ResponsesStreamEvent{Type: "response.custom_tool_call_input.done", OutputIndex: call.outputIdx, ItemID: call.clientItemID, CallID: call.callID, Name: call.clientName, Input: input})
 			}
 			return out
 		}
@@ -625,9 +634,10 @@ func (r *ResponsesClientToolStreamRestorer) Restore(event ResponsesStreamEvent) 
 		if call := r.recordItem(event); call != nil {
 			if call.kind == "custom" {
 				event.Item.Type = "custom_tool_call"
+				event.Item.Name = call.clientName
 				event.Item.Input = extractCustomToolCallInput(call.arguments.String())
 				event.Item.Arguments = ""
-				event.Item.Namespace = ""
+				event.Item.Namespace = call.clientNamespace
 			} else {
 				event.Item.Type = "tool_search_call"
 				event.Item.Name = ""
@@ -791,8 +801,12 @@ func (r *ResponsesClientToolStreamRestorer) recordItem(event ResponsesStreamEven
 	}
 	name := event.Item.Name
 	kind := ""
+	clientName, clientNamespace := name, ""
 	if r.adapter.CustomTools[name] {
 		kind = "custom"
+	} else if namespaced, ok := r.adapter.NamespaceTools[name]; ok && namespaced.Custom {
+		kind = "custom"
+		clientName, clientNamespace = namespaced.Name, namespaced.Namespace
 	} else if r.adapter.ToolSearch && name == toolSearchProxyName {
 		kind = "tool_search"
 	}
@@ -806,12 +820,14 @@ func (r *ResponsesClientToolStreamRestorer) recordItem(event ResponsesStreamEven
 	call := r.calls[key]
 	if call == nil {
 		call = &responsesClientToolStreamCall{
-			kind:         kind,
-			name:         name,
-			callID:       event.Item.CallID,
-			itemID:       event.Item.ID,
-			clientItemID: retypedResponsesToolCallItemID(event.Item.ID, responsesClientToolItemType(kind)),
-			outputIdx:    event.OutputIndex,
+			kind:            kind,
+			name:            name,
+			clientName:      clientName,
+			clientNamespace: clientNamespace,
+			callID:          event.Item.CallID,
+			itemID:          event.Item.ID,
+			clientItemID:    retypedResponsesToolCallItemID(event.Item.ID, responsesClientToolItemType(kind)),
+			outputIdx:       event.OutputIndex,
 		}
 		r.calls[key] = call
 		if call.callID != "" {
@@ -870,6 +886,14 @@ func restoreResponsesOutputClientTools(outputs []ResponsesOutput, adapter *Respo
 			output.Input = extractCustomToolCallInput(output.Arguments)
 			output.Arguments = ""
 			output.Namespace = ""
+		} else if namespaced, ok := adapter.NamespaceTools[output.Name]; ok && namespaced.Custom {
+			// namespace 内 custom 子工具（Codex Lite functions/exec）还原为带
+			// namespace 的 custom_tool_call，codex 按 namespace+name 路由。
+			output.Type = "custom_tool_call"
+			output.ID = retypedResponsesToolCallItemID(output.ID, output.Type)
+			output.Name, output.Namespace = namespaced.Name, namespaced.Namespace
+			output.Input = extractCustomToolCallInput(output.Arguments)
+			output.Arguments = ""
 		} else if adapter.ToolSearch && output.Name == toolSearchProxyName {
 			output.Type = "tool_search_call"
 			output.ID = retypedResponsesToolCallItemID(output.ID, output.Type)

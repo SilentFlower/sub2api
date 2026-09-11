@@ -3313,6 +3313,14 @@
         </div>
       </div>
 
+      <!-- Responses Lite 降级（build 私有）：API Key 且 openai / 国产供应商 -->
+      <div
+        v-if="canConfigureResponsesLiteDowngrade"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <ResponsesLiteDowngradeToggle v-model="responsesLiteDowngradeEnabled" />
+      </div>
+
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
@@ -3852,6 +3860,11 @@ import { writeCodexCustomUserAgentPatterns } from '@/features/codexCustomClients
 import OpenAIJSONSchemaField from '@/features/openAICompatibility/OpenAIJSONSchemaField.vue'
 import OpenAIResponsesModeField from '@/features/openAICompatibility/OpenAIResponsesModeField.vue'
 import { applyOpenAICompatibilityExtra } from '@/features/openAICompatibility/extra'
+import ResponsesLiteDowngradeToggle from '@/features/responsesLite/ResponsesLiteDowngradeToggle.vue'
+import {
+  applyResponsesLiteDowngradeExtra,
+  supportsResponsesLiteDowngrade
+} from '@/features/responsesLite/extra'
 import type { OpenAIResponsesModeOption } from '@/features/openAICompatibility/types'
 import {
   applyGrokForceChatExtra,
@@ -4295,6 +4308,7 @@ const openAILongContextBillingTouched = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIJSONSchemaDowngradeEnabled = ref(false)
+const responsesLiteDowngradeEnabled = ref(false)
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -4400,6 +4414,9 @@ const canConfigureResponsesMode = computed(() =>
     form.platform,
     accountCategory.value === 'oauth-based' ? 'oauth' : accountCategory.value
   )
+)
+const canConfigureResponsesLiteDowngrade = computed(() =>
+  supportsResponsesLiteDowngrade(form.platform, accountCategory.value)
 )
 const responsesModeSelectDisabled = computed(() =>
   form.platform === 'openai' &&
@@ -4826,6 +4843,9 @@ watch(
     if (platform !== 'openai' || category !== 'apikey') {
       openAIJSONSchemaDowngradeEnabled.value = false
     }
+    if (!supportsResponsesLiteDowngrade(platform, category)) {
+      responsesLiteDowngradeEnabled.value = false
+    }
   }
 )
 
@@ -5241,6 +5261,7 @@ const resetForm = () => {
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
   openAIJSONSchemaDowngradeEnabled.value = false
+  responsesLiteDowngradeEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -5429,6 +5450,20 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
     webSearchEmulation: webSearchEmulationMode.value
   })
 
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+/**
+ * 写入 Responses Lite 降级开关（build 私有）。
+ *
+ * @param base 已组合的 extra。
+ * @return 可配置账号写入/删除开关后的 extra；不可配置时原样返回。
+ */
+const buildResponsesLiteDowngradeExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  if (!canConfigureResponsesLiteDowngrade.value) {
+    return base
+  }
+  const extra = applyResponsesLiteDowngradeExtra(base, responsesLiteDowngradeEnabled.value)
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -5765,7 +5800,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildGrokExtra(buildOpenAIExtra()))
+  const extra = buildResponsesLiteDowngradeExtra(buildAnthropicExtra(buildGrokExtra(buildOpenAIExtra())))
 
   await doCreateAccount({
     ...form,

@@ -96,6 +96,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = reasoningBody
 		}
 	}
+	// 账号开启 Lite 降级时，先把 Codex Lite 形态还原为标准 Responses，后续的 Lite
+	// 判定、ingress policy、图片桥接与出站头传播都按非 Lite 处理
+	// （见 openai_responses_lite_downgrade.go）。
+	body, _, err = applyOpenAIResponsesLiteDowngrade(c, account, body)
+	if err != nil {
+		return nil, err
+	}
 	responsesLite := account.IsOpenAI() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
 
 	body, err = s.applyOpenAIResponsesLiteHTTPIngressPolicy(
@@ -148,7 +155,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	nativeCNResponses := account.UsesNativeCNResponses()
 	nativeDeepSeekResponses := account.Platform == PlatformDeepseek && nativeCNResponses
-	if nativeDeepSeekResponses && account.Type == AccountTypeAPIKey && !compactPath &&
+	// Lite 降级后的原生 Responses 路径（CN 原生或 OpenAI API-key 托管）需要客户端
+	// 工具适配：降级把 additional_tools 提升成了顶层 namespace/custom 声明。
+	liteDowngradedNative := openAIResponsesLiteDowngraded(c) && !compactPath &&
+		(nativeCNResponses || (account.IsOpenAIApiKey() && !passthroughEnabled))
+	if liteDowngradedNative {
+		adaptedBody, mapping, adapted, adaptErr := adaptOpenAIResponsesLiteDowngradedClientTools(body)
+		if adaptErr != nil {
+			return nil, fmt.Errorf("adapt Responses Lite downgraded client tools: %w", adaptErr)
+		}
+		if adapted {
+			body = adaptedBody
+			setOpenAIResponsesClientToolMapping(c, mapping)
+		}
+	} else if nativeDeepSeekResponses && account.Type == AccountTypeAPIKey && !compactPath &&
 		needsOpenAIResponsesClientToolAdaptation(body) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
 		if adaptErr != nil {
