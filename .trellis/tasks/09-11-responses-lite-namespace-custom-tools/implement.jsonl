@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "L1053-1134 Responses 模型映射与 chat 回退分流契约；L1224-1312 Responses Lite 标头/工具边界契约，改动 Lite 处理与桥接前必须遵守"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Go 单测 tag、gofmt、depguard 分层与测试覆盖要求"}
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "Lite 降级开关为 build 私有策略，必须放入领域 owner 文件并在共享入口薄接线"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "账号弹窗新增字段组件、locale 扩展与 spread 覆盖规则"}
+{"file": ".trellis/tasks/09-11-responses-lite-namespace-custom-tools/design.md", "reason": "本任务技术设计：共享契约、chat/原生路径改动点、开关语义与接线位置"}

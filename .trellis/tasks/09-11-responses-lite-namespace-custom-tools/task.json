@@ -1,0 +1,63 @@
+{
+  "id": "responses-lite-namespace-custom-tools",
+  "name": "responses-lite-namespace-custom-tools",
+  "title": "Responses→Chat 桥接支持 Lite functions 命名空间内的 custom 子工具",
+  "description": "Codex Responses Lite 把 function/custom 工具收进 additional_tools 的 functions 命名空间；chat 回退桥接只展开 function 子工具，custom（exec/apply_patch）被丢，DeepSeek 等 chat 上游收不到执行工具。需要展开 custom 子工具并在回程还原为 custom_tool_call。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "high",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-09-11",
+  "completedAt": "2026-09-11",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-09-11T15:35:02Z",
+      "contextKey": "claude_c8367717-5bb8-402b-a6e0-1825996636dc",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "c5d9c25d3ba6a6e7df7567f96df4ed510b0d7ba1",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "c5d9c25d3ba6a6e7df7567f96df4ed510b0d7ba1",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "9e1682aae598936b4cb8629c215fd42463d70a6650c6c308c977018c98ea7770"
+          }
+        ],
+        "fingerprint": "e212c688bf9e204cc11dacc0bc5089cddadae720e40620fd4c7b69d4aaa4e4e6"
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-09-11T16:37:50Z",
+    "completedSteps": [
+      "chat 桥接与原生路径支持 namespace 内 custom 子工具",
+      "账号级 Lite 降级开关（后端+前端）",
+      "Check-All 通过·已接受风险（FBK-001, CHK-001）",
+      "Update-Spec written"
+    ],
+    "partialStep": null,
+    "nextStep": "上线后验证 Kimi/MiniMax 原生端点接受度；后续修复已接受的 FBK-001 / CHK-001",
+    "notes": ""
+  }
+}
