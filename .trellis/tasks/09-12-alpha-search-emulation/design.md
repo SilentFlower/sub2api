@@ -70,6 +70,12 @@ Codex exec → tools.web__run → POST /v1/alpha/search（Codex SearchClient）
 - 返回：有 ≥1 结果 → 200 JSON、`&OpenAIForwardResult{Model: requestedModel, UpstreamModel: upstreamModel, UpstreamEndpoint: "/v1/alpha/search", WebSearchCalls: 1, Duration}`；无 `search_query` 只有不支持命令 → 200 说明文本、`(nil, nil)`；所有查询都失败 → 502 `web_search_failed`、`(nil, err)`；有查询但零结果 → 200 "No search results found"，`(nil, nil)`。
 - 可观测：Info 日志 `openai alpha search emulation completed`（account_id、queries、providers、results）。
 
+### 3.6 返工：AnySearch 文本结果解析与无 URL 结果保留
+- 实测 AnySearch MCP 响应：`result.content[0].text` 为 Markdown，`## Search Results (5 results, 2012ms)`，每条 `### N. 标题` / `- **URL**: <url>` / `- 摘要 … date: <日期>`。
+- `anysearch.go` 文本回退顺序改为：JSON 解析 → `parseAnySearchMarkdownResults(text)`（标题行正则 `^#{1,6}\s*\d+[.)]\s+(.+)`，URL 行正则 `(?i)^-?\s*\*{0,2}url\*{0,2}\s*[:：]\s*(\S+)`，其余 `- ` 行拼入 Snippet，尾部 ` date: <x>` 提取为 PageAge）→ 单条文本结果。
+- `emulateOpenAIAlphaSearch` 去重：`URL != ""` 才参与 `seenURLs`；无 URL 结果直接保留。`buildOpenAIAlphaSearchEmulationOutput` 对空 URL 不输出 URL 行，`results` 条目省略 `url`。
+- new-api 的 `relay/websearch/anysearch.go` 存在同样缺陷，本任务不处理。
+
 ## 4. 兼容与回滚
 - 开关默认关闭，所有既有路径零改动；关闭开关即回滚行为。
 - `parseOpenAIResponsesSSEForAlphaSearch` 签名变更只影响本包内两处调用。

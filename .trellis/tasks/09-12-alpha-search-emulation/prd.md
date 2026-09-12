@@ -40,6 +40,8 @@ Codex（Responses Lite + code mode，如 `gpt-6-astra`）经 sub2api 使用 Deep
 - R6 模拟资格：与 `resolveCodexWebSearchBridgeDecision` 同一判定：账号/渠道 Web Search Emulation 开启、系统设置开启、存在可用供应商；执行器优先取 `s.openAIWebSearchExecutor`。
 - R7 开关关闭：所有账号行为与现状完全一致（含 API Key 404 换号、PAT 自动兜底）。
 - R8 前端：`features/alphaSearch/extra.ts`（key 常量、`supportsAlphaSearchViaResponses(platform,type)`、`readAlphaSearchViaResponses`、`applyAlphaSearchViaResponsesExtra`）与 `AlphaSearchViaResponsesToggle.vue`（`data-testid="alpha-search-via-responses-toggle"`），按 Lite 降级开关模式接入 Edit/Create 账号弹窗（仅 `openai` + `apikey` 显示，平台切换重置，保存写入 extra）；文案 `locales/{zh,en}/admin/accountsAlphaSearch.ts` spread 进 `accounts.ts` `openai` 段并加入配对测试。
+- R10 AnySearch 文本结果解析（返工，实测发现）：AnySearch MCP 实际返回 `content[{type:"text"}]` 的 Markdown 文本（`## Search Results (N results, …)` + `### N. 标题` + `- **URL**: <url>` + `- 摘要 … date: <日期>`），`backend/internal/pkg/websearch/anysearch.go` 的文本回退只认 JSON，导致退化成一条无 URL 的整段文本。需在文本回退中先按该格式解析为结构化 `SearchResult{URL,Title,Snippet,PageAge}`，解析不到再退化为原来的单条文本结果。
+- R11 无 URL 结果保留（返工）：alpha 本地模拟的跨查询去重只对有 URL 的结果按 URL 去重，无 URL 的文本结果保留并进入 `output`，`results` 条目省略 `url` 字段；避免供应商退化结果被整体丢弃成"零结果"。
 - R9 领域隔离与文档：后端逻辑放 build 私有文件 `openai_alpha_search_responses_bridge.go`（开关、上游翻译、证据判定、兜底编排）与 `openai_alpha_search_emulation.go`（资格、命令解析、供应商执行、输出格式化），`ForwardAlphaSearch` 只增加一次薄调用；`protocol-adapter-guidelines.md` 在 Alpha Search scenario 后新增本 scenario 并在既有 contracts 中标注例外。
 
 ## Acceptance Criteria
@@ -55,6 +57,8 @@ Codex（Responses Lite + code mode，如 `gpt-6-astra`）经 sub2api 使用 Deep
 - [ ] AC9（R5）：执行器对所有查询返回错误 → 502 `web_search_failed`，result 为 nil；部分查询失败 → 按成功结果返回并 `WebSearchCalls=1`。
 - [ ] AC10（R7）：开关关闭时既有 `TestForwardAlphaSearch*` 全部不变通过。
 - [ ] AC11（R8）：`extra.ts` 单测覆盖写入/删除/保持与 `supports*` 边界；Toggle 组件渲染与 v-model；Edit/Create 弹窗在 `openai apikey` 显示、`deepseek apikey` 与 `openai oauth` 不显示，保存 payload `extra.openai_alpha_search_via_responses=true`，关闭后删除该键且保留其它 extra；中英文 key 成对且非空。
+- [ ] AC13（R10）：AnySearch 返回上述 Markdown 文本时，`Search` 结果为逐条结构化项，`URL`/`Title`/`Snippet`/`PageAge` 正确；非该格式的纯文本仍退化为单条 `Title:"AnySearch"` 结果；既有 JSON 形态用例不变。
+- [ ] AC14（R11）：执行器返回一条无 URL 与一条有 URL 的结果时两条都保留，`output` 含两条文本，`results` 有 2 项且无 URL 项不含 `url` 键；有 URL 的重复项仍被去重。
 - [ ] AC12（R9）：`gofmt -l` 为空；`go test -tags=unit ./internal/service ./internal/handler -run 'AlphaSearch|WebSearch' -count=1` 通过；前端 `pnpm vitest run src/features/alphaSearch src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/CreateAccountModal.spec.ts src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts` 与 `pnpm typecheck` 通过。
 
 ## Out of Scope

@@ -49,15 +49,16 @@
     }
   },
   "progress": {
-    "updatedAt": "2026-09-12T02:03:02Z",
+    "updatedAt": "2026-09-12T02:45:17Z",
     "completedSteps": [
       "后端：openai_alpha_search_responses_bridge.go / openai_alpha_search_emulation.go 领域文件、ForwardAlphaSearch 薄接线、SSE 解析返回搜索证据、10 个单测",
       "前端：features/alphaSearch extra 助手与 Toggle、Edit/Create 弹窗接入、中英文文案与配对测试",
       "规范：protocol-adapter-guidelines.md 新增 Alpha Search 桥接与本地模拟 scenario",
-      "Check-All 通过（已接受 CHK-001 P2）；Update-Spec no-op；业务提交 ac04f8ec6 已推送"
+      "首轮：Check-All 通过（已接受 CHK-001 P2）；Update-Spec no-op；业务提交 ac04f8ec6 已推送",
+      "返工：AnySearch Markdown 文本结果解析（parseAnySearchMarkdownResults）、alpha 模拟保留无 URL 结果、规范同步、Check-All 通过·已接受风险、Update-Spec no-op、业务提交已推送"
     ],
     "partialStep": null,
-    "nextStep": "部署后用真实 Codex 会话对账号 id=1 开启开关验证联网搜索生效",
-    "notes": "CHK-001：模拟资格判定在上游结果前无条件计算，已接受风险；DeepSeek /responses 实测忽略 web_search"
+    "nextStep": "部署后验证 Codex 联网搜索返回带链接结果；new-api 的 relay/websearch/anysearch.go 同缺陷另行处理",
+    "notes": "CHK-001 已接受风险；deepseek-flash 不执行 web_search，deepseek-v4-pro 可以；AnySearch 实际返回 Markdown 文本"
   }
 }

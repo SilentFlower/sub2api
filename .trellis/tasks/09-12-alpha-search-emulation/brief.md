@@ -12,7 +12,8 @@
 - 模拟不可用时：2xx 未搜索 → 502 `web_search_failed` 不计费；非 2xx → 沿用 PAT 路径既有 failover / 透传分类。
 - 前端 `features/alphaSearch/`：extra 助手、Toggle 组件，按 Lite 降级开关模式接入 Edit/Create 账号弹窗（仅 `openai` + `apikey` 显示），中英文文案与配对测试。
 - 领域隔离：新建 `openai_alpha_search_responses_bridge.go` 与 `openai_alpha_search_emulation.go`，`openai_alpha_search.go` 只加一次薄调用并扩展 SSE 解析返回证据；`protocol-adapter-guidelines.md` 新增 scenario。
-- 后端与前端单测覆盖 AC1-AC12。
+- 返工：AnySearch MCP Markdown 文本结果解析为结构化 `SearchResult`；alpha 本地模拟保留无 URL 结果，只对有 URL 的按 URL 去重。
+- 后端与前端单测覆盖 AC1-AC14。
 
 ## Non-Goals
 
@@ -43,6 +44,7 @@
 - DeepSeek 场景每次搜索都会先付一次无效上游 Responses 调用；若后续想省掉，可再加"直接本地模拟"选项。
 - 本地供应商对 `recency`、`user_location` 不生效；`open` 类命令仍需模型自行处理。
 - `parseOpenAIResponsesSSEForAlphaSearch` 签名变更只影响本包，但 PAT 路径测试需回归。
+- new-api `relay/websearch/anysearch.go` 同样不解析 AnySearch Markdown，本任务不处理。
 - 延后：`openai_gateway_forward.go:158` chat 回退 + Lite 降级开关的 `custom_tool_call` 回程缺陷。
 
 ## Acceptance
@@ -54,6 +56,7 @@
 - AC7-AC9 模拟细节：去重、`blocked_domains`、`low`→3、`ref_id` 连续；只含 `open` → 200 说明且不计费；全部失败 → 502，部分失败 → 计费返回。
 - AC10 开关关闭：既有 `TestForwardAlphaSearch*` 不变通过。
 - AC11 前端：extra 助手/Toggle/弹窗显示条件与 payload、中英文 key 成对。
+- AC13/AC14 返工：AnySearch Markdown 解析出逐条 URL/标题/摘要/日期；无 URL 结果保留且 `results` 省略 `url`。
 - AC12：`gofmt -l` 为空；`go test -tags=unit ./internal/service ./internal/handler -run 'AlphaSearch|WebSearch'`、前端定向 vitest 与 `pnpm typecheck` 通过。
 
 ## Next Step

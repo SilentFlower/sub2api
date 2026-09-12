@@ -23,6 +23,11 @@
 10. [ ] `locales/{zh,en}/admin/accountsAlphaSearch.ts`，spread 进 `accounts.ts` `openai` 段（zh `:706` / en `:623` 旁），`buildFeatureLocaleExtensions.spec.ts` 加配对与非空断言。
 11. [ ] Edit/Create 弹窗 spec：显示条件、保存 payload、关闭删除键（AC11）。
 
+### F. 返工：AnySearch 解析与无 URL 结果（实测 results=0）
+15. [x] `internal/pkg/websearch/anysearch.go` 新增 `parseAnySearchMarkdownResults`，接入文本回退；`anysearch_test.go` 补 Markdown 用例（AC13）。
+16. [x] `openai_alpha_search_emulation.go` 去重只对有 URL 生效，输出与 results 兼容空 URL；补测试（AC14）。
+17. [x] 规范 scenario 更新去重契约与 AnySearch 文本格式说明。
+
 ### C. 文档与验证
 12. [ ] `protocol-adapter-guidelines.md`：Alpha Search scenario contracts 加例外一句；L1047 后新增 "Scenario: Codex Alpha Search 经上游 Responses web_search 桥接与本地模拟兜底"（Scope/Signatures/Contracts/Matrix/Cases/Tests）。
 13. [ ] 后端 `gofmt -l`、定向单测、全量 service 单测。
@@ -34,6 +39,7 @@
 cd backend
 gofmt -l ./internal/service ./internal/handler
 go test -tags=unit ./internal/service ./internal/handler -run 'AlphaSearch|WebSearch' -count=1
+go test -tags=unit ./internal/pkg/websearch -count=1
 go test -tags=unit ./internal/service -count=1
 cd ../frontend
 pnpm vitest run src/features/alphaSearch src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/CreateAccountModal.spec.ts src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts
