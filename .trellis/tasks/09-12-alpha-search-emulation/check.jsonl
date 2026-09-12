@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "检查 Alpha Search 既有契约（L923-1047）未被破坏：开关关闭行为不变、仅真实搜索计费、failover 先于写响应"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查测试层级、gofmt、敏感信息与错误包装要求"}
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "检查共享文件是否只保留薄接线，build 规则是否都在领域 owner"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "检查前端字段组件、i18n 成对与 spread 最终有效值"}
+{"file": ".trellis/tasks/09-12-alpha-search-emulation/prd.md", "reason": "按 AC1-AC12 逐条核对验收"}

@@ -1,0 +1,63 @@
+{
+  "id": "alpha-search-emulation",
+  "name": "alpha-search-emulation",
+  "title": "Codex Alpha Search 上游 Responses web_search 桥接：账号级开关 + 本地模拟兜底",
+  "description": "Codex Responses Lite/code mode 的 web.run 通过 /v1/alpha/search 执行；DeepSeek 等 OpenAI 兼容上游无此端点且 /responses 不执行 web_search（已实测）。为 API Key 账号增加 alpha/search 模拟分支：上游 404/405 或账号开关开启时，用现有 Web Search Emulation 供应商执行 search_query 并按 Codex SearchResponse 形态返回 output/results，计费沿用 WebSearchCalls。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-09-12",
+  "completedAt": "2026-09-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-09-11T17:35:07Z",
+      "contextKey": "claude_4bf0beab-8e31-43f6-8ca7-9cf34b17ad11",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "b0af70c56314ad042d4afc1e78953dc480f89348",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "b0af70c56314ad042d4afc1e78953dc480f89348",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "63848826732b00f1709da576f60ee861de3de5601ce4e5e90c442d73eb5ccaed"
+          }
+        ],
+        "fingerprint": "776ef1847e383b092f1cd9d23130bf8076ee7476605d1116817d9f6c45f318cf"
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-09-12T02:03:02Z",
+    "completedSteps": [
+      "后端：openai_alpha_search_responses_bridge.go / openai_alpha_search_emulation.go 领域文件、ForwardAlphaSearch 薄接线、SSE 解析返回搜索证据、10 个单测",
+      "前端：features/alphaSearch extra 助手与 Toggle、Edit/Create 弹窗接入、中英文文案与配对测试",
+      "规范：protocol-adapter-guidelines.md 新增 Alpha Search 桥接与本地模拟 scenario",
+      "Check-All 通过（已接受 CHK-001 P2）；Update-Spec no-op；业务提交 ac04f8ec6 已推送"
+    ],
+    "partialStep": null,
+    "nextStep": "部署后用真实 Codex 会话对账号 id=1 开启开关验证联网搜索生效",
+    "notes": "CHK-001：模拟资格判定在上游结果前无条件计算，已接受风险；DeepSeek /responses 实测忽略 web_search"
+  }
+}

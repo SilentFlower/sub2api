@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "L923-1047 Codex Alpha Search 独立端点转发契约：不透明 JSON、仅 2xx 计费、failover 先于写响应；本任务在其后新增 scenario"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Go 单测 tag、gofmt、depguard 分层与测试覆盖要求"}
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "开关、上游翻译与模拟兜底为 build 私有策略，必须放领域 owner 文件，共享入口只做薄调用"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "账号弹窗新增 Toggle、locale 扩展与 spread 覆盖规则"}
+{"file": ".trellis/tasks/09-12-alpha-search-emulation/design.md", "reason": "本任务技术设计：文件所有权、数据流、开关/请求/证据/分类/模拟契约"}
