@@ -186,14 +186,14 @@ func (s *OpenAIGatewayService) emulateOpenAIAlphaSearch(
 		filtered := filterOpenAIResponsesSearchResults(resp.Results, allowed, plan.BlockedDomains)
 		deduped := make([]websearch.SearchResult, 0, len(filtered))
 		for _, result := range filtered {
-			key := strings.TrimSpace(result.URL)
-			if key == "" {
-				continue
+			// 只有带 URL 的结果参与跨查询去重；供应商退化出的无 URL 文本结果也要保留，
+			// 否则模型会收到"零结果"。
+			if key := strings.TrimSpace(result.URL); key != "" {
+				if _, dup := seenURLs[key]; dup {
+					continue
+				}
+				seenURLs[key] = struct{}{}
 			}
-			if _, dup := seenURLs[key]; dup {
-				continue
-			}
-			seenURLs[key] = struct{}{}
 			deduped = append(deduped, result)
 		}
 		blocks = append(blocks, openAIAlphaSearchEmulationBlock{Query: query.Query, Results: deduped})
@@ -246,7 +246,11 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 		fmt.Fprintf(&b, "Search results for %q:\n", block.Query)
 		for _, result := range block.Results {
 			refID := fmt.Sprintf("turn0search%d", len(results))
-			fmt.Fprintf(&b, "%d. [%s] %s\n%s\n", len(results)+1, refID, result.Title, result.URL)
+			fmt.Fprintf(&b, "%d. [%s] %s\n", len(results)+1, refID, result.Title)
+			if resultURL := strings.TrimSpace(result.URL); resultURL != "" {
+				_, _ = b.WriteString(resultURL)
+				_ = b.WriteByte('\n')
+			}
 			if snippet := strings.TrimSpace(result.Snippet); snippet != "" {
 				_, _ = b.WriteString(snippet)
 				_ = b.WriteByte('\n')
@@ -255,7 +259,10 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 				fmt.Fprintf(&b, "Published: %s\n", pageAge)
 			}
 			_ = b.WriteByte('\n')
-			entry := map[string]any{"type": "text_result", "ref_id": refID, "url": result.URL}
+			entry := map[string]any{"type": "text_result", "ref_id": refID}
+			if resultURL := strings.TrimSpace(result.URL); resultURL != "" {
+				entry["url"] = resultURL
+			}
 			if title := strings.TrimSpace(result.Title); title != "" {
 				entry["title"] = title
 			}

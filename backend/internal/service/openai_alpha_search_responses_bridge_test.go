@@ -414,3 +414,38 @@ func TestForwardAlphaSearchViaResponsesDisabledKeepsLegacyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"output":"legacy"}`, recorder.Body.String())
 }
+
+// Scenario: AC14 无 URL 的文本结果保留且 results 省略 url；有 URL 的重复项仍去重。
+func TestEmulateOpenAIAlphaSearchKeepsResultsWithoutURL(t *testing.T) {
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := []byte(`{"id":"s","model":"gpt-5.6-sol","commands":{"search_query":[{"q":"one"},{"q":"two"}]}}`)
+	c, recorder := alphaSearchViaResponsesTestContext(t, body)
+	service := alphaSearchViaResponsesTestService(nil)
+	service.openAIWebSearchExecutor = alphaSearchStubExecutor(t, nil, nil, map[string]*websearch.SearchResponse{
+		"one": {Results: []websearch.SearchResult{
+			{Title: "AnySearch", Snippet: "整段文本结果"},
+			{URL: "https://example.com/a", Title: "A"},
+		}},
+		"two": {Results: []websearch.SearchResult{
+			{URL: "https://example.com/a", Title: "A again"},
+			{Title: "AnySearch", Snippet: "另一段文本"},
+		}},
+	}, nil)
+
+	result, err := service.emulateOpenAIAlphaSearch(context.Background(), c, alphaSearchViaResponsesTestAccount(true), body, "m", "m")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.WebSearchCalls)
+	results := gjson.Get(recorder.Body.String(), "results").Array()
+	require.Len(t, results, 3)
+	require.False(t, results[0].Get("url").Exists())
+	require.Equal(t, "turn0search0", results[0].Get("ref_id").String())
+	require.Equal(t, "https://example.com/a", results[1].Get("url").String())
+	require.False(t, results[2].Get("url").Exists())
+	output := gjson.Get(recorder.Body.String(), "output").String()
+	require.Contains(t, output, "[turn0search0] AnySearch\n整段文本结果")
+	require.Contains(t, output, "[turn0search1] A\nhttps://example.com/a")
+	require.Contains(t, output, "[turn0search2] AnySearch\n另一段文本")
+	require.NotContains(t, output, "A again")
+}

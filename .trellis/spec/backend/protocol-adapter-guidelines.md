@@ -1096,8 +1096,9 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 | 2xx 无证据 | 本地模拟 | 502 `error.code=web_search_failed`，不计费 |
 | 非 2xx | 本地模拟（不触发账号错误副作用） | 与 PAT 路径相同：failover 条件或 404/405 返回 `UpstreamFailoverError`，否则原样透传状态/body/白名单头 |
 
-- 本地模拟只执行 `commands.search_query`（`image_query` 视同文本搜索），去重后最多 4 条；`settings.search_context_size` low/medium/high → 3/5/10；`search_query[].domains` 与 `settings.filters.allowed_domains` 为允许域名、`settings.filters.blocked_domains` 为拒绝域名；跨查询按 URL 去重并连续编号 `turn0searchN`；`max_output_tokens` 存在时按 4 字符/token 截断 `output` 并附 `...<truncated>`。
-- `output` 为模型可读纯文本（每条含 `[turn0searchN] 标题`、URL、摘要、`Published:` 日期）；`results` 为 `{type:"text_result", ref_id, url, title?}`，与 PAT 路径形态一致。`open/click/find/screenshot/finance/weather/sports/time` 不执行，在 `output` 末尾附 `Unsupported commands in this gateway: …` 说明。
+- 本地模拟只执行 `commands.search_query`（`image_query` 视同文本搜索），去重后最多 4 条；`settings.search_context_size` low/medium/high → 3/5/10；`search_query[].domains` 与 `settings.filters.allowed_domains` 为允许域名、`settings.filters.blocked_domains` 为拒绝域名；有 URL 的结果跨查询按 URL 去重、无 URL 的文本结果保留，连续编号 `turn0searchN`；`max_output_tokens` 存在时按 4 字符/token 截断 `output` 并附 `...<truncated>`。
+- `output` 为模型可读纯文本（每条含 `[turn0searchN] 标题`、URL、摘要、`Published:` 日期，URL 为空时省略该行）；`results` 为 `{type:"text_result", ref_id, url?, title?}`，与 PAT 路径形态一致。
+- AnySearch MCP 实际返回 `content[{type:"text"}]` 的 Markdown（`## Search Results (N results, …)`、`### N. 标题`、`- **URL**: <url>`、`- 摘要 … date: <日期>`）；`backend/internal/pkg/websearch/anysearch.go` 的文本回退必须先经 `parseAnySearchMarkdownResults` 解析为逐条 `SearchResult`，解析不到才退化为单条 `Title:"AnySearch"` 文本结果。否则模拟路径会把整段文本当一条无 URL 结果，alpha 模拟曾因此返回零结果。`open/click/find/screenshot/finance/weather/sports/time` 不执行，在 `output` 末尾附 `Unsupported commands in this gateway: …` 说明。
 - 计费：至少一条结果时 `WebSearchCalls=1`、`UpstreamEndpoint=/v1/alpha/search`；只含不支持命令、零结果时写回 200 说明文本并返回 `(nil, nil)` 不计费；所有查询都失败时写回 502 `web_search_failed` 并返回 error；部分失败按成功结果返回并计费。
 - alpha 请求体仍作为不透明 JSON 处理：只用 gjson 读取 `commands`、`settings`、`max_output_tokens`，不绑定本地 DTO。
 
@@ -1126,13 +1127,15 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 
 ### 6. Tests Required
 
-- service：`TestAccount_IsOpenAIAlphaSearchViaResponsesEnabled`、`TestForwardAlphaSearchViaResponsesUsesUpstreamWebSearch`、`TestForwardAlphaSearchViaResponsesAcceptsWebSearchCallEvidence`、`TestForwardAlphaSearchViaResponsesFallsBackToEmulationWhenUpstreamDidNotSearch`、`TestForwardAlphaSearchViaResponsesUpstreamNotFound`、`TestForwardAlphaSearchViaResponsesNoSearchAndEmulationUnavailable`、`TestEmulateOpenAIAlphaSearchFiltersAndDedupes`、`TestEmulateOpenAIAlphaSearchUnsupportedCommands`、`TestEmulateOpenAIAlphaSearchProviderFailures`、`TestForwardAlphaSearchViaResponsesDisabledKeepsLegacyPath`。
+- websearch：`TestAnySearchProviderParsesMarkdownTextResults`，断言逐条 URL/标题/摘要/日期与非该格式文本的退化行为。
+- service：`TestEmulateOpenAIAlphaSearchKeepsResultsWithoutURL`、`TestAccount_IsOpenAIAlphaSearchViaResponsesEnabled`、`TestForwardAlphaSearchViaResponsesUsesUpstreamWebSearch`、`TestForwardAlphaSearchViaResponsesAcceptsWebSearchCallEvidence`、`TestForwardAlphaSearchViaResponsesFallsBackToEmulationWhenUpstreamDidNotSearch`、`TestForwardAlphaSearchViaResponsesUpstreamNotFound`、`TestForwardAlphaSearchViaResponsesNoSearchAndEmulationUnavailable`、`TestEmulateOpenAIAlphaSearchFiltersAndDedupes`、`TestEmulateOpenAIAlphaSearchUnsupportedCommands`、`TestEmulateOpenAIAlphaSearchProviderFailures`、`TestForwardAlphaSearchViaResponsesDisabledKeepsLegacyPath`。
 - 前端：`features/alphaSearch/__tests__/extra.spec.ts`、`AlphaSearchViaResponsesToggle.spec.ts`，`EditAccountModal.spec.ts` / `CreateAccountModal.spec.ts` 的开关用例（openai apikey 显示、deepseek apikey 与 oauth 不显示、payload `extra.openai_alpha_search_via_responses`），`buildFeatureLocaleExtensions.spec.ts` 中英文配对。
 - 建议运行：
 
 ```bash
 cd backend
 go test -tags=unit ./internal/service -run 'AlphaSearch|IsOpenAIAlphaSearchViaResponsesEnabled' -count=1
+go test -tags=unit ./internal/pkg/websearch -count=1
 cd ../frontend
 pnpm vitest run src/features/alphaSearch src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts \
   src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/CreateAccountModal.spec.ts

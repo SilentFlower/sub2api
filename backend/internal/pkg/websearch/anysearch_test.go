@@ -102,3 +102,47 @@ func TestAnySearchProviderRejectsOversizedResponse(t *testing.T) {
 	require.ErrorContains(t, err, "response body exceeds")
 	require.NotContains(t, err.Error(), strings.Repeat("x", 100))
 }
+
+// Scenario: AnySearch 以 Markdown 文本返回结果列表时逐条解析出 URL、标题、摘要与日期；
+// 非该格式的纯文本仍退化为单条 AnySearch 结果。
+func TestAnySearchProviderParsesMarkdownTextResults(t *testing.T) {
+	markdown := "## Search Results (2 results, 2012ms)\n\n" +
+		"### 1. 中国气象局举行2026年9月新闻发布会\n" +
+		"- **URL**: http://www.scio.gov.cn/xwfb/t20260904_1006845.html\n" +
+		"- 我国的台风数量具有偏多的特点。截至2026年9月1日,西北太平洋和南海共有24个台风生成 ... date: Sep 2, 2026\n\n" +
+		"### 2. 9月将有2～3个台风生成可能影响我国 - 新闻\n" +
+		"- **URL**: https://news.sciencenet.cn/htmlnews/2026/9/570826.shtm\n" +
+		"- 今年已有7个台风登陆我国。\n" +
+		"- date: 5 days ago\n"
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1,
+		"result": map[string]any{"content": []map[string]any{{"type": "text", "text": markdown}}},
+	})
+	require.NoError(t, err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	oldEndpoint := anySearchEndpoint
+	anySearchEndpoint = server.URL
+	defer func() { anySearchEndpoint = oldEndpoint }()
+
+	response, err := NewAnySearchProvider("", server.Client()).Search(context.Background(), SearchRequest{Query: "台风", MaxResults: 5})
+	require.NoError(t, err)
+	require.Len(t, response.Results, 2)
+	require.Equal(t, "http://www.scio.gov.cn/xwfb/t20260904_1006845.html", response.Results[0].URL)
+	require.Equal(t, "中国气象局举行2026年9月新闻发布会", response.Results[0].Title)
+	require.Equal(t, "我国的台风数量具有偏多的特点。截至2026年9月1日,西北太平洋和南海共有24个台风生成 ...", response.Results[0].Snippet)
+	require.Equal(t, "Sep 2, 2026", response.Results[0].PageAge)
+	require.Equal(t, "https://news.sciencenet.cn/htmlnews/2026/9/570826.shtm", response.Results[1].URL)
+	require.Equal(t, "9月将有2～3个台风生成可能影响我国 - 新闻", response.Results[1].Title)
+	require.Equal(t, "今年已有7个台风登陆我国。", response.Results[1].Snippet)
+	require.Equal(t, "5 days ago", response.Results[1].PageAge)
+
+	require.Nil(t, parseAnySearchMarkdownResults("No numbered headings here\n- **URL**: https://example.com"))
+	plain := normalizeAnySearchResults(json.RawMessage(`{"content":[{"type":"text","text":"just some prose"}]}`))
+	require.Len(t, plain, 1)
+	require.Equal(t, "AnySearch", plain[0].Title)
+	require.Empty(t, plain[0].URL)
+}
