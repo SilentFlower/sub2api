@@ -1,6 +1,7 @@
 import codexCustomClientMessages from './accountsCodexCustomClients'
 import openAICompatibilityMessages from './accountsOpenAICompatibility'
 import responsesLiteMessages from './accountsResponsesLite'
+import alphaSearchMessages from './accountsAlphaSearch'
 import openAIImageGenerationOverrides from './accountsOpenAIImageGenerationOverrides'
 import codexWebSearchBridgeMessages from './accountsCodexWebSearchBridge'
 import webSearchMessages from './accountsWebSearch'
@@ -621,6 +622,7 @@ export default {
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
         ...openAICompatibilityMessages,
         ...responsesLiteMessages,
+        ...alphaSearchMessages,
         imagesUrlToB64Json: 'Image result URL to base64',
         imagesUrlToB64JsonDesc:
           'Only applies to non-streaming Images responses of OpenAI API Key accounts. When an upstream image item has a url but no b64_json, the gateway downloads the url and fills b64_json with its base64 content (url is kept) for clients built on the official API; the response is returned unchanged if the download fails.',

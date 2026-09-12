@@ -3321,6 +3321,14 @@
         <ResponsesLiteDowngradeToggle v-model="responsesLiteDowngradeEnabled" />
       </div>
 
+      <!-- Alpha Search 经上游 Responses 执行（build 私有）：仅 OpenAI API Key -->
+      <div
+        v-if="canConfigureAlphaSearchViaResponses"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <AlphaSearchViaResponsesToggle v-model="alphaSearchViaResponsesEnabled" />
+      </div>
+
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
@@ -3861,6 +3869,11 @@ import OpenAIJSONSchemaField from '@/features/openAICompatibility/OpenAIJSONSche
 import OpenAIResponsesModeField from '@/features/openAICompatibility/OpenAIResponsesModeField.vue'
 import { applyOpenAICompatibilityExtra } from '@/features/openAICompatibility/extra'
 import ResponsesLiteDowngradeToggle from '@/features/responsesLite/ResponsesLiteDowngradeToggle.vue'
+import AlphaSearchViaResponsesToggle from '@/features/alphaSearch/AlphaSearchViaResponsesToggle.vue'
+import {
+  applyAlphaSearchViaResponsesExtra,
+  supportsAlphaSearchViaResponses
+} from '@/features/alphaSearch/extra'
 import {
   applyResponsesLiteDowngradeExtra,
   supportsResponsesLiteDowngrade
@@ -4309,6 +4322,7 @@ const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIJSONSchemaDowngradeEnabled = ref(false)
 const responsesLiteDowngradeEnabled = ref(false)
+const alphaSearchViaResponsesEnabled = ref(false)
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -4417,6 +4431,9 @@ const canConfigureResponsesMode = computed(() =>
 )
 const canConfigureResponsesLiteDowngrade = computed(() =>
   supportsResponsesLiteDowngrade(form.platform, accountCategory.value)
+)
+const canConfigureAlphaSearchViaResponses = computed(() =>
+  supportsAlphaSearchViaResponses(form.platform, accountCategory.value)
 )
 const responsesModeSelectDisabled = computed(() =>
   form.platform === 'openai' &&
@@ -4846,6 +4863,9 @@ watch(
     if (!supportsResponsesLiteDowngrade(platform, category)) {
       responsesLiteDowngradeEnabled.value = false
     }
+    if (!supportsAlphaSearchViaResponses(platform, category)) {
+      alphaSearchViaResponsesEnabled.value = false
+    }
   }
 )
 
@@ -5262,6 +5282,7 @@ const resetForm = () => {
   openAIResponsesMode.value = 'auto'
   openAIJSONSchemaDowngradeEnabled.value = false
   responsesLiteDowngradeEnabled.value = false
+  alphaSearchViaResponsesEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -5464,6 +5485,20 @@ const buildResponsesLiteDowngradeExtra = (base?: Record<string, unknown>): Recor
     return base
   }
   const extra = applyResponsesLiteDowngradeExtra(base, responsesLiteDowngradeEnabled.value)
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+/**
+ * 在账号 extra 上写入或删除"Alpha Search 经上游 Responses 执行"开关。
+ *
+ * @param base 已构造的账号 extra。
+ * @return 可配置账号写入/删除开关后的 extra；不可配置时原样返回。
+ */
+const buildAlphaSearchViaResponsesExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  if (!canConfigureAlphaSearchViaResponses.value) {
+    return base
+  }
+  const extra = applyAlphaSearchViaResponsesExtra(base, alphaSearchViaResponsesEnabled.value)
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -5800,7 +5835,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildResponsesLiteDowngradeExtra(buildAnthropicExtra(buildGrokExtra(buildOpenAIExtra())))
+  const extra = buildAlphaSearchViaResponsesExtra(buildResponsesLiteDowngradeExtra(buildAnthropicExtra(buildGrokExtra(buildOpenAIExtra()))))
 
   await doCreateAccount({
     ...form,

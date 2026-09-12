@@ -713,3 +713,33 @@ describe('CreateAccountModal Responses Lite 降级开关', () => {
     expect(wrapper.find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(false)
   })
 })
+
+describe('CreateAccountModal Alpha Search 经上游 Responses 开关', () => {
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
+  })
+
+  it('OpenAI API Key 创建时把开启状态写入 extra', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    const toggle = wrapper.get('[data-testid="alpha-search-via-responses-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await toggle.trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('openai account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({
+      openai_alpha_search_via_responses: true
+    })
+  })
+
+  it('OpenAI OAuth 类别不显示开关', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="alpha-search-via-responses-toggle"]').exists()).toBe(false)
+  })
+})

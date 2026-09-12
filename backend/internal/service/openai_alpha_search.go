@@ -72,6 +72,11 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 	if account.IsOpenAIPersonalAccessToken() {
 		return s.forwardAlphaSearchViaResponsesWebSearch(ctx, c, account, body, token, proxyURL, requestedModel, upstreamModel)
 	}
+	// 账号开启"Alpha Search 经上游 Responses 执行"时改走 build 私有桥接路径
+	// （见 openai_alpha_search_responses_bridge.go）。
+	if account.IsOpenAIAlphaSearchViaResponsesEnabled() {
+		return s.forwardAlphaSearchViaUpstreamResponsesWebSearch(ctx, c, account, body, token, proxyURL, requestedModel, upstreamModel)
+	}
 
 	req, err := s.buildOpenAIAlphaSearchRequest(ctx, c, account, body, token)
 	if err != nil {
@@ -555,7 +560,13 @@ func shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(statusCode int) bool {
 }
 
 func openAIAlphaSearchResponseFromResponsesSSE(body []byte) ([]byte, error) {
-	output, results := parseOpenAIResponsesSSEForAlphaSearch(body)
+	output, results, _ := parseOpenAIResponsesSSEForAlphaSearch(body)
+	return encodeOpenAIAlphaSearchResponse(output, results)
+}
+
+// encodeOpenAIAlphaSearchResponse 按 Codex SearchResponse 形态编码 {"output","results"}；
+// results 为空时省略该字段。
+func encodeOpenAIAlphaSearchResponse(output string, results []any) ([]byte, error) {
 	resp := map[string]any{
 		"output": output,
 	}
@@ -565,12 +576,15 @@ func openAIAlphaSearchResponseFromResponsesSSE(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any) {
+// parseOpenAIResponsesSSEForAlphaSearch 解析上游 Responses SSE，返回拼接文本、引用结果，
+// 以及上游是否真实执行过搜索（出现 web_search_call 输出项或至少一条 url_citation）。
+func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool) {
 	text := strings.ReplaceAll(string(body), "\r\n", "\n")
 	var output strings.Builder
 	var completedResponse any
 	results := make([]any, 0)
 	seenURLs := make(map[string]struct{})
+	searched := false
 
 	for _, block := range strings.Split(text, "\n\n") {
 		data := openAIAlphaSearchSSEData(block)
@@ -587,6 +601,9 @@ func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any) {
 		if event["type"] == "response.completed" {
 			completedResponse = event["response"]
 		}
+		if !searched && openAIAlphaSearchValueHasWebSearchCall(event) {
+			searched = true
+		}
 		collectOpenAIAlphaSearchURLCitations(event, &results, seenURLs)
 	}
 
@@ -595,7 +612,10 @@ func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any) {
 		out = extractOpenAIResponsesCompletedText(completedResponse)
 		collectOpenAIAlphaSearchURLCitations(completedResponse, &results, seenURLs)
 	}
-	return out, results
+	if len(results) > 0 {
+		searched = true
+	}
+	return out, results, searched
 }
 
 func openAIAlphaSearchSSEData(block string) string {

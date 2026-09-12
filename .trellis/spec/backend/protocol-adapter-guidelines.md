@@ -959,6 +959,7 @@ POST /backend-api/codex/alpha/search
 - 入站 query 参数逐值追加到目标 URL，未知 JSON 字段和请求结构原样保留。
 - OpenAI OAuth 账号固定转发到 `https://chatgpt.com/backend-api/codex/alpha/search`。
 - OpenAI API Key 账号使用已校验的账号 base URL，并通过 `buildOpenAIEndpointURL(base, "/v1/alpha/search")` 构造目标；未配置 base URL 时使用 `https://api.openai.com/v1/alpha/search`。
+- 例外：openai API Key 账号显式开启 `openai_alpha_search_via_responses` 时，不再请求上游 `alpha/search`，改走 "Scenario: Codex Alpha Search 经上游 Responses web_search 桥接与本地模拟兜底"；开关关闭时本节全部契约不变。
 - OAuth 请求缺少入站 `Version` 时使用 `codexCLIVersion`；显式 `Version` 原样保留。客户端未提供 `OpenAI-Beta` 时不得额外注入该头。
 - 调度必须复用用户并发、账号并发、session sticky、模型限制、账号健康、最大切换次数和现有 failover 副作用。
 - 上游非切换错误原样返回状态、body 和白名单响应头；可切换错误必须先返回 `UpstreamFailoverError`，不得提前写下游响应。
@@ -1045,6 +1046,98 @@ model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 只读取调度所需字段，转发原始 JSON，并由既有 model replacement 精确替换模型名。
 
 ---
+
+## Scenario: Codex Alpha Search 经上游 Responses web_search 桥接与本地模拟兜底
+
+### 1. Scope / Trigger
+
+- Trigger: 修改账号级 `openai_alpha_search_via_responses` 开关、alpha/search → Responses `web_search` 翻译、真实搜索证据判定、本地模拟兜底（命令解析、供应商执行、输出格式）或相关计费时，必须按本节检查。
+- 背景：Codex 对 Responses Lite 模型跳过全部托管工具，code mode 下 `web.run` 暴露为 `tools.web__run`，模型调用后 Codex 向 `{base_url}/alpha/search` 发独立请求。DeepSeek 等 OpenAI 兼容上游没有该端点，且其 `/responses` 会忽略 `web_search` 工具（实测无 `web_search_call`、无 `url_citation`，模型凭记忆作答）。
+- 适用路径：
+  - `backend/internal/service/openai_alpha_search_responses_bridge.go`（build 私有领域 owner：开关、上游翻译、证据判定、兜底编排）
+  - `backend/internal/service/openai_alpha_search_emulation.go`（build 私有领域 owner：模拟资格、命令解析、供应商执行、输出格式）
+  - `backend/internal/service/openai_alpha_search.go`（共享入口：PAT 分支后一次薄调用；`parseOpenAIResponsesSSEForAlphaSearch` 返回证据；`encodeOpenAIAlphaSearchResponse`）
+  - `frontend/src/features/alphaSearch/`（extra 助手、Toggle）、`locales/{zh,en}/admin/accountsAlphaSearch.ts`
+- 目标：开关开启时 Codex 的独立搜索先交给账号上游托管 `web_search` 执行；上游没有真正搜索时自动改用本地 Web Search Emulation 供应商，保证 Lite 模型在 chat 与 responses 上游下都能拿到真实结果。
+
+### 2. Signatures
+
+```go
+const accountExtraKeyOpenAIAlphaSearchViaResponses = "openai_alpha_search_via_responses"
+func (a *Account) IsOpenAIAlphaSearchViaResponsesEnabled() bool
+func (s *OpenAIGatewayService) forwardAlphaSearchViaUpstreamResponsesWebSearch(ctx context.Context, c *gin.Context, account *Account, alphaBody []byte, token, proxyURL, requestedModel, upstreamModel string) (*OpenAIForwardResult, error)
+func (s *OpenAIGatewayService) buildOpenAIAlphaSearchAPIKeyResponsesRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string) (*http.Request, error)
+func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (output string, results []any, searched bool)
+func encodeOpenAIAlphaSearchResponse(output string, results []any) ([]byte, error)
+
+func (s *OpenAIGatewayService) alphaSearchEmulationEligible(ctx context.Context, c *gin.Context, account *Account) bool
+func parseOpenAIAlphaSearchEmulationPlan(alphaBody []byte) openAIAlphaSearchEmulationPlan
+func (s *OpenAIGatewayService) emulateOpenAIAlphaSearch(ctx context.Context, c *gin.Context, account *Account, alphaBody []byte, requestedModel, upstreamModel string) (*OpenAIForwardResult, error)
+func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBlock, unsupported []string, maxChars int) (string, []any)
+```
+
+账号 extra 字段：
+
+```json
+{ "openai_alpha_search_via_responses": true }
+```
+
+### 3. Contracts
+
+- 开关只对 `platform=openai` 且 `type=apikey` 的账号生效；OAuth/PAT、国产平台账号恒为关闭。缺失、非布尔或 false 视为关闭，所有既有 alpha/search 行为不变。
+- 开启时 `ForwardAlphaSearch` 在 PAT 分支之后改走桥接：复用 `buildOpenAIAlphaSearchResponsesWebSearchBody` 构造 `stream=true`、`store=false`、`tools=[{type:web_search,…}]` 的 Responses 请求；目标为账号 base_url 派生的 Responses 端点（`buildOpenAIResponsesURLForPlatform`，无 base_url 时官方端点）；只带 Bearer 鉴权、`Content-Type`、`Accept: text/event-stream`、账号自定义 UA 或入站 UA、账号 header 覆盖，不带 ChatGPT 账号头、Codex 身份头、`OpenAI-Beta` 与 Lite 头。
+- 真实搜索证据：上游 2xx 且 SSE 中任一事件出现 `web_search_call` 输出项，或收集到至少一条 `url_citation`。有证据时写回 `{"output","results"}`，返回 `WebSearchCalls=1`、`UpstreamEndpoint=/v1/responses`。
+- 本地模拟资格与 `resolveCodexWebSearchBridgeDecision` 同一判定：账号/渠道 Web Search Emulation 开启、系统设置开启、存在可用供应商；执行器优先取 `s.openAIWebSearchExecutor`。
+- 分类表：
+
+| 上游结果 | 模拟资格满足 | 模拟不可用 |
+|---|---|---|
+| 2xx 且有证据 | 写回并计费 | 写回并计费 |
+| 2xx 无证据 | 本地模拟 | 502 `error.code=web_search_failed`，不计费 |
+| 非 2xx | 本地模拟（不触发账号错误副作用） | 与 PAT 路径相同：failover 条件或 404/405 返回 `UpstreamFailoverError`，否则原样透传状态/body/白名单头 |
+
+- 本地模拟只执行 `commands.search_query`（`image_query` 视同文本搜索），去重后最多 4 条；`settings.search_context_size` low/medium/high → 3/5/10；`search_query[].domains` 与 `settings.filters.allowed_domains` 为允许域名、`settings.filters.blocked_domains` 为拒绝域名；跨查询按 URL 去重并连续编号 `turn0searchN`；`max_output_tokens` 存在时按 4 字符/token 截断 `output` 并附 `...<truncated>`。
+- `output` 为模型可读纯文本（每条含 `[turn0searchN] 标题`、URL、摘要、`Published:` 日期）；`results` 为 `{type:"text_result", ref_id, url, title?}`，与 PAT 路径形态一致。`open/click/find/screenshot/finance/weather/sports/time` 不执行，在 `output` 末尾附 `Unsupported commands in this gateway: …` 说明。
+- 计费：至少一条结果时 `WebSearchCalls=1`、`UpstreamEndpoint=/v1/alpha/search`；只含不支持命令、零结果时写回 200 说明文本并返回 `(nil, nil)` 不计费；所有查询都失败时写回 502 `web_search_failed` 并返回 error；部分失败按成功结果返回并计费。
+- alpha 请求体仍作为不透明 JSON 处理：只用 gjson 读取 `commands`、`settings`、`max_output_tokens`，不绑定本地 DTO。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 必须结果 |
+|---|---|
+| 开关关闭 / OAuth / PAT / 国产平台 | 沿用 "Codex Alpha Search 独立端点转发" 全部契约 |
+| 开启 + 上游 SSE 含 `url_citation` | 200 `{"output","results"}`，`WebSearchCalls=1`，上游 URL 为 base_url 派生 Responses 端点，Bearer，无 ChatGPT/Lite 头 |
+| 开启 + 上游 SSE 仅含 `web_search_call` | 视为已搜索，200，`results` 省略 |
+| 开启 + 上游 2xx 无证据 + 资格满足 | 本地模拟 200，`WebSearchCalls=1` |
+| 开启 + 上游 2xx 无证据 + 资格不满足 | 502 `error.code=web_search_failed`，result nil |
+| 开启 + 上游 404 + 资格满足 | 本地模拟 200 |
+| 开启 + 上游 404 + 资格不满足 | `UpstreamFailoverError{404}`，下游未写入 |
+| 只含 `open` | 200 说明文本，result nil |
+| 供应商全部失败 | 502 `web_search_failed`，result nil |
+| 部分查询失败 | 200 成功结果，`WebSearchCalls=1` |
+
+### 5. Scenarios and Examples
+
+- Normal: Codex `gpt-6-astra` 经开启开关的 openai API Key 账号（base_url 指向 DeepSeek）：上游 `/responses` 忽略 `web_search`，网关判定无证据后用 Brave/Tavily/AnySearch 执行 `search_query`，Codex 收到含 `turn0search0` 的纯文本与 `results`。
+- Base: 同一开关配合支持托管 `web_search` 的 OpenAI 兼容上游：上游返回 `url_citation`，网关直接写回，不触发本地模拟。
+- Incorrect use: 在开关关闭时对上游 404 自动模拟。Correct: 关闭时保持既有换号语义，模拟只由开关触发。
+- Incorrect use: 上游 2xx 就直接写回，不判定证据。Correct: 无 `web_search_call`/`url_citation` 视为未搜索，否则 Codex 会把模型凭记忆编的内容当作搜索结果。
+- Incorrect use: 在共享入口 `ForwardAlphaSearch` 内展开开关判断、请求构造与模拟逻辑。Correct: 共享入口只保留一次薄调用，逻辑在两个领域文件内。
+
+### 6. Tests Required
+
+- service：`TestAccount_IsOpenAIAlphaSearchViaResponsesEnabled`、`TestForwardAlphaSearchViaResponsesUsesUpstreamWebSearch`、`TestForwardAlphaSearchViaResponsesAcceptsWebSearchCallEvidence`、`TestForwardAlphaSearchViaResponsesFallsBackToEmulationWhenUpstreamDidNotSearch`、`TestForwardAlphaSearchViaResponsesUpstreamNotFound`、`TestForwardAlphaSearchViaResponsesNoSearchAndEmulationUnavailable`、`TestEmulateOpenAIAlphaSearchFiltersAndDedupes`、`TestEmulateOpenAIAlphaSearchUnsupportedCommands`、`TestEmulateOpenAIAlphaSearchProviderFailures`、`TestForwardAlphaSearchViaResponsesDisabledKeepsLegacyPath`。
+- 前端：`features/alphaSearch/__tests__/extra.spec.ts`、`AlphaSearchViaResponsesToggle.spec.ts`，`EditAccountModal.spec.ts` / `CreateAccountModal.spec.ts` 的开关用例（openai apikey 显示、deepseek apikey 与 oauth 不显示、payload `extra.openai_alpha_search_via_responses`），`buildFeatureLocaleExtensions.spec.ts` 中英文配对。
+- 建议运行：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service -run 'AlphaSearch|IsOpenAIAlphaSearchViaResponsesEnabled' -count=1
+cd ../frontend
+pnpm vitest run src/features/alphaSearch src/i18n/__tests__/buildFeatureLocaleExtensions.spec.ts \
+  src/components/account/__tests__/EditAccountModal.spec.ts src/components/account/__tests__/CreateAccountModal.spec.ts
+pnpm typecheck
+```
 
 ## Scenario: OpenAI Responses 最终上游模型解析
 

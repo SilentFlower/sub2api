@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import enAccounts from '../locales/en/admin/accounts'
+import enAccountsAlphaSearch from '../locales/en/admin/accountsAlphaSearch'
 import enAccountsCodexCustomClients from '../locales/en/admin/accountsCodexCustomClients'
 import enAccountsOpenAICompatibility from '../locales/en/admin/accountsOpenAICompatibility'
 import enAccountsOpenAIImageGeneration from '../locales/en/admin/accountsOpenAIImageGenerationOverrides'
@@ -14,6 +15,7 @@ import enSettingsResponsesLite from '../locales/en/admin/settingsResponsesLite'
 import enSettingsDeepSeekReasoning from '../locales/en/admin/settingsDeepSeekReasoning'
 import enSettingsWebSearchAnySearch from '../locales/en/admin/settingsWebSearchAnySearch'
 import zhAccounts from '../locales/zh/admin/accounts'
+import zhAccountsAlphaSearch from '../locales/zh/admin/accountsAlphaSearch'
 import zhAccountsCodexCustomClients from '../locales/zh/admin/accountsCodexCustomClients'
 import zhAccountsOpenAICompatibility from '../locales/zh/admin/accountsOpenAICompatibility'
 import zhAccountsOpenAIImageGeneration from '../locales/zh/admin/accountsOpenAIImageGenerationOverrides'
@@ -47,6 +49,7 @@ const localeExtensionPairs: Array<[string, unknown, unknown]> = [
   ['accounts OpenAI compatibility', enAccountsOpenAICompatibility, zhAccountsOpenAICompatibility],
   ['accounts OpenAI image generation', enAccountsOpenAIImageGeneration, zhAccountsOpenAIImageGeneration],
   ['accounts Responses Lite', enAccountsResponsesLite, zhAccountsResponsesLite],
+  ['accounts Alpha Search', enAccountsAlphaSearch, zhAccountsAlphaSearch],
   ['accounts Web Search', enAccountsWebSearch, zhAccountsWebSearch],
   ['settings OpenAI image generation', enSettingsOpenAIImageGeneration, zhSettingsOpenAIImageGeneration],
   ['settings Responses Lite', enSettingsResponsesLite, zhSettingsResponsesLite],
@@ -67,6 +70,8 @@ describe('build 功能 locale 扩展', () => {
     expect(getPath(zhAccounts, 'accounts.openai.codexImageToolDesc')).toContain('仅适用于非 Responses Lite 请求')
     expect(getPath(enAccounts, 'accounts.openai.responsesLiteDowngrade')).toBe('Responses Lite downgrade')
     expect(getPath(zhAccounts, 'accounts.openai.responsesLiteDowngradeDesc')).toContain('additional_tools')
+    expect(getPath(enAccounts, 'accounts.openai.alphaSearchViaResponses')).toBe('Alpha Search via upstream Responses')
+    expect(getPath(zhAccounts, 'accounts.openai.alphaSearchViaResponsesDesc')).toContain('/v1/alpha/search')
     expect(getPath(enSettings, 'settings.gatewayForwarding.openaiResponsesLiteBlockedModels')).toBe(
       'Responses Lite Header blocked models'
     )

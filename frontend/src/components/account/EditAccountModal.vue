@@ -1870,6 +1870,14 @@
         <ResponsesLiteDowngradeToggle v-model="responsesLiteDowngradeEnabled" />
       </div>
 
+      <!-- Alpha Search 经上游 Responses 执行（build 私有）：仅 OpenAI API Key -->
+      <div
+        v-if="canConfigureAlphaSearchViaResponses"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <AlphaSearchViaResponsesToggle v-model="alphaSearchViaResponsesEnabled" />
+      </div>
+
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'apikey'"
@@ -2991,6 +2999,12 @@ import {
 import OpenAIJSONSchemaField from '@/features/openAICompatibility/OpenAIJSONSchemaField.vue'
 import OpenAIResponsesModeField from '@/features/openAICompatibility/OpenAIResponsesModeField.vue'
 import ResponsesLiteDowngradeToggle from '@/features/responsesLite/ResponsesLiteDowngradeToggle.vue'
+import AlphaSearchViaResponsesToggle from '@/features/alphaSearch/AlphaSearchViaResponsesToggle.vue'
+import {
+  applyAlphaSearchViaResponsesExtra,
+  readAlphaSearchViaResponses,
+  supportsAlphaSearchViaResponses
+} from '@/features/alphaSearch/extra'
 import {
   applyResponsesLiteDowngradeExtra,
   readResponsesLiteDowngrade,
@@ -3443,6 +3457,7 @@ const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIJSONSchemaDowngradeEnabled = ref(false)
 const responsesLiteDowngradeEnabled = ref(false)
+const alphaSearchViaResponsesEnabled = ref(false)
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -3619,6 +3634,9 @@ const canConfigureResponsesMode = computed(() =>
 )
 const canConfigureResponsesLiteDowngrade = computed(() =>
   supportsResponsesLiteDowngrade(props.account?.platform, props.account?.type)
+)
+const canConfigureAlphaSearchViaResponses = computed(() =>
+  supportsAlphaSearchViaResponses(props.account?.platform, props.account?.type)
 )
 const responsesModeSelectDisabled = computed(() =>
   props.account?.platform === 'openai' &&
@@ -3937,6 +3955,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAIResponsesMode.value = 'auto'
   openAIJSONSchemaDowngradeEnabled.value = false
   responsesLiteDowngradeEnabled.value = readResponsesLiteDowngrade(extra)
+  alphaSearchViaResponsesEnabled.value = readAlphaSearchViaResponses(extra)
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -5547,6 +5566,12 @@ const handleSubmit = async () => {
     if (canConfigureResponsesLiteDowngrade.value) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       updatePayload.extra = applyResponsesLiteDowngradeExtra(currentExtra, responsesLiteDowngradeEnabled.value)
+    }
+
+    // Alpha Search 经上游 Responses 执行开关（build 私有）：仅 OpenAI API Key 账号。
+    if (canConfigureAlphaSearchViaResponses.value) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
+      updatePayload.extra = applyAlphaSearchViaResponsesExtra(currentExtra, alphaSearchViaResponsesEnabled.value)
     }
 
     // Grok 复用 OpenAI Responses 路由覆盖键，仅增删该键，避免覆盖 OAuth 额度快照等 extra 信息。
