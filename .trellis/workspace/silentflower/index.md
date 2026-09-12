@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 28
-- **Last Active**: 2026-09-07
+- **Total Sessions**: 29
+- **Last Active**: 2026-09-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~907 | Active |
+| `journal-1.md` | ~946 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 29 | 2026-09-12 | 归档 09-12-alpha-search-emulation：Codex Alpha Search 上游 Responses web_search 桥接与本地模拟兜底 | `ac04f8ec6`, `e5db71692` | `build` |
 | 28 | 2026-09-07 | 同步 main 0.2.1 到 build 并归档 | `6884f7234`, `71e30a704` | `build` |
 | 27 | 2026-08-20 | 合并 main 0.1.179 到 build 并完成归档 | `2befdb21bf11eb7430e3debef6d243f21a95229b` | `build` |
 | 26 | 2026-08-19 | 合并 main 0.1.178 到 build 并保护多语言 | `c50a1633860e4445aa2b58b3a543cedac8caa9dd`, `38fa70276f2f5ad170692fab0116b02f6ef3d274` | `build` |

@@ -905,3 +905,42 @@
 ### Next Steps
 
 - 按授权上线计划核对镜像、数据库迁移及真实 provider 行为。
+
+
+## Session 29: 归档 09-12-alpha-search-emulation：Codex Alpha Search 上游 Responses web_search 桥接与本地模拟兜底
+
+**Date**: 2026-09-12
+**Task**: 归档 09-12-alpha-search-emulation：Codex Alpha Search 上游 Responses web_search 桥接与本地模拟兜底
+**Branch**: `build`
+
+### Summary
+
+为 OpenAI API Key 账号增加 Alpha Search 开关：开启后 /v1/alpha/search 经上游 Responses web_search 执行，上游未真正搜索或非 2xx 且模拟资格满足时改走本地 Web Search Emulation；返工修复 AnySearch Markdown 文本结果解析并保留无 URL 结果。
+
+### Main Changes
+
+- 后端新增 openai_alpha_search_responses_bridge.go / openai_alpha_search_emulation.go 领域文件，ForwardAlphaSearch 仅加一处薄接线，SSE 解析扩展返回搜索证据。
+- 前端 features/alphaSearch 开关组件与 extra 助手接入 Create/Edit 账号弹窗，中英文文案配对。
+- 规范 protocol-adapter-guidelines.md 新增 Alpha Search 桥接与本地模拟 scenario。
+- 返工：websearch/anysearch.go 新增 parseAnySearchMarkdownResults，alpha 模拟去重只对有 URL 结果生效。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac04f8ec6` | (see git log) |
+| `e5db71692` | (see git log) |
+
+### Testing
+
+- [OK] Check-All 两轮通过（已接受 CHK-001 P2 风险）；Go 定向与 service 全量单测、前端配对 spec 与 typecheck 通过。
+- [OK] Update-Spec 两轮均为 no-op；发布审计 no-op。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后验证 Codex 联网搜索返回带链接结果。
+- new-api 的 relay/websearch/anysearch.go 存在同样 Markdown 解析缺陷，另行处理。
