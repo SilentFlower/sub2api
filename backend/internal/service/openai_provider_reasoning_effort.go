@@ -7,34 +7,29 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// NormalizeGLMOpenAIReasoningEffort 将 OpenAI reasoning effort 改写为 GLM 原生档位。
-// 仅对最终映射为 glm-* 的模型生效，未知值和其它模型保持不变。
+// normalizeOpenAIReasoningEffortForProvider 按最终上游模型归一 reasoning effort。
+// GLM 直接复用上游 NormalizeGLMOpenAIReasoningEffort；Grok 4.5 使用 build 的原生档位映射。
 //
 // @param body 待发送的 OpenAI 请求体。
 // @param mappedModel 最终映射后的上游模型。
 // @return 改写后的请求体，以及是否发生了改写。
-func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool) {
-	if !isGLMOpenAIReasoningEffortModel(mappedModel) {
-		return body, false
+func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool) {
+	if normalized, changed := NormalizeGLMOpenAIReasoningEffort(body, mappedModel); changed {
+		return normalized, true
 	}
-	return normalizeOpenAIReasoningEffortBody(body, func(raw string) string {
-		// GLM-5.3 原生支持 low；其它 GLM 版本继续使用既有 high/max 映射。
-		if isGLM53Model(mappedModel) && compactOpenAIReasoningEffort(raw) == "low" {
-			return "low"
-		}
-		return normalizeGLMOpenAIReasoningEffort(raw)
-	})
+	return normalizeGrok45OpenAIReasoningEffortBody(body, mappedModel)
 }
 
-func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool) {
-	switch {
-	case isGLMOpenAIReasoningEffortModel(mappedModel):
-		return NormalizeGLMOpenAIReasoningEffort(body, mappedModel)
-	case isGrok45OpenAIReasoningEffortModel(mappedModel):
-		return normalizeOpenAIReasoningEffortBody(body, normalizeGrok45OpenAIReasoningEffort)
-	default:
+// normalizeGrok45OpenAIReasoningEffortBody 仅对 grok-4.5 把 effort 映射到其原生 low/medium/high 档位。
+//
+// @param body 待发送的 OpenAI 请求体。
+// @param mappedModel 最终映射后的上游模型。
+// @return 改写后的请求体，以及是否发生了改写；其它模型原样返回。
+func normalizeGrok45OpenAIReasoningEffortBody(body []byte, mappedModel string) ([]byte, bool) {
+	if !isGrok45OpenAIReasoningEffortModel(mappedModel) {
 		return body, false
 	}
+	return normalizeOpenAIReasoningEffortBody(body, normalizeGrok45OpenAIReasoningEffort)
 }
 
 func normalizeOpenAIReasoningEffortBody(body []byte, mapper func(string) string) ([]byte, bool) {
@@ -82,10 +77,10 @@ func extractFinalOpenAIReasoningEffort(body []byte) *string {
 }
 
 // extractOpenAIUpstreamReasoningEffort 从最终上游请求体提取 usage effort。
-// provider-specific 模型必须记录实际发送值；其它模型按上游、计费、原始模型
-// 的顺序恢复被模型映射剥离的 effort 后缀。
+// Grok 4.5 必须记录实际发送值；其它模型（含 GLM）与上游一致，按上游、计费、原始模型
+// 的顺序恢复被模型映射剥离的 effort 后缀，并对仅开启 thinking 的请求补默认档位。
 func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string {
-	if isGLMOpenAIReasoningEffortModel(mappedModel) || isGrok45OpenAIReasoningEffortModel(mappedModel) {
+	if isGrok45OpenAIReasoningEffortModel(mappedModel) {
 		return extractFinalOpenAIReasoningEffort(body)
 	}
 	modelCandidates := make([]string, 0, len(additionalModelCandidates)+2)
@@ -96,67 +91,8 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 	return ApplyThinkingEnabledFallback(effort, body, mappedModel)
 }
 
-func isGLMOpenAIReasoningEffortModel(mappedModel string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "glm-")
-}
-
-func isGLM53Model(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
-}
-
-// NormalizeGLM53AnthropicThinking 将显式思考偏好映射到 GLM-5.3 的原生档位。
-// @param body 待发送的 Anthropic 请求体。
-// @param mappedModel 最终上游模型。
-// @return 改写后的请求体，以及是否应用了档位映射；无偏好时保持上游默认行为。
-func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool) {
-	if !isGLM53Model(mappedModel) {
-		return body, false
-	}
-	raw := gjson.GetBytes(body, "output_config.effort").String()
-	if strings.TrimSpace(raw) == "" {
-		raw = gjson.GetBytes(body, "thinking.type").String()
-	}
-	var effort string
-	switch compactOpenAIReasoningEffort(raw) {
-	case "disabled", "off", "none", "minimal", "low":
-		effort = "low"
-	case "enabled", "adaptive", "medium", "high":
-		effort = "high"
-	case "xhigh", "max", "ultra":
-		effort = "max"
-	default:
-		return body, false
-	}
-	modified, err := sjson.SetBytes(body, "thinking.type", "enabled")
-	if err != nil {
-		return body, false
-	}
-	modified, err = sjson.SetBytes(modified, "output_config.effort", effort)
-	if err != nil {
-		return body, false
-	}
-	return modified, true
-}
-
 func isGrok45OpenAIReasoningEffortModel(mappedModel string) bool {
 	return strings.EqualFold(strings.TrimSpace(mappedModel), "grok-4.5")
-}
-
-func normalizeGLMOpenAIReasoningEffort(raw string) string {
-	value := compactOpenAIReasoningEffort(raw)
-
-	switch value {
-	case "none":
-		return "none"
-	case "minimal":
-		return "minimal"
-	case "low", "medium", "high":
-		return "high"
-	case "xhigh", "extrahigh", "max", "ultracode":
-		return "max"
-	default:
-		return ""
-	}
 }
 
 func normalizeGrok45OpenAIReasoningEffort(raw string) string {

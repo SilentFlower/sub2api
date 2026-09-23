@@ -41,8 +41,17 @@ func (s *responsesLitePolicySettingRepoStub) Set(context.Context, string, string
 	panic("unexpected Set call")
 }
 
-func (s *responsesLitePolicySettingRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
-	panic("unexpected GetMultiple call")
+func (s *responsesLitePolicySettingRepoStub) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	// 网关运行时设置（如 TTFT 口径）在响应处理阶段批量读取，缺失 key 按未配置处理。
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := s.values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result, nil
 }
 
 func (s *responsesLitePolicySettingRepoStub) SetMultiple(_ context.Context, settings map[string]string) error {

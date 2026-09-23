@@ -432,6 +432,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
 
+	// Subscription feature switch
+	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)
+
 	// Model plaza feature switches + description
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
@@ -480,8 +483,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableClientDatelineNormalization] = strconv.FormatBool(settings.EnableClientDatelineNormalization)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
-	updates[SettingKeyOpenAIImageGenerationMainModel] = strings.TrimSpace(settings.OpenAIImageGenerationMainModel)
-	updates[SettingKeyOpenAIImageGenerationReasoningEffort] = NormalizeOpenAIImageGenerationReasoningEffort(settings.OpenAIImageGenerationReasoningEffort)
 	blockedModels, err := NormalizeOpenAIResponsesLiteHeaderBlockedModels(settings.OpenAIResponsesLiteHeaderBlockedModels)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS", err.Error())
@@ -492,10 +493,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal responses Lite blocked models: %w", err)
 	}
 	updates[SettingKeyOpenAIResponsesLiteHeaderBlockedModels] = string(blockedModelsJSON)
-	updates[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade] = strconv.FormatBool(settings.EnableDeepSeekMissingReasoningAutoDowngrade)
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
 	// SettingKeyOpenAICodexClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
+	// 否则面板保存会把同步结果清空。
+	updates[SettingKeyClaudeCodeClientVersion] = NormalizeClaudeCodeClientVersion(settings.ClaudeCodeClientVersion)
+	updates[SettingKeyClaudeCodeVersionAutoSyncEnabled] = strconv.FormatBool(settings.ClaudeCodeVersionAutoSyncEnabled)
+	// SettingKeyClaudeCodeClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
 	// 否则面板保存会把同步结果清空。
 	// codex_cli_only 加固
 	updates[SettingKeyMinCodexVersion] = strings.TrimSpace(settings.MinCodexVersion)
@@ -509,7 +513,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingPaymentVisibleMethodAlipayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodAlipayEnabled)
 	updates[SettingPaymentVisibleMethodWxpayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodWxpayEnabled)
 	updates[SettingKeyOpenAILowUpstreamRatePriorityEnabled] = strconv.FormatBool(settings.OpenAILowUpstreamRatePriorityEnabled)
-	updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(settings.OpenAIOAuthSchedulingRateMultiplier, 'f', -1, 64)
+	updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = ""
+	if rate := settings.OpenAIOAuthSchedulingRateMultiplier; rate != nil {
+		updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(*rate, 'f', -1, 64)
+	}
 	updates[openAIAdvancedSchedulerSettingKey] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerStickyWeightedEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled)
@@ -746,14 +753,6 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		value:     codexUA,
 		expiresAt: time.Now().Add(openAICodexUserAgentCacheTTL).UnixNano(),
 	})
-	s.openAIImageGenerationSF.Forget(openAIImageGenerationSettingsRefreshKey)
-	imageMainModel := normalizeOpenAIImageGenerationMainModel(settings.OpenAIImageGenerationMainModel)
-	imageReasoningEffort := NormalizeOpenAIImageGenerationReasoningEffort(settings.OpenAIImageGenerationReasoningEffort)
-	s.openAIImageGenerationCache.Store(&cachedOpenAIImageGenerationSettings{
-		mainModel:       imageMainModel,
-		reasoningEffort: imageReasoningEffort,
-		expiresAt:       time.Now().Add(openAIImageGenerationSettingsCacheTTL).UnixNano(),
-	})
 	s.openAIResponsesLiteHeaderPolicySF.Forget(openAIResponsesLiteHeaderPolicyRefreshKey)
 	blockedModels, err := NormalizeOpenAIResponsesLiteHeaderBlockedModels(settings.OpenAIResponsesLiteHeaderBlockedModels)
 	if err != nil {
@@ -763,14 +762,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		blockedModels: cloneOpenAIResponsesLiteHeaderBlockedModels(blockedModels),
 		expiresAt:     time.Now().Add(openAIResponsesLiteHeaderPolicyCacheTTL).UnixNano(),
 	})
-	s.deepSeekMissingReasoningPolicySF.Forget(deepSeekMissingReasoningPolicyRefreshKey)
-	s.deepSeekMissingReasoningPolicyCache.Store(&cachedDeepSeekMissingReasoningPolicy{
-		enabled:   settings.EnableDeepSeekMissingReasoningAutoDowngrade,
-		expiresAt: time.Now().Add(deepSeekMissingReasoningPolicyCacheTTL).UnixNano(),
-	})
 	// 版本号缓存只做失效，不在此重算：生效值还取决于自动同步写入的 synced 键，
 	// 这里没有它的最新值，重算会把同步结果覆盖成陈旧值。
 	s.InvalidateOpenAICodexClientVersionCache()
+	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,

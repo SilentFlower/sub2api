@@ -684,12 +684,13 @@ func TestOpenAIGatewayServiceForward_AppliesResponsesLitePolicyToFinalModel(t *t
 			wantUpstreamModel: "gpt-5.5",
 		},
 		{
+			// gpt-5.5 由上游兼容逻辑固定剥离 Lite 标记，这里用同样默认阻止的 gpt-5.4 验证空列表放行。
 			name:              "explicit empty list allows model",
-			requestedModel:    "gpt-5.5",
+			requestedModel:    "gpt-5.4",
 			settingValue:      "[]",
 			wantHeader:        "true",
 			wantContext:       "all_turns",
-			wantUpstreamModel: "gpt-5.5",
+			wantUpstreamModel: "gpt-5.4",
 		},
 		{
 			name:              "custom wildcard blocks model",

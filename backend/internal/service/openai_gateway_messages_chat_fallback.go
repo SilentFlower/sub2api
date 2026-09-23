@@ -104,16 +104,8 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		return nil, err
 	}
-	chatBody, err = s.applyDeepSeekMissingReasoningAutoDowngrade(
-		ctx,
-		account,
-		upstreamModel,
-		chatBody,
-		deepSeekMissingReasoningSourceAnthropicFallback,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("apply DeepSeek missing reasoning policy: %w", err)
-	}
+	// provider 归一化、effort 策略与 fast 策略都可能改写 effort/service_tier，
+	// 必须在最后一次改写后从最终出站 body 提取，保证用量日志与按档位计费倍率一致。
 	reasoningEffort := extractOpenAIUpstreamReasoningEffort(chatBody, originalModel, upstreamModel, billingModel)
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 

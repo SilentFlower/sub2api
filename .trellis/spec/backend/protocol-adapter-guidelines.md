@@ -307,32 +307,41 @@ updatePayload.extra = newExtra
 
 ---
 
-## Scenario: Grok 4.5 / GLM reasoning effort 归一化与 usage 日志一致性
+## Scenario: Grok 4.5 reasoning effort 归一化与 usage 日志一致性
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改 Grok 4.5 或 GLM 的 OpenAI-compatible `reasoning.effort` / `reasoning_effort` 改写、Responses ↔ Chat fallback、Anthropic Messages 桥接、WebSocket HTTP bridge 或 `usage_logs.reasoning_effort` 取值时，必须按本节检查。
+- Trigger: 修改 Grok 4.5 的 OpenAI-compatible `reasoning.effort` / `reasoning_effort` 改写、Responses ↔ Chat fallback、Anthropic Messages 桥接、WebSocket HTTP bridge 或 `usage_logs.reasoning_effort` 取值时，必须按本节检查。
 - 适用后端路径：
-  - `backend/internal/service/openai_provider_reasoning_effort.go`
-  - `backend/internal/service/openai_gateway_messages_anthropic_native.go`
+  - `backend/internal/service/openai_provider_reasoning_effort.go`（build 领域 owner，只拥有 Grok 4.5 规则）
   - `backend/internal/service/openai_gateway_grok.go`
   - `backend/internal/service/openai_gateway_chat_completions_raw.go`
-  - `backend/internal/service/openai_gateway_messages.go`
   - `backend/internal/service/openai_gateway_messages_chat_fallback.go`
   - `backend/internal/service/openai_gateway_responses_chat_fallback.go`
   - `backend/internal/service/openai_ws_http_bridge.go`
 - 适用前端路径：`frontend/src/utils/format.ts`。
-- 目标：客户端跨模型发送档位别名时，只按最终上游模型的原生档位改写；usage 日志必须记录最终请求体实际发送的值，而不是客户端原值、模型默认值或 thinking 推断值。
+- GLM 不属于 build 定制：`NormalizeGLMOpenAIReasoningEffort`、`NormalizeGLM53AnthropicThinking` 及其映射、测试由上游 `gateway_request.go` / `gateway_request_test.go` 拥有，build 不复制、不改写 GLM 规则。
+- 目标：客户端跨模型发送档位别名时，Grok 4.5 只按其原生档位改写；usage 日志记录最终请求体实际发送的值。
 
 ### 2. Signatures
 
 ```go
-func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool)
-func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool)
-func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool)
+// build：openai_provider_reasoning_effort.go
+func normalizeOpenAIReasoningEffortForProvider(body []byte, mappedModel string) ([]byte, bool) // GLM 委托上游，再处理 Grok 4.5
+func normalizeGrok45OpenAIReasoningEffortBody(body []byte, mappedModel string) ([]byte, bool)  // 仅 grok-4.5
 func extractFinalOpenAIReasoningEffort(body []byte) *string
 func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string
+
+// 上游：gateway_request.go
+func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool)
 ```
+
+调用分派：
+
+| 路径 | 调用 | 说明 |
+|---|---|---|
+| raw Chat、Messages → Chat fallback | `normalizeOpenAIReasoningEffortForProvider` | 与上游一致对 GLM 调用 `NormalizeGLMOpenAIReasoningEffort`，并追加 Grok 4.5 |
+| Responses → Chat fallback、Grok Responses | `normalizeGrok45OpenAIReasoningEffortBody` | 上游在这些路径不做 GLM 归一，build 也不补 |
 
 结果与持久化链路：
 
@@ -348,60 +357,47 @@ func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, ma
 
 - OpenAI-compatible 字段定位优先级固定为：已存在的 `reasoning.effort` > 已存在的 `reasoning_effort`。只改写命中的现有路径，不新增字段。
 - 别名识别前执行 trim、转小写，并移除 `-`、`_`、空格；未知值返回空映射并保持原请求值。
-- GLM guard：最终模型 trim/lower 后以 `glm-` 开头。
 - Grok guard：最终模型必须大小写不敏感地精确等于 `grok-4.5`；不得使用 `grok-` 前缀匹配，避免改坏 `grok-4.20-multi-agent` 等支持 `xhigh` 的模型。
-- 映射表：
+- Grok 4.5 映射表：
 
-| 客户端语义 | GLM 最终值 | Grok 4.5 最终值 |
-|---|---|---|
-| `none` | `none` | `low` |
-| `minimal` | `minimal` | `low` |
-| `low` | 精确 `glm-5.3` 为 `low`，其它 GLM 为 `high` | `low` |
-| `medium` | `high` | `medium` |
-| `high` | `high` | `high` |
-| `xhigh` / `extra high` | `max` | `high` |
-| `max` / `ultracode` | `max` | `high` |
-| 未知值 | 原样透传 | 原样透传 |
+| 客户端语义 | Grok 4.5 最终值 |
+|---|---|
+| `none` / `minimal` / `low` | `low` |
+| `medium` | `medium` |
+| `high` / `xhigh` / `extra high` / `max` / `ultracode` | `high` |
+| 未知值 | 原样透传 |
 
-- GLM-5.3 原生 Anthropic 路径在最终模型 trim 后大小写不敏感地精确匹配 `glm-5.3` 时，调用 `NormalizeGLM53AnthropicThinking`。优先读取非空 `output_config.effort`，为空才读取 `thinking.type`；非空未知 effort 不回退到 thinking，原请求保持不变。
-- Anthropic 映射为：`disabled/off/none/minimal/low -> low`，`enabled/adaptive/medium/high -> high`，`xhigh/max/ultra -> max`。识别后同时写入 `thinking.type=enabled` 和 `output_config.effort`；缺失偏好、未知值或其它模型保持原请求，不替上游补默认值。该映射独立于 OpenAI-compatible 的 `none/minimal` 保留规则。
-- OpenAI-compatible Grok / GLM 的 `OpenAIForwardResult.ReasoningEffort` 必须在完成模型改写、provider 归一化和 fast policy 后，从最终请求体提取；只 trim，不做白名单过滤。
-- 最终请求体没有 effort 时，结果保持 `nil`，不得调用 `ApplyThinkingEnabledFallback` 猜测 `high`。
-- 其它 provider 继续沿用既有模型后缀提取和 thinking fallback，不能因本规则发生全局行为变化。
-- `/v1/messages` 默认 Responses 路径与强制 Chat 路径保持既有缺省差异：Responses 转换器当前会发 `medium`；强制 Chat 未产生 effort 时继续省略，不互相补默认值。
+- `extractOpenAIUpstreamReasoningEffort` 对 `grok-4.5` 只从最终请求体 trim 后读取，不做白名单过滤；最终请求体没有 effort 时保持 `nil`，不得调用 `ApplyThinkingEnabledFallback`。
+- 其它模型（含 GLM）与上游一致：按 `upstream -> billing -> original` 候选调用 `extractOpenAIReasoningEffortFromBody`，再 `ApplyThinkingEnabledFallback`；GLM 仅开启 thinking 而无 effort 时按上游默认档位记录（当前为 `high`）。
+- `/v1/messages` 默认 Responses 路径与强制 Chat 路径保持既有缺省差异：Responses 转换器当前会发 `medium`；强制 Chat 未产生 effort 时上游 body 继续省略，不互相补默认值。
 - 前端继续读取现有 `reasoning_effort` 字段；`none` 显示为 `None`，`minimal` 显示为 `Minimal`，空值才显示 `-`。
 
 ### 4. Validation & Error Matrix
 
-- 已知别名 + 命中 GLM/Grok guard -> 改写命中路径，返回 `changed=true`。
-- OpenAI-compatible 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
+- 已知别名 + 命中 Grok 4.5 guard -> 改写命中路径，返回 `changed=true`。
+- 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
 - `banana` 等未知值 -> 请求体原样透传；上游接受时日志保留 trim 后实际值，上游拒绝时沿用现有错误路径。
-- OpenAI-compatible effort 字段缺失或 trim 后为空 -> 不新增字段，最终日志为 `nil`。
-- 同时存在嵌套和扁平字段 -> 只处理、记录嵌套字段，扁平字段保持原样。
+- effort 字段缺失或 trim 后为空 -> 不新增字段，Grok 4.5 日志为 `nil`。
+- 同时存在嵌套和扁平字段 -> 只处理、记录嵌套字段，嵌套 effort 即使为空也优先于平铺字段。
 - 最终模型为 `grok-4.20-multi-agent` / `grok-4.3` -> 跳过 Grok 4.5 归一化。
-- OpenAI-compatible GLM `thinking.type=enabled` 但最终 body 没有 effort -> 日志为 `nil`，不得补 `high`。
-- OpenAI-compatible GLM `thinking.type=enabled` 且最终 body 为 `minimal` -> 上游和日志均为 `minimal`。
-- GLM-5.3 的 OpenAI-compatible `low` 保持 `low`，GLM-5.2 的 `low` 仍改为 `high`；嵌套 effort 即使为空也优先于平铺字段。
-- 原生 Anthropic GLM-5.3 的 `output_config.effort=xhigh` 与 `thinking.type=disabled` 同时存在 -> 写入 `effort=max`、`thinking.type=enabled`；无偏好则原样保留。
+- 最终模型为 `glm-*` -> build 规则不参与；raw Chat / Messages fallback 结果与上游 `NormalizeGLMOpenAIReasoningEffort` 一致，Responses fallback 原样透传。
 
 ### 5. Good/Base/Bad Cases
 
 - Good: 客户端向 `grok` 别名发送 `xhigh`，模型映射先得到 `grok-4.5`，最终上游 body 和 usage 日志都为 `high`。
-- Good: OpenAI-compatible GLM 收到 `MINIMAL`，最终上游 body 和 usage 日志都为小写 `minimal`，即使 thinking 已开启也不误记为 `high`。
-- Good: Responses、原生 Chat、Messages 两种分支和 Grok WebSocket HTTP bridge 复用同一 provider 分派和最终值提取逻辑。
+- Good: Responses、原生 Chat、Messages 两种分支和 Grok WebSocket HTTP bridge 复用同一 Grok 4.5 映射和最终值提取逻辑。
 - Base: 未提供 effort 时保持缺失；Grok 上游自身的默认档位不写入本地日志。
 - Base: 非 Grok 4.5 模型继续原样接收 `xhigh`。
 - Bad: 在模型映射前按客户端 `grok`/`grok-latest` 名称判断，导致别名漏归一化。
 - Bad: 从转换前 DTO 或客户端原始 body 回填 `ReasoningEffort`，导致 `xhigh -> high` 后日志仍写 `xhigh`。
-- Bad: 为了日志非空，根据 thinking 状态或厂商默认值补 `high`。
+- Bad: 在 build 领域文件重新定义 GLM 映射或在 Responses fallback 额外做 GLM 归一，导致与上游语义分叉、同步 main 时产生冲突。
 
 ### 6. Tests Required
 
-- `openai_provider_reasoning_effort_test.go`：覆盖完整映射表、GLM-5.3/5.2 的 low 差异、公开函数与 provider 分派入口、大小写/分隔符、嵌套空值优先、未知值、缺失值、非 4.5 Grok 模型和最终值提取；原生 Anthropic 另测 effort 优先、空 effort 回退、未知显式 effort、缺失偏好及非 5.3 隔离。
+- `openai_provider_reasoning_effort_test.go`：覆盖 Grok 4.5 完整映射表、大小写/分隔符、嵌套空值优先、未知值、缺失值、非 4.5 Grok 模型、最终值提取，以及 GLM 仅开启 thinking 时记录上游默认档位。
+- `gateway_request_test.go`（上游）：GLM OpenAI-compatible 映射，build 不维护副本。
 - `openai_gateway_grok_test.go`：覆盖 Grok Responses、原生 Chat、Messages Responses 的上游 body 与结果 effort 一致。
-- `openai_gateway_chat_completions_raw_test.go`：覆盖 GLM `xhigh -> max`、`MINIMAL -> minimal` 及结果日志一致。
-- `openai_gateway_messages_chat_fallback_test.go`：覆盖 Grok/GLM 强制 Chat，并锁定强制 Chat 不补默认 effort。
-- `openai_gateway_responses_chat_fallback_test.go`：覆盖 GLM Responses 转 Chat 归一化。
+- `openai_gateway_messages_chat_fallback_test.go`：覆盖强制 Chat 按最终模型与策略封顶提取 effort，以及 GLM 经统一入口委托上游归一后上游 body 与结果 effort 一致。
 - `openai_ws_http_bridge_test.go`：覆盖 Grok 4.5 WebSocket HTTP bridge 的上游 body 和结果 effort。
 - `formatReasoningEffort.spec.ts`：覆盖空值、标准档位、分隔符别名、`none/minimal` 和未知值。
 - 建议运行：
@@ -424,7 +420,7 @@ reasoningEffort := extractOpenAIReasoningEffortFromBody(originalBody, originalMo
 reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalBody, mappedModel)
 ```
 
-问题：读取发生在 provider 改写前，且 fallback 会把“最终未发送 effort”误记为 `high`。
+问题：读取发生在 provider 改写前，Grok 4.5 的 `xhigh -> high` 不会反映到日志，且 fallback 会把“最终未发送 effort”的 Grok 4.5 请求误记为 `high`。
 
 #### Correct
 
@@ -435,7 +431,7 @@ if normalizedBody, changed := normalizeOpenAIReasoningEffortForProvider(upstream
 reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel, billingModel)
 ```
 
-先按最终模型改写上游 body，再从实际发送体提取日志值；Grok/GLM 不推断默认档位，其它 provider 保留既有 fallback。
+先按最终模型改写上游 body，再从实际发送体提取日志值；Grok 4.5 不推断默认档位，其它模型（含 GLM）沿用上游候选提取与 thinking fallback。
 
 ---
 
@@ -466,7 +462,7 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 - 显式字段优先级固定为 `reasoning.effort` > `reasoning_effort`；命中显式值时，仅使用第一个非空模型候选判断模型感知归一化。
 - 请求体没有 effort 时，按全部候选顺序推导模型后缀。OAuth/Codex 标准化可能剥离 upstream model 的 `-high` / `-xhigh` / `-max`，因此必须保留 billing 和 original model 候选。
 - `max` 是否保留由第一个非空候选的 `supportsOpenAIReasoningEffortMax` 结果决定。当前支持 GPT-5.6、GPT-6 Astra 已知别名，以及 `deepseek-v4*`、`glm-*`、`kimi-*`、`moonshot-*`、`k3` / `k3-*`；其它模型统一为 `xhigh`。GPT 家族识别复用对应 helper，不能改成所有 `gpt-*` 都保留。
-- GLM 与 Grok 4.5 继续走 provider-specific 分支：直接读取最终上游 body，不用模型后缀或 thinking fallback 覆盖实际发送值。
+- Grok 4.5 继续走 provider-specific 分支：直接读取最终上游 body，不用模型后缀或 thinking fallback 覆盖实际发送值；GLM 与上游一致走通用候选提取。
 - raw Chat、Messages fallback、Responses fallback 有 billing model 时都必须传入；WebSocket 只有 original/mapped model 时可省略额外候选。
 - OpenAI OAuth 的 `/responses/compact` 是明确例外：GPT-5.6 `max` 在 compact 子请求中降级为 `xhigh`。普通 Responses、OpenAI API Key compact 和其它平台 OAuth 不应用该降级。
 - 本场景不新增 API、DTO、数据库字段或 migration；变化只影响上游请求体与 usage 元数据。
@@ -479,7 +475,7 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 | 显式 `max`，首个候选不支持原生 `max` | 归一化为 `xhigh`，后续候选不得反转判断 |
 | body 无 effort，original model 为 `gpt-5.6-sol-max` | 从后缀恢复 `max` |
 | body 无 effort，original model 为 `gpt-5.4-xhigh` | 从后缀恢复 `xhigh` |
-| GLM/Grok 4.5 已完成 provider 归一化 | usage 记录最终 body 值，不应用后缀或 thinking fallback |
+| Grok 4.5 已完成 provider 归一化 | usage 记录最终 body 值，不应用后缀或 thinking fallback |
 | OpenAI OAuth GPT-5.6 compact + `max` | 上游 body 与 usage 均为 `xhigh` |
 | 所有候选均为空或无后缀，body 也无 effort | 返回 `nil`；仅非 provider-specific 路径可沿用既有 thinking fallback |
 
@@ -1263,60 +1259,6 @@ reasoningEffort := extractOpenAIUpstreamReasoningEffort(
 
 ---
 
-## Scenario: OpenAI 生图主模型配置优先级
-
-### 1. Scope / Trigger
-
-- 修改 OpenAI OAuth 生图、图片模型转 Responses、账号测试生图或后台生图设置时，统一检查配置读取、管理端保存及错误识别。
-
-### 2. Signatures
-
-```go
-func (s *SettingService) GetOpenAIImageGenerationMainModel(ctx context.Context) string
-func normalizeOpenAIImageGenerationMainModel(value string) string
-func openAIImagesResponsesMainModelValue() string
-func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any, mainModel string) bool
-```
-
-### 3. Contracts
-
-- Responses 主模型按 trim 后的后台 `openai_image_generation_main_model` 非空值、环境变量 `SUB2API_IMAGES_MAIN_MODEL` 非空值、内置 `gpt-5.6-luna` 的顺序取值；与 `image_generation` 工具模型分别选择。
-- 新安装初始化保存空字符串；管理端 GET 返回原始配置的 trim 值，空值仍为空。保存其他设置不得把环境变量或内置默认值固化到数据库。
-- 已存储的非空值是显式配置，包括 `gpt-5.4-mini`，不得在合并或默认值升级时自动覆盖。
-- 正式转发、图片模型转 Responses 与账号测试生图共用设置读取逻辑；无设置服务或读取失败时也按环境变量、内置默认值回退。
-- 生图错误识别使用本次出站请求的主模型。OAuth 类账号遇到符合 plan-gated 判定且错误明确点名该主模型时返回对应上游错误，不将其误作图片模型故障并冷却账号；图片模型自身错误继续使用原有冷却与 failover 规则。
-
-### 4. Validation & Error Matrix
-
-| 配置或场景 | 必须结果 |
-|---|---|
-| 后台非空，环境变量非空 | 后台配置优先 |
-| 后台空，环境变量非空 | 使用环境变量 |
-| 后台与环境变量缺失或仅空白 | 使用 `gpt-5.6-luna` |
-| GET 空配置后保存其他设置 | 数据库仍保留空值 |
-| 显式配置为 `gpt-5.4-mini` | 保留显式配置 |
-| 错误点名实际主模型，而环境变量另有取值 | 按实际出站模型识别，不误冷却图片账号 |
-
-### 5. Good/Base/Bad Cases
-
-- Good：后台配置 `gpt-5.6-terra`，环境变量为 `gpt-5.6-sol`，账号测试与正式请求均使用 Terra。
-- Base：两处配置均为空时使用 Luna，管理端输入框保持为空。
-- Bad：管理端 GET 返回有效默认值，导致保存无关设置时意外覆盖环境变量优先级。
-
-### 6. Tests Required
-
-- `setting_openai_image_generation_test.go`：覆盖三层优先级、空白、存量显式值、新安装空值、GET/保存往返及无设置服务。
-- `account_test_service_openai_image_test.go`：断言后台配置覆盖环境变量，出站主模型与 SSE 测试信息一致。
-- `openai_images_model_test.go`：覆盖实际主模型与环境变量不同的拒绝错误，以及图片模型错误的原有处理。
-- 前端设置测试覆盖空字符串提交、中英文提示中的优先级和 `gpt-5.6-luna` 占位符。
-
-### 7. Wrong vs Correct
-
-- 错误：各入口直接读取默认常量，或错误处理时重新读取环境变量猜测已发送的模型。
-- 正确：入口共用配置解析，错误处理传入本次实际出站模型；管理端保留空值以维持自动选择。
-
----
-
 ## Scenario: Codex 生图桥接与 Responses Lite 工具边界
 
 ### 1. Scope / Trigger
@@ -1905,152 +1847,6 @@ if manager != nil && manager.HasAvailableProvider(ctx, resolveAccountProxyURL(ac
 ```
 
 在资格决策中同时校验现有搜索策略、全局配置和动态 provider readiness；注入后仍复用共享内部循环，不能在桥接层直接执行搜索。
-
-## Scenario: DeepSeek 工具调用历史缺失推理内容自动降级
-
-### 1. Scope / Trigger
-
-- 最终上游协议为 Chat Completions、最终模型 trim/lower 后以 `deepseek-` 开头，并且历史
-  assistant 工具调用可能缺少 DeepSeek thinking mode 要求的推理内容时，必须应用本节。
-- 覆盖原生 Chat、Responses -> Chat fallback、Responses `web.run` 每轮续跑和
-  Anthropic Messages -> Chat fallback；不修改 Responses 或 Anthropic 转换器本身的字段语义。
-
-### 2. Signatures
-
-系统设置与 API 字段：
-
-```text
-SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade
-  = "enable_deepseek_missing_reasoning_auto_downgrade"
-```
-
-```json
-{
-  "enable_deepseek_missing_reasoning_auto_downgrade": true
-}
-```
-
-服务与策略签名：
-
-```go
-func (s *SettingService) IsDeepSeekMissingReasoningAutoDowngradeEnabled(ctx context.Context) bool
-
-func applyDeepSeekMissingReasoningPolicy(
-	body []byte,
-	upstreamModel string,
-	enabled bool,
-) (deepSeekMissingReasoningPolicyResult, error)
-
-func (s *OpenAIGatewayService) applyDeepSeekMissingReasoningAutoDowngrade(
-	ctx context.Context,
-	account *Account,
-	upstreamModel string,
-	body []byte,
-	sourcePath string,
-) ([]byte, error)
-```
-
-稳定来源值：`chat_completions`、`responses_chat_fallback`、`responses_web_run`、
-`anthropic_chat_fallback`。
-
-### 3. Contracts
-
-- 新安装持久化 `true`；存量环境缺 key、空值、repository/service 不可用或读取异常时按
-  `true` 执行。管理员可以显式保存 `false` 关闭策略。
-- 网关热路径使用每个 `SettingService` 实例独立的进程内缓存与 singleflight：成功 TTL
-  60 秒、错误 TTL 5 秒、数据库读取超时 5 秒；不得每请求查询数据库。
-- 保存配置后必须立即 `Store` 新缓存值。`singleflight.Forget` 不会取消已经开始的旧读取，
-  因此加载器写缓存时必须以读取前的指针为 expected 执行 `CompareAndSwap`；CAS 失败时返回
-  当前新缓存值，禁止旧数据库结果覆盖刚保存的设置。
-- 只扫描最终 Chat JSON 的 `messages`。满足 `role="assistant"` 且 `tool_calls` 是非空数组的
-  消息，必须至少有一个 trim 后非空的字符串 `reasoning_content` 或兼容字段 `reasoning`。
-  缺失、`null`、空白字符串和非字符串都不可用。
-- 任一上述消息缺少可用推理内容时，设置顶层 `thinking.type="disabled"` 并删除顶层
-  `reasoning_effort`。若已经 disabled 且不存在 effort，保持 body 不变且不记录降级日志。
-- 策略必须放在模型映射和现有 body 改写之后、reasoning effort 提取和实际发送之前。
-  Responses `web.run` 必须在循环内对每一轮最新 body 重跑策略。
-- 只在实际改写时记录 info：`component=openai.deepseek_missing_reasoning_policy`、账号 ID、
-  最终模型、来源、缺失消息数和 `reason=assistant_tool_calls_missing_reasoning`；不得记录请求体、
-  reasoning、工具参数、密钥或鉴权信息。
-- 本策略不伪造 reasoning，不在上游 400 后重试，也不恢复 Anthropic -> Chat 转换器已丢弃的
-  历史 thinking；它只对最终不可安全继续 thinking 的 DeepSeek Chat 请求做降级。
-
-### 4. Validation & Error Matrix
-
-| 条件 | 行为 | 结果 |
-| --- | --- | --- |
-| 非 `deepseek-*` 最终模型 | 不扫描、不改写 | 原样发送 |
-| 开关为 `false` | 不扫描、不改写 | 保留上游原始行为 |
-| 无 assistant 非空 `tool_calls` | 不改写 | 原样发送 |
-| 每条工具调用历史都有可用 `reasoning_content` 或 `reasoning` | 不改写 | thinking 保持 |
-| 任一工具调用历史缺推理内容 | disabled thinking，删除 effort | 发送降级后的 body |
-| 已 disabled 且无 effort | 幂等返回 `changed=false` | 不记录误导日志 |
-| 已 disabled 但仍有 effort | 只删除 effort | 记录实际改写 |
-| Chat JSON 非法或结构化改写失败 | 返回本地错误 | 不发送半改写请求 |
-| 设置 key 缺失 | 缓存默认 `true` | 自动降级可用 |
-| 设置读取异常 | warning + 5 秒错误缓存，返回 `true` | 后续可自动恢复 |
-| 保存与旧数据库读取并发 | CAS 阻止旧读取覆盖新缓存 | 保存值立即生效 |
-
-### 5. Good/Base/Bad Cases
-
-- Good：最终模型 ` DeepSeek-Reasoner `，assistant 有非空 `tool_calls` 但
-  `reasoning_content=" "`，策略关闭 thinking 并删除 effort。
-- Good：`reasoning_content` 缺失但 `reasoning` 是非空字符串，保持 thinking，不误降级。
-- Good：Responses `web.run` 首轮历史完整，续轮新增缺推理内容的 assistant 工具调用；
-  第二轮发送前触发降级。
-- Good：管理员保存关闭值时，已在进行的旧设置读取随后完成，但 CAS 失败并返回新缓存值，
-  下一请求仍使用关闭状态。
-- Base：非 DeepSeek、没有工具调用或开关关闭时，body 不因本策略变化。
-- Bad：只看客户端原始模型，模型映射到 DeepSeek 后漏检。
-- Bad：只在 Responses 首次转换时检查，漏掉 `web.run` 续轮新产生的不完整历史。
-- Bad：保存时只调用 `singleflight.Forget`；已经执行的旧 loader 仍可能在保存后覆盖新缓存。
-- Bad：为通过上游校验伪造 `reasoning_content`，会把不存在的思考历史冒充为真实内容。
-
-### 6. Tests Required
-
-- 领域单测必须覆盖：模型 trim/lower guard、开关关闭、无工具调用、完整 reasoning、`reasoning`
-  别名、空白/null/非字符串、幂等 disabled、只删除 effort、非法 JSON和安全日志字段。
-- 设置测试必须覆盖：缺失默认 true、显式 false、缓存复用、读取异常短 TTL、保存后立即刷新，
-  以及“旧读取阻塞 -> 保存新值 -> 旧读取完成”的确定性并发场景。
-- 并发缓存测试必须运行 race detector：
-
-```bash
-cd backend
-go test -race -tags=unit ./internal/service \
-  -run 'TestSettingService_DeepSeekMissingReasoningPolicy_DefaultCacheAndRefresh' \
-  -count=1
-```
-
-- 四个发送点必须用真实上游 body 断言策略接线；Responses `web.run` 必须覆盖后续轮次命中。
-- Settings GET/PUT、局部更新、审计 diff、API contract、前端默认值/保存载荷和中英文最终文案
-  必须同时覆盖。
-
-### 7. Wrong vs Correct
-
-#### Wrong
-
-```go
-s.deepSeekMissingReasoningPolicySF.Forget(refreshKey)
-s.deepSeekMissingReasoningPolicyCache.Store(saved)
-
-// 更早开始的 loader 随后无条件 Store(oldValue)
-```
-
-问题：`Forget` 只允许后续调用启动新 flight，不会取消旧 flight；旧读取可以在保存后回写陈旧值。
-
-#### Correct
-
-```go
-expected := s.deepSeekMissingReasoningPolicyCache.Load()
-loaded := readFromRepository()
-if !s.deepSeekMissingReasoningPolicyCache.CompareAndSwap(expected, loaded) {
-	return s.deepSeekMissingReasoningPolicyCache.Load().enabled
-}
-return loaded.enabled
-```
-
-保存路径直接替换缓存；旧 loader 仅在缓存仍是其读取前观察到的指针时才能提交结果，从而保证
-新保存值不会被迟到读取覆盖。
 
 ## Scenario: 国产供应商自适应协议与分协议端点
 

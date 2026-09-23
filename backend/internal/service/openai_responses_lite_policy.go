@@ -178,7 +178,7 @@ func (s *OpenAIGatewayService) resolveOpenAIResponsesLitePolicyModel(
 		}
 	}
 	if !compact && isOpenAIImageGenerationModel(finalModel) {
-		finalModel = s.openAIImageGenerationMainModel(ctx)
+		finalModel = openAIImagesResponsesMainModelValue()
 	}
 	return strings.TrimSpace(finalModel)
 }

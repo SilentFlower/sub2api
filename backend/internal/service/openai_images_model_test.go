@@ -45,13 +45,13 @@ func TestOpenAIImagesResponsesDriverAndImageModels(t *testing.T) {
 					}
 				}
 				req := map[string]any{"model": model, "input": "draw a red cup"}
-				require.True(t, normalizeOpenAIResponsesImageOnlyModel(req, ""))
+				require.True(t, normalizeOpenAIResponsesImageOnlyModel(req))
 				require.Equal(t, driver, req["model"])
 				require.Equal(t, model, req["tools"].([]any)[0].(map[string]any)["model"])
-				require.False(t, normalizeOpenAIResponsesImageOnlyModel(req, ""), "a valid driver must not be overwritten")
+				require.False(t, normalizeOpenAIResponsesImageOnlyModel(req), "a valid driver must not be overwritten")
 			}
 			req := map[string]any{"model": "gpt-6-astra", "tools": []any{map[string]any{"type": "image_generation", "model": "gpt-image-2.5-sunburst"}}}
-			require.False(t, normalizeOpenAIResponsesImageOnlyModel(req, ""))
+			require.False(t, normalizeOpenAIResponsesImageOnlyModel(req))
 			require.Equal(t, "gpt-6-astra", req["model"])
 		})
 	}
@@ -59,7 +59,7 @@ func TestOpenAIImagesResponsesDriverAndImageModels(t *testing.T) {
 
 func TestOpenAIImagesRejectedDriverDoesNotCoolImageModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "gpt-5.6-luna")
+	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "gpt-5.4-mini")
 	for _, rejected := range []string{"gpt-5.4-mini", "gpt-image-2.5-flare"} {
 		t.Run(rejected, func(t *testing.T) {
 			repo := &modelNotFoundAccountRepoStub{}
@@ -68,7 +68,7 @@ func TestOpenAIImagesRejectedDriverDoesNotCoolImageModel(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, openAIImagesGenerationsEndpoint, nil)
 			body := fmt.Sprintf(`{"error":{"message":"The '%s' model is not supported when using Codex with a ChatGPT account.","type":"invalid_request_error"}}`, rejected)
 			resp := &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
-			_, err := svc.handleOpenAIImagesErrorResponse(WithOpenAIImagesEndpoint(context.Background()), resp, c, openAICodexPlanGatedOAuthAccount(), "gpt-image-2.5-flare", "gpt-5.4-mini")
+			_, err := svc.handleOpenAIImagesErrorResponse(WithOpenAIImagesEndpoint(context.Background()), resp, c, openAICodexPlanGatedOAuthAccount(), "gpt-image-2.5-flare")
 			require.Error(t, err)
 			if rejected == "gpt-5.4-mini" {
 				var upstreamErr *OpenAIImagesUpstreamError

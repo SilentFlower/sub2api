@@ -70,7 +70,13 @@ func TestCodexBaseInstructionsModelAliases(t *testing.T) {
 			require.Equal(t, strings.TrimSpace(tc.model), models[0]["slug"])
 			messages, ok := models[0]["model_messages"].(map[string]any)
 			require.True(t, ok)
-			require.Equal(t, want, messages["instructions_template"])
+			// 模型目录对非 GPT 模型去掉 GPT 身份声明，GPT 模型与请求补全使用同一份模板。
+			wantTemplate := want
+			if !codexModelKeepsGPTIdentity(tc.model) {
+				wantTemplate = codexInstructionsTemplateForModel(tc.model)
+				require.NotContains(t, wantTemplate, "based on GPT-")
+			}
+			require.Equal(t, wantTemplate, messages["instructions_template"])
 		})
 	}
 }

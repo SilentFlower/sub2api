@@ -9,7 +9,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 )
 
 // Saving settings is a whole-document PUT. A client that sends only the field it
@@ -77,32 +76,6 @@ func TestUpdateSettingsGrokDefaultBaseURLModeIsWritable(t *testing.T) {
 	}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, service.GrokDefaultBaseURLModeEUWest1, repo.values[service.SettingKeyGrokDefaultBaseURLMode])
-}
-
-func TestUpdateSettingsDeepSeekMissingReasoningAutoDowngradePersistsAndReturnsFalse(t *testing.T) {
-	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade: "true",
-	})
-
-	rec := doUpdateSettings(t, h, map[string]any{
-		"enable_deepseek_missing_reasoning_auto_downgrade": false,
-	}, nil)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "false", repo.values[service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
-	require.False(t, gjson.Get(rec.Body.String(), "data.enable_deepseek_missing_reasoning_auto_downgrade").Bool())
-}
-
-func TestUpdateSettingsOmittedDeepSeekMissingReasoningAutoDowngradeKeepsStoredValue(t *testing.T) {
-	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade: "false",
-	})
-
-	rec := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "false", repo.values[service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
-	require.False(t, gjson.Get(rec.Body.String(), "data.enable_deepseek_missing_reasoning_auto_downgrade").Bool())
 }
 
 func TestUpdateSettingsRejectsTwoCaptchaProviders(t *testing.T) {
@@ -212,4 +185,21 @@ func TestUpdateSettingsValidatesTencentCaptchaAppIDWhenEnabledFlagIsOmitted(t *t
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "positive integer")
+}
+
+// subscription_enabled is an opt-out switch: an explicit false is written as-is,
+// and a later payload that omits the field keeps the stored value.
+func TestUpdateSettingsSubscriptionEnabledIsWritableAndKeptWhenOmitted(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeySubscriptionEnabled: "true",
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{"subscription_enabled": false}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "false", repo.values[service.SettingKeySubscriptionEnabled])
+
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "Example Gateway"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "false", repo.values[service.SettingKeySubscriptionEnabled],
+		"a payload without subscription_enabled must not flip the stored value back to true")
 }

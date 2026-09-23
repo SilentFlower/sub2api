@@ -106,73 +106,6 @@ func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testin
 	require.Nil(t, result.ReasoningEffort)
 }
 
-func TestForwardResponses_ForceChatCompletionsNormalizesGLMReasoningEffort(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"glm-5.2","input":"hello","reasoning":{"effort":"extra high"},"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_glm_effort"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_glm","object":"chat.completion","model":"glm-5.2","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{
-		cfg:          rawChatCompletionsTestConfig(),
-		httpUpstream: upstream,
-	}
-
-	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
-	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "max", *result.ReasoningEffort)
-}
-
-func TestForwardResponses_ForceChatCompletionsDeepSeekMissingReasoningAutoDowngrade(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{
-		"model":"deepseek-v4-pro",
-		"input":[
-			{"type":"message","role":"user","content":[{"type":"input_text","text":"weather"}]},
-			{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{}"},
-			{"type":"function_call_output","call_id":"call_1","output":"cloudy"}
-		],
-		"reasoning":{"effort":"high"},
-		"stream":false
-	}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse(
-		"rid_resp_deepseek_missing_reasoning",
-		`{"id":"chatcmpl_json","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
-	)}
-	svc := &OpenAIGatewayService{
-		cfg:          rawChatCompletionsTestConfig(),
-		httpUpstream: upstream,
-	}
-
-	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "assistant", gjson.GetBytes(upstream.lastBody, "messages.1.role").String())
-	require.Equal(t, "call_1", gjson.GetBytes(upstream.lastBody, "messages.1.tool_calls.0.id").String())
-	require.Equal(t, "disabled", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
-	require.Nil(t, result.ReasoningEffort)
-}
-
 func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -403,7 +336,7 @@ func TestForwardResponses_WebRunSearchQueryExecutesAndContinuesModel(t *testing.
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			require.Equal(t, "杭州天气", query)
@@ -447,56 +380,6 @@ func TestForwardResponses_WebRunSearchQueryExecutesAndContinuesModel(t *testing.
 	require.Equal(t, int64(30), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
 }
 
-func TestForwardResponses_WebRunDeepSeekMissingReasoningDowngradesContinuation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	enableOpenAIResponsesWebSearchTestManager(t)
-
-	body := bytes.Replace(
-		openAIResponsesWebRunTestBody(false),
-		[]byte(`"stream":false,`),
-		[]byte(`"stream":false,"reasoning":{"effort":"high"},`),
-		1,
-	)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		openAIResponsesWebRunTestResponse("rid_web_run_missing_1", `{
-			"id":"chatcmpl_web_run_missing_1","object":"chat.completion","model":"deepseek-v4-pro",
-			"choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_web_missing","type":"function","function":{"name":"web__run","arguments":"{\"search_query\":[{\"q\":\"杭州天气\"}]}"}}]},"finish_reason":"tool_calls"}],
-			"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}
-		}`),
-		openAIResponsesWebRunTestResponse("rid_web_run_missing_2", `{
-			"id":"chatcmpl_web_run_missing_2","object":"chat.completion","model":"deepseek-v4-pro",
-			"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],
-			"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}
-		}`),
-	}}
-	svc := &OpenAIGatewayService{
-		cfg:            rawChatCompletionsTestConfig(),
-		httpUpstream:   upstream,
-		settingService: &SettingService{},
-		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
-			return &websearch.SearchResponse{Query: query}, "anysearch", nil
-		},
-	}
-	account := forceChatResponsesFallbackAccount()
-	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
-
-	result, err := svc.Forward(context.Background(), c, account, body)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.bodies, 2)
-	require.Equal(t, "high", gjson.GetBytes(upstream.bodies[0], "reasoning_effort").String())
-	require.False(t, gjson.GetBytes(upstream.bodies[0], "thinking").Exists())
-	require.Equal(t, "disabled", gjson.GetBytes(upstream.bodies[1], "thinking.type").String())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "reasoning_effort").Exists())
-	require.Nil(t, result.ReasoningEffort)
-}
-
 func TestForwardResponses_WebRunWeatherRetriesAsSearchQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enableOpenAIResponsesWebSearchTestManager(t)
@@ -516,7 +399,7 @@ func TestForwardResponses_WebRunWeatherRetriesAsSearchQuery(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "天气", URL: "https://example.com/weather"}}}, "anysearch", nil
@@ -557,7 +440,7 @@ func TestForwardResponses_WebRunStreamingBuffersInternalRounds(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "天气", URL: "https://example.com/weather"}}}, "anysearch", nil
 		},
@@ -676,7 +559,7 @@ func TestForwardResponses_WebRunCompletesAfterSearchRoundLimit(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			providerCalls++
 			return &websearch.SearchResponse{Query: query}, "anysearch", nil
@@ -721,7 +604,7 @@ func TestForwardResponses_WebRunProviderFailureContinuesWithoutBilling(t *testin
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return nil, "", errors.New("provider unavailable")
@@ -760,7 +643,7 @@ func TestForwardResponses_WebRunProxyUnavailableTriggersFailover(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 			return nil, "", websearch.ErrProxyUnavailable
 		},
@@ -795,7 +678,7 @@ func TestForwardResponses_WebRunGeneratesMissingCallID(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query}, "anysearch", nil
 		},
@@ -832,7 +715,7 @@ func TestForwardResponses_WebRunEnforcesFiveQueryLimitAcrossRounds(t *testing.T)
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			providerCalls++
 			return &websearch.SearchResponse{Query: query}, "anysearch", nil
@@ -880,7 +763,7 @@ func TestForwardResponses_TypedWebSearchMixedAutoExecutesAndAppendsCitations(t *
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			require.Equal(t, "杭州天气", query)
@@ -945,7 +828,7 @@ func TestForwardResponses_CodexLiteWebSearchBridgeDoesNotSearchUnlessSelected(t 
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return nil, "", errors.New("unexpected search")
@@ -989,7 +872,7 @@ func TestForwardResponses_CodexLiteWebSearchBridgeExecutesExistingLoop(t *testin
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			require.Equal(t, "最新消息", query)
@@ -1040,7 +923,7 @@ func TestForwardResponses_CodexLiteWebSearchBridgeStreamingEmitsCitationLifecycl
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "流式来源", URL: "https://example.com/stream"}}}, "anysearch", nil
 		},
@@ -1077,7 +960,7 @@ func TestForwardResponses_CodexLiteWebSearchBridgeRejectsReservedNameConflict(t 
 	c.Request.Header.Set(responsesLiteHeader, "true")
 	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: newResponsesChatFallbackTestSettingService()}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyCodexWebSearchBridge] = true
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
@@ -1116,7 +999,7 @@ func TestForwardResponses_CodexLiteWebSearchBridgeSkipsUnavailableProvider(t *te
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 	}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyCodexWebSearchBridge] = true
@@ -1144,7 +1027,7 @@ func TestForwardResponses_TypedWebSearchMixedAutoPreservesOtherClientTool(t *tes
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return nil, "", errors.New("unexpected search")
@@ -1175,7 +1058,7 @@ func TestForwardResponses_TypedWebSearchRequiredPreservesToolChoice(t *testing.T
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_required", `{"id":"chatcmpl_typed_required","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait_required","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: &SettingService{}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: newResponsesChatFallbackTestSettingService()}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
 
@@ -1222,7 +1105,7 @@ func TestForwardResponses_TypedWebSearchBypassPreservesClientToolChoice(t *testi
 			svc := &OpenAIGatewayService{
 				cfg:            rawChatCompletionsTestConfig(),
 				httpUpstream:   upstream,
-				settingService: &SettingService{},
+				settingService: newResponsesChatFallbackTestSettingService(),
 				openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 					searchCalls++
 					return nil, "", errors.New("unexpected search")
@@ -1259,7 +1142,7 @@ func TestForwardResponses_TypedWebSearchAbsentChoiceKeepsModelSelection(t *testi
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	upstream := &httpUpstreamRecorder{resp: openAIResponsesWebRunTestResponse("rid_typed_absent", `{"id":"chatcmpl_typed_absent","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wait_absent","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"abc\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: &SettingService{}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, settingService: newResponsesChatFallbackTestSettingService()}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
 
@@ -1285,7 +1168,7 @@ func TestForwardResponses_TypedWebSearchRejectsParallelClientToolCall(t *testing
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return nil, "", errors.New("unexpected search")
@@ -1321,7 +1204,7 @@ func TestForwardResponses_TypedWebSearchHonorsMaxUses(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			searchCalls++
 			return &websearch.SearchResponse{Query: query}, "anysearch", nil
@@ -1360,7 +1243,7 @@ func TestForwardResponses_TypedWebSearchStreamingEmitsCitationLifecycle(t *testi
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "中文来源", URL: "https://example.com/source"}}}, "anysearch", nil
 		},
@@ -1401,7 +1284,7 @@ func TestForwardResponses_TypedWebSearchStreamingMarksClientDisconnect(t *testin
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "Source", URL: "https://example.com/source"}}}, "anysearch", nil
 		},
@@ -1428,7 +1311,7 @@ func TestForwardResponses_TypedWebSearchProxyNameConflictReturnsBadRequest(t *te
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: newResponsesChatFallbackTestSettingService()}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
 
@@ -1455,7 +1338,7 @@ func TestForwardResponses_TypedWebSearchValidationErrorIncludesToolsParam(t *tes
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: &SettingService{}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), settingService: newResponsesChatFallbackTestSettingService()}
 	account := forceChatResponsesFallbackAccount()
 	account.Extra[featureKeyWebSearchEmulation] = WebSearchModeEnabled
 
@@ -1484,7 +1367,7 @@ func TestForwardResponses_TypedWebSearchStructuredOutputDoesNotAppendSources(t *
 	svc := &OpenAIGatewayService{
 		cfg:            rawChatCompletionsTestConfig(),
 		httpUpstream:   upstream,
-		settingService: &SettingService{},
+		settingService: newResponsesChatFallbackTestSettingService(),
 		openAIWebSearchExecutor: func(_ context.Context, _ *Account, query string, _ int) (*websearch.SearchResponse, string, error) {
 			return &websearch.SearchResponse{Query: query, Results: []websearch.SearchResult{{Title: "Source", URL: "https://example.com/source"}}}, "anysearch", nil
 		},
@@ -1829,4 +1712,12 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 
 	// 明文 summary 的 item 被回写进缓存（自愈）。
 	require.Equal(t, "plain thinking", cache.snapshotSets()["item_plain"])
+}
+
+// newResponsesChatFallbackTestSettingService 返回读取空设置仓储的设置服务。
+// 缺省 service_tier 时也会评估 fast 策略并读取设置，未注入仓储的空结构体会直接 panic。
+//
+// @return 所有设置按未配置处理的设置服务。
+func newResponsesChatFallbackTestSettingService() *SettingService {
+	return &SettingService{settingRepo: &settingValuesRepoStub{values: map[string]string{}}}
 }

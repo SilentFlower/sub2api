@@ -19,7 +19,7 @@
 | [Error Handling](./error-handling.md) | 错误类型、传播和 API 响应格式 | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | lint、测试、评审和禁用模式 | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | zap 日志、结构化字段和脱敏要求 | Filled |
-| [Protocol Adapter Guidelines](./protocol-adapter-guidelines.md) | Anthropic/OpenAI 协议桥接、工具调用、生图主模型配置和缓存稳定性契约 | Filled |
+| [Protocol Adapter Guidelines](./protocol-adapter-guidelines.md) | Anthropic/OpenAI 协议桥接、工具调用和缓存稳定性契约 | Filled |
 | [Antigravity GIF Compatibility](./antigravity-gif-compatibility.md) | 反重力 GIF 转 PNG 帧、全局设置、资源限制与薄接入契约 | Filled |
 | [Disaster Recovery Guidelines](./disaster-recovery-guidelines.md) | 双节点主备容灾、切换、回切和资源隔离契约 | Filled |
 

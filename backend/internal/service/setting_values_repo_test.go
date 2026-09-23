@@ -1,8 +1,10 @@
+//go:build unit
+
 package service
 
 import "context"
 
-// settingValuesRepoStub 放在无 build tag 的测试文件中，供 unit、integration 和 lint 共同编译。
+// settingValuesRepoStub 是 unit 测试共用的内存设置仓储，缺失 key 返回 ErrSettingNotFound。
 type settingValuesRepoStub struct {
 	values  map[string]string
 	updates map[string]string

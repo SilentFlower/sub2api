@@ -172,10 +172,7 @@ export const buildFeatureSettingsResponse = {
   table_page_size_options: [10, 20, 50, 100],
   payment_load_balance_strategy: 'round-robin',
   backend_mode_enabled: false,
-  openai_image_generation_main_model: 'gpt-5.4-mini',
-  openai_image_generation_reasoning_effort: 'medium',
-  openai_responses_lite_header_blocked_models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5'],
-  enable_deepseek_missing_reasoning_auto_downgrade: true
+  openai_responses_lite_header_blocked_models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5']
 }
 
 /**

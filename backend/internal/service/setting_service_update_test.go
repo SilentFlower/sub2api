@@ -410,7 +410,7 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 		PaymentVisibleMethodAlipayEnabled:                  true,
 		PaymentVisibleMethodWxpayEnabled:                   false,
 		OpenAILowUpstreamRatePriorityEnabled:               true,
-		OpenAIOAuthSchedulingRateMultiplier:                0.05,
+		OpenAIOAuthSchedulingRateMultiplier:                testPtrFloat64(0.05),
 		OpenAIAdvancedSchedulerEnabled:                     true,
 		OpenAIAdvancedSchedulerStickyWeightedEnabled:       true,
 		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled: true,
@@ -454,7 +454,7 @@ func TestSettingService_UpdateSettingsRejectsInvalidOpenAIOAuthSchedulingRateMul
 	svc := NewSettingService(repo, &config.Config{})
 
 	for _, rate := range []float64{-0.01, math.NaN(), math.Inf(1)} {
-		err := svc.UpdateSettings(context.Background(), &SystemSettings{OpenAIOAuthSchedulingRateMultiplier: rate})
+		err := svc.UpdateSettings(context.Background(), &SystemSettings{OpenAIOAuthSchedulingRateMultiplier: &rate})
 		require.Error(t, err)
 	}
 }
@@ -515,8 +515,12 @@ func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerWeightSums(t *test
 func TestSettingService_ParseSettingsDefaultsOpenAIOAuthSchedulingRateMultiplier(t *testing.T) {
 	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
 
-	require.Equal(t, 1.0, svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
-	require.Equal(t, 0.05, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(1.0), svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(0.05), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(0), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0"}).OpenAIOAuthSchedulingRateMultiplier)
+	for _, raw := range []string{"", " ", "invalid", "-1", "NaN", "+Inf"} {
+		require.Nil(t, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: raw}).OpenAIOAuthSchedulingRateMultiplier, raw)
+	}
 }
 
 func TestSettingService_GetAllSettings_OpenAIAdvancedSchedulerEffectiveValuesUseConfig(t *testing.T) {
@@ -563,26 +567,6 @@ func TestSettingService_UpdateSettings_AntigravityUserAgentVersion(t *testing.T)
 	require.Equal(t, "1.23.2", repo.updates[SettingKeyAntigravityUserAgentVersion])
 }
 
-func TestSettingService_UpdateSettings_OpenAIImageGenerationSettings(t *testing.T) {
-	repo := &settingUpdateRepoStub{}
-	svc := NewSettingService(repo, &config.Config{})
-
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		OpenAIImageGenerationMainModel:       " gpt-5.6-sol ",
-		OpenAIImageGenerationReasoningEffort: "MAX",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "gpt-5.6-sol", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
-	require.Equal(t, "max", repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
-
-	err = svc.UpdateSettings(context.Background(), &SystemSettings{
-		OpenAIImageGenerationReasoningEffort: "invalid",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "", repo.updates[SettingKeyOpenAIImageGenerationMainModel])
-	require.Equal(t, openAIImageGenerationReasoningEffortDefault, repo.updates[SettingKeyOpenAIImageGenerationReasoningEffort])
-}
-
 func TestSettingService_UpdateSettings_OpenAIResponsesLiteHeaderBlockedModels(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
@@ -606,19 +590,6 @@ func TestSettingService_UpdateSettings_OpenAIResponsesLiteHeaderBlockedModels(t 
 	require.Equal(t, "INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS", infraerrors.Reason(err))
 }
 
-func TestSettingService_UpdateSettings_DeepSeekMissingReasoningAutoDowngrade(t *testing.T) {
-	repo := &settingUpdateRepoStub{}
-	svc := NewSettingService(repo, &config.Config{})
-
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		EnableDeepSeekMissingReasoningAutoDowngrade: false,
-		OpenAIResponsesLiteHeaderBlockedModels:      []string{},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, "false", repo.updates[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
-}
-
 func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClientIPHeaders(t *testing.T) {
 	repo := &forwardedIPMigrationRepoStub{values: map[string]string{}}
 	cfg := &config.Config{}
@@ -627,7 +598,6 @@ func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClie
 
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
 	require.JSONEq(t, `["X-Cdn-Ip","True-Client-Ip"]`, repo.values[SettingKeyForwardedClientIPHeaders])
-	require.Equal(t, "true", repo.values[SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade])
 }
 
 func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(t *testing.T) {
@@ -903,36 +873,6 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 		svc := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{}}, &config.Config{})
 
 		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
-	})
-}
-
-func TestSettingService_GetOpenAIImageGenerationSettings(t *testing.T) {
-	t.Run("后台设置优先", func(t *testing.T) {
-		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
-			SettingKeyOpenAIImageGenerationMainModel:       " gpt-5.6-sol ",
-			SettingKeyOpenAIImageGenerationReasoningEffort: "max",
-		}}, &config.Config{})
-
-		require.Equal(t, "gpt-5.6-sol", svc.GetOpenAIImageGenerationMainModel(context.Background()))
-		require.Equal(t, "max", svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
-	})
-
-	t.Run("空值回退默认值", func(t *testing.T) {
-		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
-			SettingKeyOpenAIImageGenerationMainModel:       "",
-			SettingKeyOpenAIImageGenerationReasoningEffort: "",
-		}}, &config.Config{})
-
-		require.Equal(t, openAIImagesResponsesMainModel, svc.GetOpenAIImageGenerationMainModel(context.Background()))
-		require.Equal(t, openAIImageGenerationReasoningEffortDefault, svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
-	})
-
-	t.Run("非法 effort 回退默认值", func(t *testing.T) {
-		svc := NewSettingService(&settingValuesRepoStub{values: map[string]string{
-			SettingKeyOpenAIImageGenerationReasoningEffort: "extreme",
-		}}, &config.Config{})
-
-		require.Equal(t, openAIImageGenerationReasoningEffortDefault, svc.GetOpenAIImageGenerationReasoningEffort(context.Background()))
 	})
 }
 

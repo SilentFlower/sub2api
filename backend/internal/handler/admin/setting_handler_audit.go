@@ -485,23 +485,20 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
 	}
-	if before.OpenAIImageGenerationMainModel != after.OpenAIImageGenerationMainModel {
-		changed = append(changed, "openai_image_generation_main_model")
-	}
-	if before.OpenAIImageGenerationReasoningEffort != after.OpenAIImageGenerationReasoningEffort {
-		changed = append(changed, "openai_image_generation_reasoning_effort")
-	}
 	if !equalStringSlice(before.OpenAIResponsesLiteHeaderBlockedModels, after.OpenAIResponsesLiteHeaderBlockedModels) {
 		changed = append(changed, service.SettingKeyOpenAIResponsesLiteHeaderBlockedModels)
-	}
-	if before.EnableDeepSeekMissingReasoningAutoDowngrade != after.EnableDeepSeekMissingReasoningAutoDowngrade {
-		changed = append(changed, service.SettingKeyEnableDeepSeekMissingReasoningAutoDowngrade)
 	}
 	if before.OpenAICodexClientVersion != after.OpenAICodexClientVersion {
 		changed = append(changed, "openai_codex_client_version")
 	}
 	if before.OpenAICodexVersionAutoSyncEnabled != after.OpenAICodexVersionAutoSyncEnabled {
 		changed = append(changed, "openai_codex_version_auto_sync_enabled")
+	}
+	if before.ClaudeCodeClientVersion != after.ClaudeCodeClientVersion {
+		changed = append(changed, "claude_code_client_version")
+	}
+	if before.ClaudeCodeVersionAutoSyncEnabled != after.ClaudeCodeVersionAutoSyncEnabled {
+		changed = append(changed, "claude_code_version_auto_sync_enabled")
 	}
 	if before.PaymentVisibleMethodAlipaySource != after.PaymentVisibleMethodAlipaySource {
 		changed = append(changed, "payment_visible_method_alipay_source")
@@ -518,7 +515,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAILowUpstreamRatePriorityEnabled != after.OpenAILowUpstreamRatePriorityEnabled {
 		changed = append(changed, "openai_low_upstream_rate_priority_enabled")
 	}
-	if before.OpenAIOAuthSchedulingRateMultiplier != after.OpenAIOAuthSchedulingRateMultiplier {
+	if !equalNullableFloat(before.OpenAIOAuthSchedulingRateMultiplier, after.OpenAIOAuthSchedulingRateMultiplier) {
 		changed = append(changed, "openai_oauth_scheduling_rate_multiplier")
 	}
 	if before.OpenAIAdvancedSchedulerEnabled != after.OpenAIAdvancedSchedulerEnabled {
@@ -590,6 +587,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
+	}
+	if before.SubscriptionEnabled != after.SubscriptionEnabled {
+		changed = append(changed, "subscription_enabled")
 	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
