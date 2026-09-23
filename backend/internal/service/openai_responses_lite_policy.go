@@ -191,6 +191,10 @@ func (s *OpenAIGatewayService) shouldForwardOpenAIResponsesLite(
 	if account == nil || account.Platform != PlatformOpenAI {
 		return false
 	}
+	// main 的账号/模型兼容规则优先于可配置阻止列表；所有传输入口共用此判断。
+	if shouldStripMappedGPT55Lite(account, finalModel) {
+		return false
+	}
 	var settingService *SettingService
 	if s != nil {
 		settingService = s.settingService

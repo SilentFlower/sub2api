@@ -11,14 +11,20 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// shouldStripMappedGPT55Lite 统一 main 的 GPT-5.5 兼容规则，避免 HTTP 与 WebSocket 决策漂移。
+//
+// @param account 本次转发使用的账号。
+// @param finalModel 账号映射及归一化后的最终上游模型。
+// @return OpenAI OAuth 类账号使用 GPT-5.5 时返回 true。
+func shouldStripMappedGPT55Lite(account *Account, finalModel string) bool {
+	return account.IsOpenAIOAuthLike() && strings.TrimSpace(finalModel) == "gpt-5.5"
+}
+
 // The account mapping changes the model, not the upstream capability header.
 // Apply at the final HTTP request boundary, after account/model resolution.
 // Never mutate the ingress headers/body: failover may select a native account.
 func applyMappedGPT55LiteCompatibility(req *http.Request, account *Account, body []byte) error {
-	if req == nil || account == nil || !account.IsOpenAIOAuthLike() {
-		return nil
-	}
-	if strings.TrimSpace(gjson.GetBytes(body, "model").String()) != "gpt-5.5" {
+	if req == nil || !shouldStripMappedGPT55Lite(account, gjson.GetBytes(body, "model").String()) {
 		return nil
 	}
 	if !isOpenAIResponsesLiteHeader(req.Header.Get(responsesLiteHeader)) && !isOpenAIResponsesLiteWebSocketPayload(body) {

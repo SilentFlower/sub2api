@@ -684,6 +684,21 @@ func TestOpenAIGatewayServiceForward_AppliesResponsesLitePolicyToFinalModel(t *t
 			wantUpstreamModel: "gpt-5.5",
 		},
 		{
+			name:              "empty list cannot override GPT-5.5 compatibility",
+			requestedModel:    "gpt-5.5",
+			settingValue:      "[]",
+			wantContext:       "current_turn",
+			wantUpstreamModel: "gpt-5.5",
+		},
+		{
+			name:              "removed rule cannot override mapped GPT-5.5 compatibility",
+			requestedModel:    "client-alias",
+			mappedModel:       "gpt-5.5",
+			settingValue:      `["gpt-5.4"]`,
+			wantContext:       "current_turn",
+			wantUpstreamModel: "gpt-5.5",
+		},
+		{
 			// gpt-5.5 由上游兼容逻辑固定剥离 Lite 标记，这里用同样默认阻止的 gpt-5.4 验证空列表放行。
 			name:              "explicit empty list allows model",
 			requestedModel:    "gpt-5.4",

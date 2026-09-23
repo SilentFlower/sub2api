@@ -1326,15 +1326,16 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 
 ### 3. Contracts
 
-- 设置键缺失时使用三个精确默认项：`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.5`；显式存储 `[]` 表示允许所有模型透传，不能回退默认值。
+- 设置键缺失时使用三个精确默认项：`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.5`；显式存储 `[]` 表示不额外阻止模型，不能回退默认值，但仍受下述 main 兼容规则约束。
+- main 兼容规则优先于设置：OpenAI OAuth / SetupToken 账号的最终上游模型为 `gpt-5.5` 时，HTTP managed/passthrough、WS 直连/passthrough 和 WS HTTP bridge 均移除或禁止重建 Lite 标记，并跳过 Lite body normalizer；显式空列表或移除 `gpt-5.5` 规则不能放行。API Key 账号不受此特例影响，仍按阻止列表判断。判定复用 `openai_lite_mapped_gpt55.go` 的 `shouldStripMappedGPT55Lite`，不得按传输入口复制规则。
 - 更新 DTO 使用 `*[]string` 区分“字段未提供”和“显式空数组”；未提供时保留旧值，显式 `[]` 整体覆盖。
 - 每条规则 trim 后不能为空，稳定去重；只支持精确匹配或一个位于末尾的 `*` 前缀规则，匹配保持大小写敏感。
 - 运行时使用 `SettingService` 的 60 秒成功 TTL、5 秒错误 TTL 和 singleflight；存储 JSON 非法时记录不含敏感信息的 warning，并使用默认列表。
 - Lite 决策必须使用完成账号映射、compact 映射、OAuth 归一化和图片主模型转换后的最终上游模型；failover 的每次 attempt 和 WS 的每个 turn 都重新计算。
 - 只有入站 HTTP Header 为 `true` 或 WS metadata 为 `true` 才是 Lite 请求。账号 Header Override 不得注入 `X-OpenAI-Internal-Codex-Responses-Lite`；保存时拒绝，运行时也要防御性丢弃旧数据。
-- OpenAI 最终模型未命中阻止列表时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header；OAuth 类账号执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化，API Key 账号仅归一化 `parallel_tool_calls`，保持工具布局和客户端 context。
-- OpenAI 最终模型命中阻止列表时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
-- 命中阻止列表只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
+- OpenAI 最终模型未命中阻止列表且未触发 main 兼容规则时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header；OAuth 类账号执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化，API Key 账号仅归一化 `parallel_tool_calls`，保持工具布局和客户端 context。
+- OpenAI 最终模型命中阻止列表或触发 main 兼容规则时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
+- 命中阻止列表或 main 兼容规则只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
 - 例外：账号显式开启 `openai_responses_lite_downgrade`（仅 API Key 的 openai / 国产供应商账号）时，在本节判定之前先执行 Lite -> 标准 Responses 降级并删除入站 Lite 头，后续按非 Lite 处理；契约见 "Scenario: Responses Lite 降级与 namespace custom 子工具"。
 - 非 OpenAI 平台不得收到该内部标记；Grok 普通 Responses、媒体请求和 WS HTTP bridge 都必须保持 Header 为空。
 - `image_generation` 是 OpenAI Responses hosted 工具，由上游执行；已有该工具时不得重复注入，旧 `format` / `compression` 字段仍按既有兼容契约归一化。
@@ -1354,7 +1355,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 | 条件 | Header / metadata | Lite body 归一化 | 结果 |
 |---|---|---|---|
 | 设置键缺失 | 使用三个默认阻止项 | N/A | 不创建空默认 |
-| 设置值为合法 `[]` | 所有 OpenAI 模型允许 | allow 时执行 | 保存后立即生效 |
+| 设置值为合法 `[]` | 不额外阻止模型，main 兼容规则仍优先 | allow 时执行 | 保存后立即生效 |
+| OAuth / SetupToken + 最终模型 `gpt-5.5` | 所有传输路径删除/禁止重建 | 跳过 | 空列表也不能放行，客户端 body 字段保持 |
 | 设置 JSON 非法或元素非法 | 回退默认列表 | 按默认规则 | warning + 5 秒错误缓存 |
 | 更新规则为空或 `*` 位置非法 | N/A | N/A | `400 INVALID_OPENAI_RESPONSES_LITE_HEADER_BLOCKED_MODELS` |
 | 非 Lite 请求 | 不新增标记 | 不执行 | body 和无关 Header 保持 |
@@ -1380,7 +1382,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 
 - Good: Lite 请求从客户端别名映射到默认阻止的 `gpt-5.5` 后，按映射后的模型删除标记且保持客户端显式 context。
 - Good: `gpt-5.6-terra` 未命中阻止列表时，各路径均保留 Lite 标记；OAuth 类账号补齐 `all_turns`，API Key 保持原 context。
-- Good: 管理员显式保存空数组后，`gpt-5.5` 的 Lite 请求允许透传，而不是重新套用默认列表。
+- Good: 管理员显式保存空数组后，API Key 的 `gpt-5.5` 和 OAuth 的 `gpt-5.4` Lite 请求允许透传，而不是重新套用默认列表；OAuth / SetupToken 的 `gpt-5.5` 仍按 main 规则移除标记。
 - Good: 同一 WS 会话从 allow 模型切到 block 模型再切回 allow，每个 turn 独立更新 metadata 和 context。
 - Good: 旧账号数据试图通过 Header Override 注入 Lite Header 时，OpenAI 普通请求和 Grok 请求都不会收到该标记。
 - Good: 非 Lite Codex HTTP 请求只带 `tool_choice: "none"`，桥接注入图片工具后同一请求被改成 `"auto"`，模型可选择调用图片工具。
@@ -1404,6 +1406,7 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - 设置测试必须覆盖：缺失键的三个默认项、显式 `[]`、非法 JSON 回退、trim、稳定去重、精确/末尾通配符、缓存命中、singleflight 和保存后刷新。
 - Settings API/前端测试必须覆盖：查询/更新字段、未提供时保留、显式空数组、空项和非法通配符校验、中英文 i18n 与 API contract 快照。
 - HTTP managed/passthrough 必须覆盖：allow、默认 block、自定义通配符、显式空列表和映射后最终模型；block 时不强制改写 context。
+- main 兼容回归必须覆盖：OAuth / SetupToken 的最终模型为 `gpt-5.5` 且配置为空或已移除该规则时，HTTP、WS 与 bridge 均阻止 Lite；API Key 的同模型和 OAuth 的其它模型仍遵循配置；工具、显式 context 和入站数据不因兼容处理丢失或被原地改写。
 - WS 直连和 passthrough 必须覆盖 allow/block、模型映射和会话内 turn 切换；WS HTTP bridge 必须覆盖允许重建和阻止重建。
 - Grok 回归必须断言普通 Responses、媒体和 WS HTTP bridge 不带 Lite Header；Header Override 的保存校验与运行时防御性过滤都要覆盖。
 - 普通 OpenAI 请求必须覆盖：即使账号旧数据包含 Lite Header Override，也不能新增 Header，且 body 不执行 Lite normalizer。

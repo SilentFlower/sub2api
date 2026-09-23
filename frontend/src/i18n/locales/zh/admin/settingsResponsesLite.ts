@@ -1,6 +1,6 @@
 export default {
   openaiResponsesLiteBlockedModels: 'Responses Lite Header 阻止模型',
-  openaiResponsesLiteBlockedModelsHint: '按最终上游模型决定是否移除 Responses Lite Header 与 WebSocket metadata。支持精确模型名和仅末尾 * 的前缀规则；空列表表示全部允许透传。',
+  openaiResponsesLiteBlockedModelsHint: '按最终上游模型决定是否移除 Responses Lite Header 与 WebSocket metadata。支持精确模型名和仅末尾 * 的前缀规则；空列表表示不额外阻止模型。OpenAI OAuth / SetupToken 账号使用 GPT-5.5 时始终移除 Lite 标记，不受此列表影响。',
   openaiResponsesLiteBlockedModelPlaceholder: '例如 gpt-5.4 或 gpt-5.4*',
   openaiResponsesLiteBlockedModelAdd: '添加模型规则',
   openaiResponsesLiteBlockedModelRemove: '删除模型规则',
