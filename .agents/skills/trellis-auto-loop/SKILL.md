@@ -12,9 +12,9 @@ description: "启动、恢复和推进 Trellis 自动任务循环。用于用户
 - 仅在用户明确要求 auto-loop、自动跑到底、goal-like 或继续既有 run 时使用；普通实现请求不能自动升级。
 - 用户发出启动指令即授权本次 `commit-only` run。prepare 完成后不再确认 manifest，也不逐任务执行 `confirm_brief`。
 - 新 run 先 prepare 全部显式任务，Open Questions 全部收敛后才进入 running。running 中不再询问 route、planning 或普通 Check-All 停止边界。
-- 每个 action 完成后，必须用同名 `record --action ...` 精确回写并立即 `next`。不得根据聊天摘要手改 runtime 或跳步。
-- `record` 返回 `status=retryable` 时保留的是同一个 outstanding Check action：不得运行 `next`，必须先按返回指令消解漂移并重录。
-- 本地提交是自动终点。不得 push、merge、release、deploy、finish-work 或 archive；runner 在 item 本地提交成功后把该任务写入本地完成态（`status=completed` + `completedAt`），归档仍需用户显式执行。
+- 每个 action 完成后，必须用同名 `record --action ...` 精确回写；record 成功后立即 `next`。不得根据聊天摘要手改 runtime 或跳步。
+- `record` 返回 `status=retryable` 时不得运行 `next`，必须按返回指令在同一个 outstanding action 内纠正并重录；恢复诊断的 owner 见下方 Action 内恢复。
+- 本地提交是自动终点。不得 push、merge、release 或 deploy；runner 在 item 本地提交成功后原子写入 `progress`、`status=completed`、`completedAt` 与确定性 `closeout`。`closed` 立即退出活跃视图，物理 GC 由后续 SessionStart 处理。
 - 任务顺序只决定稳定调度顺序，不隐含依赖。依赖必须通过 `--depends-on dependent=dependency` 明确传入或由 planning artifacts 明确声明。
 - 任务级失败只阻塞自身及显式依赖项；独立任务继续。fix/recheck、planning repair 与安全的 commit-only repair 各最多 3 轮，队列结束后不自动执行第二遍恢复扫描。
 - schema 1 runtime 继续按 runner 返回的旧 action 恢复，包括 outstanding `confirm_brief`；不要把旧 run 改写成 schema 2。
@@ -67,7 +67,7 @@ readiness 的 `repairable` 仅适用于不改变目标、可由仓库证据确�
 
 ## Autonomous Decisions
 
-满足任务目标内、仅影响本地代码、可逆且可验证时，AI可自主选择推荐方案。作出选择后必须先记录，再继续修改或 record；会修改 planning/handoff 时，`--file` 必须列出全部目标 artifact：
+满足任务目标内、仅影响本地代码、可逆且可验证时，AI可自主选择推荐方案。作出选择后必须先记录，再继续修改或 record；会修改 planning/handoff 时，`--task-file` 或完整 `--file` 必须列出全部目标 artifact：
 
 ```bash
 python3 ./.trellis/scripts/auto_loop.py decide \
@@ -79,11 +79,11 @@ python3 ./.trellis/scripts/auto_loop.py decide \
   [--evidence "<证据>" ...] \
   --risk low|medium \
   --confidence low|medium|high \
-  [--requirement <id> ...] [--file <repository>::<path> ...] \
+  [--requirement <id> ...] [--task-file <name> ...] [--file <repository>::<path> ...] \
   [--verification "<验证摘要>"]
 ```
 
-决策写入 runtime 摘要和任务 `decisions.jsonl`，只保存结论与证据，不保存思维链。下一次同任务 action record 会消费该决策：列明的 planning/handoff 变化生成绑定 decision ID 的 manifest revision；Check record 中其它变化进入有限自纠，其它 action 仍按 `artifact-drift` 阻塞。
+决策写入 runtime 摘要和任务 `decisions.jsonl`，只保存结论与证据，不保存思维链。下一次同任务 action record 会消费该决策：列明的 planning/handoff 变化生成绑定 decision ID 的 manifest revision；Check record 中其它变化进入有限自纠，其它 action 的确定路径错误先进入恢复诊断，未知或越界漂移仍按 `artifact-drift` 阻塞。
 
 以下事项不得用 `decide`，必须 blocked：
 
@@ -91,9 +91,13 @@ python3 ./.trellis/scripts/auto_loop.py decide \
 - 扩大权限或降低安全、隐私保护。
 - 公开 API 或数据格式破坏性变更。
 - 费用、生产环境或外部系统影响。
-- push、merge、release、deploy、finish-work、archive。
+- push、merge、release、deploy、物理 GC 或其它外部副作用。
 - 明显改变任务目标或业务规则且仓库没有倾向证据。
 - `Open Questions` 中人工保留的任何选择。
+
+## Action 内恢复
+
+`next` 保留原 action 和文档基线，不消费 pending。收到 `artifact-recovery-required` 或 `artifact-recovery-failed` 时，必须读取 [恢复协议](references/artifact-recovery.md)，同轮完成诊断、纠正、`reconcile` 校验并继续原 action。初次诊断不计数，最多三次实际纠正，第三次仍可成功；不要求用户回复“继续”。
 
 ## Running Actions
 
@@ -161,17 +165,17 @@ python3 ./.trellis/scripts/auto_loop.py status [--verbose]
 python3 ./.trellis/scripts/auto_loop.py stop --reason "<原因>"
 ```
 
-默认使用紧凑输出；只有诊断 manifest、dirty、漂移、依赖链或决策详情时加 `--verbose`。`retryable` 不是终态，由 agent 在同一 outstanding Check action 内立即自纠；`completed_with_blocked` 才是本次 run 的可审计终态，后续恢复由用户显式调用 `retry-blocked`。
+默认使用紧凑输出；只有诊断 manifest、dirty、漂移、依赖链或决策详情时加 `--verbose`。`retryable` 不是终态，由 agent 按对应通道在同一 outstanding action 内立即自纠；`completed_with_blocked` 才是本次 run 的可审计终态，后续恢复由用户显式调用 `retry-blocked`。
 
 ## Run 收尾交接
 
-队列到达终态后必须向用户报告归档待办，不得只说 run 已完成。待办从终态 `next`、`record` 或 `status` 的 `summary.pending_archive` 读取：
+队列到达终态后必须根据 `next`、`record` 或 `status` 的摘要报告真实结果：
 
-- `tasks_awaiting_archive`：已写入本地完成态、等待用户显式归档的队列任务，逐项列出。
-- `parent_tasks_outside_queue`：队列任务声明的父任务中未纳入本次队列的部分。父任务只负责范围、依赖顺序和集成复核，不进入实现流水线，但必须排在全部子任务归档之后单独 finish-work。
-- run 结束后 pointer 已清除，`status` 走最近 run 列表；`pending_archive` 在该列表里同样可读。
+- `completed_tasks`：逐项报告 commit 与 `close_result`；`closed` 无额外收尾动作，`blocked` 必须连同 `close_blockers` 交接。
+- `blocked_tasks`：报告阻塞原因与可恢复入口，不把 run 终态说成全部成功。
+- `parent_tasks_outside_queue`：仅说明未纳入本次队列的父任务；父任务仍按自身范围和验收条件独立推进。
 
-run 期间新建的后补子任务不在冻结队列内，runner 不追踪；发现时按普通任务单独推进，不得手改 runtime 塞进当前 run。归档动作本身始终由用户发起。
+run 期间新建的后补子任务不在冻结队列内，runner 不追踪；发现时按普通任务单独推进，不得手改 runtime 塞进当前 run。物理 GC 不属于 run 收尾。
 
 ## 禁止事项
 
@@ -179,6 +183,6 @@ run 期间新建的后补子任务不在冻结队列内，runner 不追踪；发
 - 不覆盖、暂存或提交 protected-retained 文件；发生路径冲突只阻塞涉及任务。
 - 不用 `start --force` 代替 `retry-blocked`。
 - `record` 返回 `retryable` 后不得调用 `next` 或重新发起 action。
-- 不把 queue item completed 解释为任务已归档。
-- 不只报告 run 已完成而省略 `pending_archive` 待办，也不代用户执行 finish-work 或 archive。
+- 不忽略 `close_result`：只有 `closed` 才表示确定性 Close 成功，`blocked` 必须保留结构化阻塞项。
+- 不在 run 收尾执行物理 GC，也不为已关闭任务制造额外收尾命令。
 - 不在无人值守执行中替用户回答 Open Questions。

@@ -337,8 +337,8 @@ When applicable, also validate indexes/links, code signatures, or project-specif
 ### Workflow Disposition
 
 - Interactive: after a passed Check-All stop, when the user says “下一步”, “继续”, `next`, `continue`, or an equivalent continuation intent, run this skill. A `no-op` or `written` result must load `trellis-push` in the same turn and present its single confirmation plan. A `needs-review` result stops and must not generate a Push plan.
-- Interactive direct Git: follow the continuation decision made by Check-All's `Interactive Post-Check Stop Gate`, including strict pass and accepted-risk pass. When that gate permits continuation, run this skill in the same turn after the existing standard Check-All report if no currently valid `spec_update_result` exists. Only `no-op` or `written` may proceed to `trellis-push`; `needs-review` stops. Do not infer intent or risk acceptance from unrelated history, summaries, dirty state, or an auto-loop internal `commit-only`.
-- Validated auto-loop: for `no-op` or `written`, execute `record --action run_spec_update --result ok` and immediately run `next`. For `needs-review`, execute `record --action run_spec_update --result blocked --failure-type spec-needs-review`; never disguise it as `no-op`.
+- Interactive direct Git or explicit continuation: follow the continuation decision made by Check-All's `Interactive Post-Check Stop Gate`, including strict pass and accepted-risk pass. When that gate permits continuation, run this skill in the same turn after the Check-All report or brief acceptance acknowledgment if no currently valid `spec_update_result` exists. Reuse valid acceptance evidence internally without repeating unchanged risks. Only `no-op` or `written` may proceed to `trellis-push`; `needs-review` stops. Do not infer intent or risk acceptance from unrelated history, summaries, dirty state, or an auto-loop internal `commit-only`.
+- Validated auto-loop: for `no-op` or `written`, execute `record --action run_spec_update --result ok`; only after a successful record immediately run `next`. If record returns `status=retryable` with an artifact recovery diagnosis, follow `trellis-auto-loop` recovery instructions in the same turn, then resubmit the original truthful record; do not advance or request user continuation. For `needs-review`, execute `record --action run_spec_update --result blocked --failure-type spec-needs-review`; never disguise it as `no-op`.
 - Untracked: keep the cursor at `spec` for `needs-review`. For `no-op` or `written`, run `untracked_flow.py advance --stage push`. Any later product edit returns the cursor to `implement`; the helper does not validate or preserve owner evidence.
 
 Do not ask again or rerun when a currently valid `no-op` or `written` result already exists. Re-evaluate after the actual diff, Check-All conclusion, or the user's spec intent changes.
@@ -362,22 +362,21 @@ Before finishing your code-spec update:
 
 ---
 
-## Relationship to Other Commands
+<!-- BEGIN skill-garden patch trellis-update-spec-command-relationship v0.6 -->
+## Relationship to Other Capabilities
 
 ```
 Development Flow:
-  Learn something → `update-spec` (Trellis command) → Knowledge captured
+  Learn something → `update-spec` (Trellis capability) → Knowledge captured
        ↑                                  ↓
-  `break-loop` (Trellis command) ←──────────────────── Future sessions benefit
+  `break-loop` (Trellis capability) ←──────────────────── Future sessions benefit
   (deep bug analysis)
 ```
 
-- ``break-loop` (Trellis command)` - Analyzes bugs deeply, often reveals spec updates needed
-- ``update-spec` (Trellis command)` - Actually makes the updates
-- ``finish-work` (Trellis command)` - Reminds you to check if specs need updates
-
----
-
+- `break-loop` analyzes bugs deeply and often reveals spec updates needed.
+- `update-spec` evaluates and writes durable project guidance.
+- Check-All decides whether the current result may continue to Update-Spec and Push.
+<!-- END skill-garden patch trellis-update-spec-command-relationship v0.6 -->
 ## Core Philosophy
 
 > **Code-specs are living documents. Every debugging session, every "aha moment" is an opportunity to make the implementation contract clearer.**
