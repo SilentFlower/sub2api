@@ -47,5 +47,10 @@
     "partialStep": null,
     "nextStep": "部署新镜像；OpenAI Chat 经 new-api 的 GIF 拒绝需在 new-api 改造或改用原生 Gemini 格式请求",
     "notes": "已移除 URL 反转义、base64url 和中间空白自动归一化；保留标准 padded/raw base64、data URI、单层 base64: 包装和安全诊断日志。验证通过：go test -tags=unit ./internal/pkg/antigravity；go test -tags=unit ./internal/service -run 'Test.*Antigravity.*GIF|Test.*GIF'；go test -tags=unit ./internal/handler/admin -run 'Test.*Antigravity.*GIF|Test.*GIF'；git diff --check。"
+  },
+  "closeout": {
+    "status": "pending",
+    "closedAt": null,
+    "blockers": []
   }
 }

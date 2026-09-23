@@ -31,5 +31,10 @@
     "partialStep": null,
     "nextStep": "归档任务 / finish-work",
     "notes": "已将 flower-trellis 同步至 0.5.0-beta.4"
+  },
+  "closeout": {
+    "status": "pending",
+    "closedAt": null,
+    "blockers": []
   }
 }
