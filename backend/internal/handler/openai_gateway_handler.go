@@ -428,6 +428,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	setOpsRequestContext(c, "", false)
 	sessionHashBody := body
+	clientStream, _ := parseOpenAICompatibleStream(body)
 	body, ok = h.normalizeOpenAIResponsesCompactRequest(c, reqLog, body)
 	if !ok {
 		return
@@ -487,6 +488,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
 		return
+	}
+	// compact 兼容路径可能重写上游 stream，超时仍按客户端入站语义选择。
+	if !clientStream {
+		c.Request = c.Request.WithContext(service.WithOpenAINonstreamTextRequest(c.Request.Context()))
 	}
 	if _, err := service.ValidateOpenAIServiceTierField(body); err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())

@@ -961,6 +961,10 @@ type GatewayConfig struct {
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
+	// OpenAIImagesResponseHeaderTimeout: 图片生成和编辑等待上游响应头的超时时间（秒），0 表示无超时。
+	OpenAIImagesResponseHeaderTimeout int `mapstructure:"openai_images_response_header_timeout"`
+	// OpenAINonstreamResponseHeaderTimeout: 非流式文本等待上游响应头的超时时间（秒），0 表示无超时。
+	OpenAINonstreamResponseHeaderTimeout int `mapstructure:"openai_nonstream_response_header_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
 	// A zero value uses the provider-safe default instead of the generic gateway timeout.
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
@@ -2377,6 +2381,8 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
+	viper.SetDefault("gateway.openai_images_response_header_timeout", 600)
+	viper.SetDefault("gateway.openai_nonstream_response_header_timeout", 300)
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
@@ -3304,6 +3310,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
+	}
+	if c.Gateway.OpenAIImagesResponseHeaderTimeout < 0 {
+		return fmt.Errorf("gateway.openai_images_response_header_timeout must be non-negative")
+	}
+	if c.Gateway.OpenAINonstreamResponseHeaderTimeout < 0 {
+		return fmt.Errorf("gateway.openai_nonstream_response_header_timeout must be non-negative")
 	}
 	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 1800 {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")

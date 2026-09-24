@@ -15,6 +15,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			return response, err
 		}
 	}
+	if account.IsOpenAI() {
+		request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), openAIResponseHeaderProfile(request.Context())))
+	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 }
 

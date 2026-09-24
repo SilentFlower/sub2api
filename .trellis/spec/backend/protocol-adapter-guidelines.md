@@ -1979,3 +1979,57 @@ if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 
 先让 adaptive 路由处理供应商能力，再让统一 predicate 处理固定 Chat 与非 CN API Key；命中
 raw Chat 时必须先把 Responses 形状转换为标准 Chat body。
+
+## Scenario: OpenAI 按入站请求类型选择响应头超时
+
+### 1. Scope / Trigger
+
+- 修改 OpenAI 图片端点、Responses、Chat Completions 的上游 HTTP 传输或 Compose 配置时，核对响应头超时分档。
+- 仅内置 HTTP 上游的 OpenAI 平台账号适用；OAuth 插件命中时由插件自己的传输配置负责。
+
+### 2. Signatures
+
+```go
+func WithOpenAINonstreamTextRequest(ctx context.Context) context.Context
+func OpenAINonstreamTextRequestFromContext(ctx context.Context) bool
+func WithOpenAIImagesEndpoint(ctx context.Context) context.Context
+func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile
+```
+
+### 3. Contracts
+
+- `/v1/images/generations`、`/v1/images/edits` 的同步和流式请求选择 `openai_images`，默认响应头超时 600 秒。
+- `/v1/responses`（含 `/compact` 兼容路径）、`/v1/chat/completions` 以客户端入站 `stream` 判定：缺省或 `false` 选择 `openai_nonstream`，默认 300 秒；`true` 继续选择 `openai`。
+- 图片标记优先于非流式文本标记。Responses compact 可能重写出站 `stream`，必须在规范化前保存客户端值。
+- `GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT` 继续控制普通 OpenAI 档；新档分别使用 `GATEWAY_OPENAI_IMAGES_RESPONSE_HEADER_TIMEOUT` 和 `GATEWAY_OPENAI_NONSTREAM_RESPONSE_HEADER_TIMEOUT`。三项均以秒计，`0` 表示不限制等待响应头。
+- 相同代理与账号下三档使用独立客户端缓存键；图片和非流式档沿用 OpenAI 的 HTTP/2 协商、代理回退与 TLS 传输设置。其他平台及账号测试不按这两个新档分类。
+
+### 4. Validation & Error Matrix
+
+| 入站与配置 | 选择 | 结果 |
+| --- | --- | --- |
+| 图片生成或编辑，任意 `stream` | `openai_images` | 等待响应头最多 600 秒，除非显式覆盖 |
+| 文本 `stream` 缺省或 `false` | `openai_nonstream` | 等待响应头最多 300 秒，除非显式覆盖 |
+| 文本 `stream:true` | `openai` | 使用既有 OpenAI 超时配置 |
+| compact 入站 `stream:true`，出站被改为 `false` | `openai` | 保留客户端流式分类 |
+| 新超时配置为 `0` | 对应分档 | 不设置 `ResponseHeaderTimeout` |
+| 新超时配置为负数 | 配置校验失败 | 启动前拒绝非法值 |
+| 非 OpenAI 平台账号 | 原 profile | 不使用新分档 |
+
+### 5. Scenarios and Examples
+
+- 正常：图片编辑通过 Responses 桥接后仍带图片上下文标记，选用 600 秒档。
+- 边界：客户端未传 `stream`，按非流式处理；三档恰好配置成相同时，连接池仍互不覆盖。
+- 错误用法：根据桥接后的出站 `stream` 分类，会把 compact 客户端流式请求误判为 300 秒档。
+- 正确做法：入口读取客户端 `stream`，在共用 OpenAI 出站点结合图片标记和账号平台选择 profile。
+
+### 6. Tests Required
+
+```bash
+cd backend
+go test -tags=unit ./internal/config ./internal/repository ./internal/service ./internal/handler
+```
+
+- 断言配置默认值、环境变量覆盖、负数拒绝和 `0` 的无超时语义。
+- 断言两个图片端点、两种文本入口及 compact 路径的 profile；图片优先，其他平台保留原 profile。
+- 断言三档连接池隔离、复用和配置变化时重建；HTTP/2 响应头超时不触发代理兼容回退，协议错误仍触发回退。

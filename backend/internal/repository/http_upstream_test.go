@@ -663,6 +663,105 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileCustomHeaderTimeout() {
 	require.Equal(s.T(), 1800*time.Second, transport.ResponseHeaderTimeout)
 }
 
+func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutProfilesHaveSeparateReusablePools() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIResponseHeaderTimeout:          20,
+		OpenAIImagesResponseHeaderTimeout:    600,
+		OpenAINonstreamResponseHeaderTimeout: 300,
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+			Enabled: true,
+		},
+	}
+	svc := s.newService()
+	profiles := []struct {
+		profile service.HTTPUpstreamProfile
+		want    time.Duration
+	}{
+		{service.HTTPUpstreamProfileOpenAI, 20 * time.Second},
+		{service.HTTPUpstreamProfileOpenAIImages, 600 * time.Second},
+		{service.HTTPUpstreamProfileOpenAINonstream, 300 * time.Second},
+	}
+	for _, tc := range profiles {
+		entry, err := svc.getClientEntry("", 1, 1, tc.profile, false, false)
+		require.NoError(s.T(), err)
+		transport, ok := entry.client.Transport.(*http.Transport)
+		require.True(s.T(), ok)
+		require.Equal(s.T(), tc.want, transport.ResponseHeaderTimeout)
+		require.Equal(s.T(), upstreamProtocolModeOpenAIH2, entry.protocolMode)
+		require.True(s.T(), transport.ForceAttemptHTTP2)
+
+		reused, err := svc.getClientEntry("", 1, 1, tc.profile, false, false)
+		require.NoError(s.T(), err)
+		require.Same(s.T(), entry, reused)
+	}
+	require.Len(s.T(), svc.clients, len(profiles))
+
+	s.cfg.Gateway.OpenAIImagesResponseHeaderTimeout = 900
+	updated, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAIImages, false, false)
+	require.NoError(s.T(), err)
+	transport, ok := updated.client.Transport.(*http.Transport)
+	require.True(s.T(), ok)
+	require.Equal(s.T(), 900*time.Second, transport.ResponseHeaderTimeout)
+	require.Len(s.T(), svc.clients, len(profiles))
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutProfilesStaySeparateWhenDurationsMatch() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIResponseHeaderTimeout:          20,
+		OpenAIImagesResponseHeaderTimeout:    20,
+		OpenAINonstreamResponseHeaderTimeout: 20,
+	}
+	svc := s.newService()
+	for _, profile := range []service.HTTPUpstreamProfile{
+		service.HTTPUpstreamProfileOpenAI,
+		service.HTTPUpstreamProfileOpenAIImages,
+		service.HTTPUpstreamProfileOpenAINonstream,
+	} {
+		_, err := svc.getClientEntry("", 1, 1, profile, false, false)
+		require.NoError(s.T(), err)
+	}
+	require.Len(s.T(), svc.clients, 3)
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutProfilesAllowZero() {
+	svc := s.newService()
+	for _, profile := range []service.HTTPUpstreamProfile{
+		service.HTTPUpstreamProfileOpenAIImages,
+		service.HTTPUpstreamProfileOpenAINonstream,
+	} {
+		entry, err := svc.getClientEntry("", 1, 1, profile, false, false)
+		require.NoError(s.T(), err)
+		transport, ok := entry.client.Transport.(*http.Transport)
+		require.True(s.T(), ok)
+		require.Zero(s.T(), transport.ResponseHeaderTimeout)
+	}
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutProfilesSeparateTLSPools() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIResponseHeaderTimeout:          20,
+		OpenAIImagesResponseHeaderTimeout:    600,
+		OpenAINonstreamResponseHeaderTimeout: 300,
+	}
+	svc := s.newService()
+	profile := &tlsfingerprint.Profile{Name: "test"}
+	for _, tc := range []struct {
+		upstreamProfile service.HTTPUpstreamProfile
+		want            time.Duration
+	}{
+		{service.HTTPUpstreamProfileOpenAI, 20 * time.Second},
+		{service.HTTPUpstreamProfileOpenAIImages, 600 * time.Second},
+		{service.HTTPUpstreamProfileOpenAINonstream, 300 * time.Second},
+	} {
+		entry, err := svc.getClientEntryWithTLS("", 1, 1, profile, tc.upstreamProfile, false, false)
+		require.NoError(s.T(), err)
+		transport, ok := entry.client.Transport.(*http.Transport)
+		require.True(s.T(), ok)
+		require.Equal(s.T(), tc.want, transport.ResponseHeaderTimeout)
+	}
+	require.Len(s.T(), svc.clients, 3)
+}
+
 func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGenericHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,
@@ -747,6 +846,35 @@ func (s *HTTPUpstreamSuite) TestOpenAIHTTP2ProxyCompatibilityErrorActivatesFallb
 	require.False(s.T(), transport.ForceAttemptHTTP2)
 	require.NotNil(s.T(), transport.TLSNextProto)
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode)
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutProfilesShareHTTP2ProxyFallback() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIImagesResponseHeaderTimeout:    600,
+		OpenAINonstreamResponseHeaderTimeout: 300,
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+			Enabled:                   true,
+			AllowProxyFallbackToHTTP1: true,
+			FallbackErrorThreshold:    1,
+			FallbackWindowSeconds:     60,
+			FallbackTTLSeconds:        600,
+		},
+	}
+	svc := s.newService()
+	proxyURL := "http://proxy.local:8080"
+	svc.recordOpenAIHTTP2Failure(service.HTTPUpstreamProfileOpenAIImages, upstreamProtocolModeOpenAIH2, proxyURL, errors.New("http2: timeout awaiting response headers"))
+	require.False(s.T(), svc.isOpenAIHTTP2FallbackActive(proxyURL))
+
+	svc.recordOpenAIHTTP2Failure(service.HTTPUpstreamProfileOpenAIImages, upstreamProtocolModeOpenAIH2, proxyURL, errors.New("http2: protocol error"))
+	require.True(s.T(), svc.isOpenAIHTTP2FallbackActive(proxyURL))
+	for _, profile := range []service.HTTPUpstreamProfile{
+		service.HTTPUpstreamProfileOpenAIImages,
+		service.HTTPUpstreamProfileOpenAINonstream,
+	} {
+		entry, err := svc.getClientEntry(proxyURL, 1, 1, profile, false, false)
+		require.NoError(s.T(), err)
+		require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode)
+	}
 }
 
 // TestNormalizeProxyURL_Canonicalizes 测试代理 URL 规范化

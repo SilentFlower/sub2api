@@ -78,7 +78,7 @@ func TestForwardOpenAIImagesAPIKey_NonStreamDetachesUpstreamContext(t *testing.T
 	require.NoError(t, err)
 	require.False(t, parsed.Stream, "本用例覆盖非流式生图")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(WithOpenAIImagesEndpoint(context.Background()))
 	cancel() // 客户端已断开
 
 	result, err := svc.ForwardImages(ctx, c, newOpenAIImagesAPIKeyAccount(), body, parsed, "")
@@ -88,6 +88,7 @@ func TestForwardOpenAIImagesAPIKey_NonStreamDetachesUpstreamContext(t *testing.T
 	require.Equal(t, 1, result.ImageCount, "图片已产出，必须带回结果供计费")
 
 	require.NotNil(t, recorder.lastReq)
+	require.Equal(t, HTTPUpstreamProfileOpenAIImages, HTTPUpstreamProfileFromContext(recorder.lastReq.Context()))
 	require.NoError(t, recorder.lastReq.Context().Err(),
 		"交给上游的请求 context 必须已脱钩，不随客户端断开取消")
 }
@@ -115,12 +116,13 @@ func TestForwardOpenAIImagesAPIKey_StreamKeepsDetachedUpstreamContext(t *testing
 	require.NoError(t, err)
 	require.True(t, parsed.Stream)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(WithOpenAIImagesEndpoint(context.Background()))
 	cancel()
 
 	_, _ = svc.ForwardImages(ctx, c, newOpenAIImagesAPIKeyAccount(), body, parsed, "")
 
 	require.NotNil(t, recorder.lastReq)
+	require.Equal(t, HTTPUpstreamProfileOpenAIImages, HTTPUpstreamProfileFromContext(recorder.lastReq.Context()))
 	require.NoError(t, recorder.lastReq.Context().Err(),
 		"流式路径原本就脱钩，不能被改回随客户端取消")
 }
