@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/index.md","reason":"核对后端分层及相关规范入口"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查聚焦测试、配置同步和静态验证"}
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查共享文件薄接入和 main 同步风险"}

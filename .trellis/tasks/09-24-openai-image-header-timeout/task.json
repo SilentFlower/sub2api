@@ -1,0 +1,69 @@
+{
+  "id": "openai-image-header-timeout",
+  "name": "openai-image-header-timeout",
+  "title": "为 OpenAI 图片和非流式文本设置独立响应头超时",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-09-24",
+  "completedAt": "2026-09-24",
+  "closeout": {
+    "status": "closed",
+    "closedAt": "2026-09-24T07:27:31Z",
+    "blockers": []
+  },
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-09-24T06:12:52Z",
+      "contextKey": "codex_01a0d201-247a-7bd3-8b3e-614cf7b21ae7",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "b2775b7331cd33f663c4ee893cabd9b6d93fb70a",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "b2775b7331cd33f663c4ee893cabd9b6d93fb70a",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "645bf9c116f37c8664be7feb78b40659febfc71a2a6ca8fd87b8f87c6ddd52ae"
+          }
+        ],
+        "fingerprint": "ac7cbf0a0e709829ae21b8127fb2a98e5d0d63d20f17e4c202c8186a3b328a56"
+      }
+    }
+  },
+  "progress": {
+    "updatedAt": "2026-09-24T07:27:22Z",
+    "completedSteps": [
+      "需求与技术方案",
+      "实现独立超时和连接池隔离",
+      "测试与 Check-All",
+      "代码推送及镜像构建",
+      "生产应用更新与运行验证"
+    ],
+    "partialStep": null,
+    "nextStep": "无，任务已完成",
+    "notes": "Build Image、CI、安全扫描通过；生产镜像 revision=1f6a835bb2ec78dd852efafa51f08784fadcc40c，digest=sha256:f83444a653cc6ad24490496cc2b652dd78e5746331998372d00e04cf70de3992；应用健康，通用/图片/非流式超时为20/600/300秒；未发起付费生成请求。"
+  }
+}
