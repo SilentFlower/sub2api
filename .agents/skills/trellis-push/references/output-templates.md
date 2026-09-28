@@ -23,6 +23,7 @@
 - **变更**：<N> 个文件 · `+<adds> -<deletes>`
 - **父提交**：`<pre-merge-head>` + `<merge-head>`（仅已有 merge 时显示）
 - **Push**：<执行 / 跳过（commit-only）>
+- **已验证自动 GC**：<随本次推送的历史 GC short hashes>（仅存在时显示）
 
 计划提交：
 - <exact files 或分组摘要>
@@ -54,6 +55,7 @@
 - 计划中单仓 `planned` 不超过 8 个文件时完整列出。
 - 超过 8 个时按目录归组，最多 12 行；用户要求展开时展示同一 exact set。
 - 顶部仓库/commit/file 总数包含独立任务记录提交所在 Git root、该提交及其 exact files；任务记录文件使用相同的 8 文件展示阈值和展开规则。
+- 已验证自动 GC 是已有的历史 ahead，不计入顶部本轮新建 commit/file 数、业务 planned 或任务记录 exact files；仅在实际将随普通推送发布时展示其仓库和 short hashes，不作为风险或第二次确认项。
 - 计划中的保留变更按仓库计数：不超过 8 项时逐项标注 `[untracked]`、`[unstaged]`、`[staged]`；超过 8 项时将非 staged 项按目录与 Git 状态汇总数量，每仓最多 12 行，必要时合并到上级目录。同一路径计数一次，兼有 staged/unstaged 时同时标注。
 - 计划中的计划外 staged 项始终逐项单列，不计入分组摘要；计划和结果中的真正风险均在独立“风险”区逐项展示，不受行数限制。分组、展开均只改变展示，不改变 exact set 或确认范围。
 - 用户要求“展开保留变更”时在对话中列出同一 exact set 与 Git 状态，不生成清单附件；“展开文件”仍指 planned files。
@@ -73,6 +75,7 @@
 [推送成功 / 仅本地提交成功 / 部分完成 / 失败]
 
 - **<repository-name>**：`<branch> → <upstream>` · `<short-hash[, short-hash...]>` · <已推送 / 仅本地 / 失败 / 未执行>
+- **已验证自动 GC**：<repository-name> · <short hashes> · <已推送 / 未推送待恢复>（仅存在时显示）
 - **任务记录**：`<task-record-hash>` · <completed + Close 已同步 / completed 但 Close blocked / partial 已同步，仍为 in_progress / commit 待恢复 / push 待恢复 / 同步失败>
 - **保留未提交的变更（dirty）**：<每仓数量与实际核对结论>
 
@@ -92,6 +95,7 @@
 - 仅普通模式且存在活动任务时显示“任务记录”行；没有实际 commit hash 时省略 hash，不填占位值。用户 `commit-only` 的仓库行只写当前分支与本地提交，不显示推送箭头或暗示已同步远端。
 - untracked 结果用“无任务状态”行替代“任务记录”，展示 work id 与 `<已清理/保留待恢复>`；不生成或暗示 task progress commit。没有保留变更、失败或风险时省略对应行或章节。
 - 部分完成时必须明确列出已成功仓库、失败仓库/步骤、当前分支和下一恢复动作。业务结果与 progress sync 状态不得合并成一个模糊结论。
+- 结果中的已验证自动 GC 只报告实际随对应仓库推送的历史提交；push 失败时标明待恢复，不把本地 commit 误报为已推送，也不重复为 GC 生成提交。
 - 普通成功结果必须确认本任务产生的当前任务目录变更 clean。其它 retained dirty（含计划外 staged）仍逐项核验，已核对保持原状时每仓只报告数量与结论，不重复清单。异常或未核验项列出路径、实际状态和处理情况，不得笼统声称全部保持原状；用户要求详情时再展示实际文件、message、命令或进度，展开文件仍沿用共用规则。
 - Git 成功不消除现有风险；成功结果省略未变化且接受仍有效的问题，不重复接受数量或原影响说明。结果的“风险”区保留新增、变化、接受失效或无法验证的事项，以及仍适用的其它完成链风险与 `[上线后验证]`；用户要求详情时再展开原问题与处置。
 - helper 成功但任务记录 commit 失败时，结果写“任务记录 commit 待恢复”，说明本地 `completed`、Close 结果与 exact task dirty 已保留；任务记录 commit 成功但 push 失败时写“任务记录 push 待恢复”，说明 clean ahead commit 已保留。两种情况都不得暗示需要重复业务提交、helper 写入或 Close。

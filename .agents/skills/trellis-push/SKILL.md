@@ -88,15 +88,28 @@ git ls-files -u
 git rev-parse --verify MERGE_HEAD 2>/dev/null || true
 git log --oneline -5
 git log @{u}..HEAD --oneline 2>/dev/null || true
+git rev-list --reverse @{u}..HEAD 2>/dev/null || true
 ```
 
 停止条件：
 
 - detached HEAD、分支不可读、未解决冲突、rebase、cherry-pick、revert 或其它非 merge 的未完成 Git 集成状态。
 - `MERGE_HEAD` 存在时仅普通模式可继续，并且必须固定当前 `HEAD` / `MERGE_HEAD`、确认 `git ls-files -u` 为空、全部 staged paths 都属于 planned 且没有 retained staged；否则停止。用户/auto-loop `commit-only` 不适用。
-- 普通推送会携带无法归属本次任务的历史 ahead commits。
+- 普通推送会携带既无法归属本次任务、也未通过下述自动 GC 审计的历史 ahead commits。
 - 无法确定 planned file 是否属于当前请求或活动任务。
 - 内部 `commit-only` 发现 staged 区非空。
+
+### 历史自动 GC 提交
+
+仅普通推送及其任务记录发布恢复使用这一默认许可。对 `@{u}..HEAD` 的每个完整提交哈希逐个判断：已由当前任务证据归属的提交沿用原规则；候选自动 GC 提交调用当前平台 `trellis-push` skill 目录中的只读脚本：
+
+```bash
+python3 <skill-dir>/scripts/verify_gc_commit.py --repo <repository-root> --commit <full-sha>
+```
+
+`<skill-dir>` 是当前实际加载的 `.agents/skills/trellis-push` 或 `.claude/skills/trellis-push`，不能从另一平台借用脚本。只有退出码为 0、JSON `status=verified` 且返回的完整 `commit` 与请求哈希一致，才把该提交标为“已验证自动 GC”。脚本逐项验证单父和完整固定消息、无重命名推断的 Git 树、顶层 closed 任务与 UTC 月份归档文件的同 blob/模式映射；支持同批多任务和已有相同归档的去重。它不读取或修改工作区，不凭提交消息单独放行。脚本缺失、执行失败、JSON 损坏、内容改写或任一证据不符都保持未知 ahead 并停止普通推送。
+
+记录已验证 GC 的完整哈希及仓库，作为计划和执行前复核基线。它是用户对纯自动 GC 的默认许可，不属于业务 `planned` 或任务记录 exact files，不增加专项确认，也不自行触发 GC 或单独 push。正常业务提交仍须展示并确认一次 Push 计划；用户 `commit-only` 和 auto-loop 内部 `commit-only` 不因本规则扩大授权。
 
 业务 Git 文件分为两组；普通模式的当前任务记录 exact files 按下方独立提交规则处理：
 
@@ -142,7 +155,7 @@ auto-loop 内部 `commit-only` 不渲染交互式计划或结果，也不再次�
 
 ## Step 4：精确提交与推送
 
-每个仓库按计划顺序执行。执行前重新检查 planned files、当前分支、HEAD、upstream、冲突状态、staged、全部 dirty paths 和 retained 摘要；任一关键条件变化都停止当前执行并重新规划。普通模式仅 `retained` 内容变化时可更新说明；auto-loop 内部模式的 retained 内容必须保持不变。
+每个仓库按计划顺序执行。执行前重新检查 planned files、当前分支、HEAD、upstream、冲突状态、staged、全部 dirty paths 和 retained 摘要；普通推送还须逐个重验计划中已验证 GC 的完整哈希与当前 `@{u}..HEAD`。任一关键条件变化都停止当前执行并重新规划。普通模式仅 `retained` 内容变化时可更新说明；auto-loop 内部模式的 retained 内容必须保持不变。
 
 计划包含本地生成命令时，前置仓成功后按计划执行命令，再复用本节现有预检。命令成功、后续仓全部 dirty paths（auto-loop 内部 `commit-only` 扣除已登记且验证未变化的 retained paths）都在预计 exact files 内且 retained 摘要未漂移时直接继续；否则停止并重新生成计划。预计文件最终 clean 时不强行提交。
 
@@ -220,7 +233,7 @@ auto-loop 内部链失败时向调用方返回全部已完成仓库提交和失�
 
 - 当前任务 exact files 与首次确认的路径集合一致，没有新增当前任务路径或无法归属的 dirty 内容。
 - 父仓分支、upstream 和冲突状态安全。
-- 推送不会携带无法归属的历史 ahead commits。
+- 对当前 `@{u}..HEAD` 重做 Step 2 归属检查；已验证的自动 GC 可随任务记录推送，其它无法归属的历史 ahead commits 仍停止。
 
 全部业务 commit/push 成功时，通过 helper 用同一份最终 progress 原子写入 `progress`、`status=completed`、`completedAt` 与确定性 `closeout`：
 
@@ -251,7 +264,7 @@ git push origin <current-branch>
 - 任务记录 commit 成功但 push 失败：任务目录应为 clean，并保留可归属的 ahead commit；后续只重试该 commit 的 push，不重复业务提交、helper 写入或任务记录 commit。
 - 任务记录 push 成功：本任务产生的当前任务目录变更必须 clean；不得再次写入完成态或 Close。
 
-任何恢复都必须验证当前分支、upstream、HEAD、`@{u}..HEAD`、任务记录 commit message 与 exact file set，以及 `task.json` 的最终完成态。无法证明归属时停止，不把未知 ahead 或 dirty 当作可恢复任务记录。
+任何恢复都必须验证当前分支、upstream、HEAD、`@{u}..HEAD`、任务记录 commit message 与 exact file set，以及 `task.json` 的最终完成态。已验证自动 GC 可按 Step 2 默认许可归属；其它未知 ahead 或 dirty 不能当作可恢复任务记录。
 
 ## Step 6：结果
 
