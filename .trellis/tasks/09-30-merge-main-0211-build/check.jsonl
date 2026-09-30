@@ -1,0 +1,8 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"检查定制策略归属与合并范围"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"后端质量检查与 meaningful 回归证据"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"复核模型、搜索、计费和适配契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"隔离验证及数据结构边界"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端 typecheck/lint/test/build 和 locale"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"字段一致性和新旧账号设置并存"}
+{"file":".trellis/tasks/09-30-merge-main-0211-build/research/approved-preview.md","reason":"对照原始需求与用户确认方案"}
+{"file":".trellis/tasks/09-30-merge-main-0211-build/research/shared-files-audit.md","reason":"逐项检查 71 个文件的处置结论与测试覆盖"}

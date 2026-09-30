@@ -1,0 +1,51 @@
+{
+  "id": "merge-main-0211-build",
+  "name": "merge-main-0211-build",
+  "title": "同步 main 0.2.11 到 build 并保留定制功能",
+  "description": "按已确认预览同步固定 main 0.2.11 到 build，解决 10 个冲突文件并逐一复核 61 个自动合并共同修改文件，保留定制功能并完成回归验证。",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "main-to-build-merge",
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-09-30",
+  "completedAt": "2026-09-30",
+  "closeout": {
+    "status": "closed",
+    "closedAt": "2026-09-30T14:04:05Z",
+    "blockers": []
+  },
+  "branch": "build",
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "已按确认计划完成固定 main 0.2.11 到 build 的合并并推送，10 个冲突已处理、71 个共同文件已复核。Full Check-All 三维度及 AC1-AC11 通过，协议规范已同步，验证证据见 research/validation.md；CI lint 和 unit 增量 lint 通过，额外 unit 全量 lint 的 58 项基线报告及上线后验证边界保留。原 build 的三个工程提交和备份分支均已保留。",
+  "meta": {
+    "approved_preview": ".trellis/tasks/09-30-merge-main-0211-build/research/approved-preview.md",
+    "approval_message": "确认吧我们任务跟踪吧",
+    "approval_scope": "合并预览、任务跟踪及最终 Brief 已确认",
+    "brief_approval_message": "确认",
+    "build_before_merge": "9c914278cef7cfe571120d19a92b7a75e5bfc6f8",
+    "main_merge_target": "42bc7f6cffe24bcb471608e48e66b4a0afa1f882",
+    "merge_base": "a3eb7ef302961cba716dc78b39b93b60c467db0e"
+  },
+  "progress": {
+    "completedSteps": [
+      "AC1-AC11 验收完成：固定 main 0.2.11 合入 build，10 个冲突及 71 个共同文件复核完成，定制功能保留",
+      "Full Check-All 通过：后端完整 unit、CI lint、增量 unit lint、构建及 embed 验证，前端 2660 个测试、类型检查、lint 与生产构建",
+      "协议规范同步完成：搜索成功完成、关闭推理、最终 usage 与 Ollama 出站 token 上限契约",
+      "确认的业务合并提交及普通推送完成，原 build 三个工程提交已保留"
+    ],
+    "partialStep": null,
+    "nextStep": "交付完成；上线后验证由发布负责人按既有上线流程承接",
+    "notes": "任务证据见 research/validation.md。额外 unit-tag 全量 lint 的 58 项报告与原 build 基线一致。真实供应商/OAuth、生产 Redis 与实际 Claude 重置需按已确认的上线后验证边界执行。",
+    "updatedAt": "2026-09-30T14:04:05Z"
+  }
+}

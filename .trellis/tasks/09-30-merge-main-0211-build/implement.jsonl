@@ -1,0 +1,11 @@
+{"file":".trellis/spec/guides/build-private-feature-isolation-guide.md","reason":"保留 build 私有功能与薄入口的领域边界"}
+{"file":".trellis/spec/backend/index.md","reason":"后端规范索引与相关层级"}
+{"file":".trellis/spec/backend/protocol-adapter-guidelines.md","reason":"模型、搜索、协议桥、Lite、图片和超时的现有行为契约"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"handler/service/repository 分层与 Wire 生成"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"错误契约、失败和回退边界"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"网关日志与计费字段及敏感信息约束"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"数据路径验证与迁移边界"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"账号和设置组件复用及字段往返"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端测试、类型、lint 和国际化要求"}
+{"file":".trellis/tasks/09-30-merge-main-0211-build/research/approved-preview.md","reason":"用户已确认的逐文件冲突策略和跨路径场景"}
+{"file":".trellis/tasks/09-30-merge-main-0211-build/research/shared-files-audit.md","reason":"全部共同修改文件的逐项复核与证据记录"}
