@@ -100,6 +100,47 @@ func alphaSearchWebSearchCallOnlySSE() string {
 		`data: {"type":"response.completed","response":{"output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"searched answer"}]}]}}` + "\n\n"
 }
 
+func TestForwardAlphaSearchViaResponsesRejectsUnsuccessfulSearchStreams(t *testing.T) {
+	streams := map[string]string{
+		"截断":     `data: {"type":"response.output_item.done","item":{"type":"web_search_call"}}` + "\n\ndata: [DONE]\n\n",
+		"失败事件":   `data: {"type":"response.failed"}` + "\n\n",
+		"完成状态失败": `data: {"type":"response.completed","response":{"status":"failed","output":[{"type":"web_search_call"}]}}` + "\n\n",
+	}
+	for name, stream := range streams {
+		t.Run(name, func(t *testing.T) {
+			disableOpenAIAlphaSearchTestEmulation(t)
+			body := []byte(`{"model":"gpt-5.6-sol","commands":{"search_query":[{"q":"news"}]}}`)
+			c, recorder := alphaSearchViaResponsesTestContext(t, body)
+			service := alphaSearchViaResponsesTestService(alphaSearchUpstreamRecorder(http.StatusOK, "text/event-stream", stream))
+			result, err := service.ForwardAlphaSearch(context.Background(), c, alphaSearchViaResponsesTestAccount(false), body)
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			require.Equal(t, "web_search_failed", gjson.Get(recorder.Body.String(), "error.code").String())
+		})
+	}
+}
+
+func TestForwardAlphaSearchViaResponsesIncompleteStreamUsesLocalResults(t *testing.T) {
+	enableOpenAIResponsesWebSearchTestManager(t)
+	body := []byte(`{"model":"gpt-5.6-sol","commands":{"search_query":[{"q":"news"}]}}`)
+	c, recorder := alphaSearchViaResponsesTestContext(t, body)
+	stream := `data: {"type":"response.output_text.delta","delta":"partial upstream answer"}` + "\n\ndata: [DONE]\n\n"
+	service := alphaSearchViaResponsesTestService(alphaSearchUpstreamRecorder(http.StatusOK, "text/event-stream", stream))
+	var calls []string
+	service.openAIWebSearchExecutor = alphaSearchStubExecutor(t, &calls, nil, map[string]*websearch.SearchResponse{
+		"news": {Results: []websearch.SearchResult{{Title: "local result", Snippet: "verified local content"}}},
+	}, nil)
+	result, err := service.ForwardAlphaSearch(context.Background(), c, alphaSearchViaResponsesTestAccount(true), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, "/v1/alpha/search", result.UpstreamEndpoint)
+	require.Equal(t, []string{"news"}, calls)
+	require.Contains(t, recorder.Body.String(), "verified local content")
+	require.NotContains(t, recorder.Body.String(), "partial upstream answer")
+}
+
 func alphaSearchStubExecutor(t *testing.T, calls *[]string, maxResultsSeen *[]int, byQuery map[string]*websearch.SearchResponse, errs map[string]error) func(context.Context, *Account, string, int) (*websearch.SearchResponse, string, error) {
 	t.Helper()
 	return func(_ context.Context, _ *Account, query string, maxResults int) (*websearch.SearchResponse, string, error) {

@@ -256,24 +256,22 @@ func TestAnthropicToChatCompletions_ReasoningEffort(t *testing.T) {
 }
 
 func TestAnthropicToChatCompletions_ThinkingDisabled(t *testing.T) {
-	// thinking:disabled 必须把 {type:"disabled"} 透传给上游，并去掉
-	// reasoning_effort；即使 output_config.effort 原本会设置 effort 也一样。
-	// 这样 reasoning 模型（GLM/...）才会停止 thinking，不会继续消耗 token 预算，
-	// 严格上游也不会收到 disable+effort 的互斥参数组合。
+	// 公共转换采用 OpenAI 标准关闭语义，优先于 output_config.effort。
+	// GLM 等兼容上游的 thinking 扩展由服务层在最终模型映射后投影。
 	out, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{
 		Model:        "c",
 		Thinking:     &AnthropicThinking{Type: "disabled"},
 		OutputConfig: &AnthropicOutputConfig{Effort: "high"},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, out.Thinking)
-	assert.Equal(t, "disabled", out.Thinking.Type)
-	assert.Equal(t, "", out.ReasoningEffort, "reasoning_effort must be dropped when thinking is disabled")
+	assert.Nil(t, out.Thinking)
+	assert.Equal(t, "none", out.ReasoningEffort)
 
 	// Anthropic 专属的 budget_tokens 不能泄漏到 chat 请求。
 	b, err := json.Marshal(out)
 	require.NoError(t, err)
-	assert.Contains(t, string(b), `"thinking":{"type":"disabled"}`)
+	assert.Contains(t, string(b), `"reasoning_effort":"none"`)
+	assert.NotContains(t, string(b), `"thinking"`)
 	assert.NotContains(t, string(b), "budget_tokens")
 
 	// enabled 沿用既有 reasoning_effort 映射，不输出 thinking 字段。

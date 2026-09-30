@@ -122,4 +122,13 @@ func TestExtractOpenAIUpstreamReasoningEffort_UsesMappedBillingOriginalOrder(t *
 	fromMappedModel := extractOpenAIUpstreamReasoningEffort(bodyWithMax, "gpt-5.6-sol", "gpt-5.4")
 	require.NotNil(t, fromMappedModel)
 	require.Equal(t, "xhigh", *fromMappedModel)
+
+	// 显式关闭后不能从原始或计费模型后缀恢复未发送的档位。
+	disabledBody := []byte(`{"model":"glm-5.2","thinking":{"type":"disabled"}}`)
+	require.Nil(t, extractOpenAIUpstreamReasoningEffort(disabledBody, "glm-5.2-high", "glm-5.2", "glm-5.2-max"))
+
+	disabledWithNone := []byte(`{"model":"gpt-5.6-sol","thinking":{"type":"disabled"},"reasoning_effort":"none"}`)
+	finalDisabledEffort := extractOpenAIUpstreamReasoningEffort(disabledWithNone, "gpt-5.6-sol-max", "gpt-5.6-sol")
+	require.NotNil(t, finalDisabledEffort)
+	require.Equal(t, "none", *finalDisabledEffort)
 }

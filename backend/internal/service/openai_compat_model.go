@@ -4,9 +4,13 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
+	if openai.IsGPT61SolModelSpelling(model) {
+		return "gpt-6.1-sol"
+	}
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
 		return ""
@@ -21,6 +25,30 @@ func NormalizeOpenAICompatRequestedModel(model string) string {
 
 func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) string {
 	if req == nil {
+		return ""
+	}
+	if openai.IsGPT61SolModelSpelling(req.Model) {
+		canonical := openai.CanonicalizeOpenAIModelAliasSpelling(req.Model)
+		if effort, ok := strings.CutPrefix(canonical, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
+			req.Model = "gpt-6.1-sol"
+			// 显式关闭推理优先于后缀，防止调用方回填派生 effort 后重新开启。
+			if req.Thinking != nil && req.Thinking.Type == "disabled" {
+				return ""
+			}
+			if req.OutputConfig == nil {
+				req.OutputConfig = &apicompat.AnthropicOutputConfig{}
+			}
+			if strings.TrimSpace(req.OutputConfig.Effort) != "" {
+				return ""
+			}
+			req.OutputConfig.Effort = effort
+			return effort
+		}
+	}
+
+	if req.Thinking != nil && req.Thinking.Type == "disabled" {
+		// 模型名仍需归一化，但不能派生会覆盖 disabled 的档位。
+		req.Model = NormalizeOpenAICompatRequestedModel(req.Model)
 		return ""
 	}
 
@@ -114,6 +142,12 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 // normally translated to OpenAI xhigh, but GPT-5.6 accepts the original max
 // value on Responses and Chat Completions.
 func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstreamModel, convertedEffort string) string {
+	if req != nil && req.Thinking != nil && req.Thinking.Type == "disabled" {
+		return "none"
+	}
+	if convertedEffort == "none" {
+		return convertedEffort
+	}
 	if req == nil || req.OutputConfig == nil || !strings.EqualFold(strings.TrimSpace(req.OutputConfig.Effort), "max") {
 		return convertedEffort
 	}

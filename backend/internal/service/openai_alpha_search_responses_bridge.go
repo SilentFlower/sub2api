@@ -91,7 +91,14 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaUpstreamResponsesWebSearch(
 
 	emulationEligible := s.alphaSearchEmulationEligible(ctx, c, account)
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		output, results, searched := parseOpenAIResponsesSSEForAlphaSearch(respBody)
+		output, results, searched, parseErr := parseOpenAIResponsesSSEForAlphaSearch(respBody)
+		if parseErr != nil {
+			if emulationEligible {
+				return s.emulateOpenAIAlphaSearch(ctx, c, account, alphaBody, requestedModel, upstreamModel)
+			}
+			writeOpenAIAlphaSearchFailed(c, "upstream web search did not complete successfully")
+			return nil, parseErr
+		}
 		if searched {
 			alphaRespBody, encodeErr := encodeOpenAIAlphaSearchResponse(output, results)
 			if encodeErr != nil {

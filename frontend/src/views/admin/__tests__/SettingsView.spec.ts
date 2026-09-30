@@ -7,6 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
+import OpenAIFastPolicyUserSelector from "../settings/OpenAIFastPolicyUserSelector.vue";
 
 const {
   getSettings,
@@ -605,6 +606,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        OpenAIFastPolicyUserSelector: true,
       },
     },
   });
@@ -805,6 +807,40 @@ describe("admin SettingsView payment visible method controls", () => {
       ],
     }));
     wrapper.unmount();
+  });
+
+  it.each([
+    { ids: [3, 7], serialized: "3,7" },
+    { ids: [], serialized: "" },
+  ])("风控白名单选择、保存和重载保留新旧字段：$serialized", async ({ ids, serialized }) => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      cyber_policy_user_allowlist: "2, 3 2,0,-1,invalid,1.5",
+      grok_cross_client_model_map_enabled: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    const selectors = wrapper.findAllComponents(OpenAIFastPolicyUserSelector);
+    const allowlistSelector = selectors[selectors.length - 1]!;
+    expect(allowlistSelector.props("modelValue")).toEqual([2, 3]);
+    allowlistSelector.vm.$emit("update:modelValue", ids);
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      cyber_policy_user_allowlist: serialized,
+      grok_cross_client_model_map_enabled: true,
+    }));
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, ...updateSettings.mock.calls[0]![0] });
+    wrapper.unmount();
+
+    const reloaded = mountView();
+    await flushPromises();
+    const reloadedSelectors = reloaded.findAllComponents(OpenAIFastPolicyUserSelector);
+    expect(reloadedSelectors[reloadedSelectors.length - 1]!.props("modelValue")).toEqual(ids);
+    reloaded.unmount();
   });
 
   it("submits the compact home page toggle", async () => {

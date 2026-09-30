@@ -80,6 +80,10 @@ func extractFinalOpenAIReasoningEffort(body []byte) *string {
 // Grok 4.5 必须记录实际发送值；其它模型（含 GLM）与上游一致，按上游、计费、原始模型
 // 的顺序恢复被模型映射剥离的 effort 后缀，并对仅开启 thinking 的请求补默认档位。
 func extractOpenAIUpstreamReasoningEffort(body []byte, requestedModel string, mappedModel string, additionalModelCandidates ...string) *string {
+	if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()), "disabled") {
+		// 关闭推理的兼容请求不能从入站模型后缀恢复出未发送的 effort。
+		return extractFinalOpenAIReasoningEffort(body)
+	}
 	if isGrok45OpenAIReasoningEffortModel(mappedModel) {
 		return extractFinalOpenAIReasoningEffort(body)
 	}

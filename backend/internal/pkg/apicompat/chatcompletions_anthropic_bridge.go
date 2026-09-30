@@ -102,17 +102,8 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 		}
 	}
 
-	// 显式关闭 thinking 时不能同时发送 reasoning_effort，否则严格上游会拒绝
-	// 这组互斥参数；其他场景保留 main 的默认 medium 语义。
-	if req.Thinking != nil && req.Thinking.Type == "disabled" {
-		out.Thinking = &ChatThinking{Type: "disabled"}
-	} else {
-		effort := "medium"
-		if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-			effort = req.OutputConfig.Effort
-		}
-		out.ReasoningEffort = mapAnthropicEffortToResponses(effort)
-	}
+	// 与 Responses 桥保持关闭推理和默认档位一致，供应商扩展由最终出站层投影。
+	out.ReasoningEffort = anthropicReasoningEffort(req)
 
 	parallelToolCalls := true
 	out.ParallelToolCalls = &parallelToolCalls

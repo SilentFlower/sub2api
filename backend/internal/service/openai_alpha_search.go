@@ -560,7 +560,10 @@ func shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(statusCode int) bool {
 }
 
 func openAIAlphaSearchResponseFromResponsesSSE(body []byte) ([]byte, error) {
-	output, results, _ := parseOpenAIResponsesSSEForAlphaSearch(body)
+	output, results, _, err := parseOpenAIResponsesSSEForAlphaSearch(body)
+	if err != nil {
+		return nil, err
+	}
 	return encodeOpenAIAlphaSearchResponse(output, results)
 }
 
@@ -576,9 +579,11 @@ func encodeOpenAIAlphaSearchResponse(output string, results []any) ([]byte, erro
 	return json.Marshal(resp)
 }
 
-// parseOpenAIResponsesSSEForAlphaSearch 解析上游 Responses SSE，返回拼接文本、引用结果，
-// 以及上游是否真实执行过搜索（出现 web_search_call 输出项或至少一条 url_citation）。
-func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool) {
+// parseOpenAIResponsesSSEForAlphaSearch 解析文本、引用和真实搜索证据；流失败或缺少成功完成事件时返回错误。
+//
+// @param body 上游 Responses SSE 响应体。
+// @return 拼接文本、引用结果、真实搜索标记和完成错误；错误时不返回可计费的部分结果。
+func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool, error) {
 	text := strings.ReplaceAll(string(body), "\r\n", "\n")
 	var output strings.Builder
 	var completedResponse any
@@ -595,16 +600,30 @@ func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool) {
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
 		}
+		switch event["type"] {
+		case "error", "response.failed", "response.incomplete":
+			return "", nil, false, fmt.Errorf("alpha search responses stream ended with %s", event["type"])
+		case "response.completed":
+			response, ok := event["response"].(map[string]any)
+			if !ok || response == nil {
+				return "", nil, false, fmt.Errorf("alpha search responses completion is missing its response")
+			}
+			if status, present := response["status"]; present && status != "completed" {
+				return "", nil, false, fmt.Errorf("alpha search responses completion has a non-success status")
+			}
+			completedResponse = response
+		}
 		if delta, _ := event["delta"].(string); delta != "" && event["type"] == "response.output_text.delta" {
 			_, _ = output.WriteString(delta)
-		}
-		if event["type"] == "response.completed" {
-			completedResponse = event["response"]
 		}
 		if !searched && openAIAlphaSearchValueHasWebSearchCall(event) {
 			searched = true
 		}
 		collectOpenAIAlphaSearchURLCitations(event, &results, seenURLs)
+	}
+	// 200、文本 delta 和 DONE 均不足以确认成功，截断流不能产生可计费结果。
+	if completedResponse == nil {
+		return "", nil, false, fmt.Errorf("alpha search responses stream ended before completion")
 	}
 
 	out := output.String()
@@ -615,7 +634,7 @@ func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool) {
 	if len(results) > 0 {
 		searched = true
 	}
-	return out, results, searched
+	return out, results, searched, nil
 }
 
 func openAIAlphaSearchSSEData(block string) string {

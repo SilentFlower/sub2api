@@ -10,6 +10,7 @@
 
 - Trigger: 修改 Anthropic `/v1/messages` 与 OpenAI-compatible `/v1/chat/completions` 的请求或响应互转时，必须按本节检查。
 - 适用路径：`backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go`。
+- build 出站策略：`backend/internal/service/openai_compat_chat_thinking.go`、`openai_gateway_messages_chat_fallback.go`、`openai_gateway_ollama_cloud_max_tokens.go`。
 - 账号粘性路径：`backend/internal/handler/openai_gateway_handler.go`。
 - 入口场景：OpenAI APIKey 且不走 Responses API 的 raw Chat fallback。该路径不会经过 Responses 的 `prompt_cache_key` / digest replay guard，因此 payload 前缀本身必须稳定。
 - 缓存目标：稳定 Chat prefix cache，避免动态 attribution system block、string/array content 形态切换、随机 `tool_use.id` 造成缓存重建。
@@ -20,6 +21,8 @@
 - 流式响应转换：`ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 流式收尾：`FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 非流式折叠：`ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, model string) *AnthropicResponse`
+- build 关闭推理策略：`applyOpenAICompatChatThinking(req *apicompat.AnthropicRequest, chatReq *apicompat.ChatCompletionsRequest, account *Account)`
+- Chat 出站 token 上限：`clampOllamaCloudUpstreamMaxTokens(account *Account, body []byte) []byte`
 - 网关结果：`OpenAIForwardResult.UpstreamHeaders`（`http.Header`），由 `openai_gateway_messages_chat_fallback.go` 接续。
 
 ### 3. Contracts
@@ -33,7 +36,10 @@
 - assistant 的 text/image 和 `tool_use` 必须合并为同一条 `role:"assistant"` message；`tool_use` 转为 Chat `tool_calls`。
 - Anthropic `tool_result` 没有独立 id，只有 `tool_use_id`。转 Chat 时输出 `role:"tool"`，并把 `tool_use_id` 写入 `tool_call_id`。同一 Anthropic user 轮次中的其它 text/image 必须放在后续 user message，以保持 Chat tool adjacency。
 - 多个并行工具的 `tool_result` 可能因实际执行耗时以不同顺序到达。转换到 Chat 后，紧跟上一条 assistant `tool_calls` 的连续 `role:"tool"` messages 必须按该 assistant `tool_calls` 的 id 顺序规范化；未知 id 保持相对顺序并排在已知 id 后面。不要跨过普通 user/text message 重排。
-- 历史 assistant `thinking` 不能当普通 text 注入 Chat prompt；带工具调用的 assistant 消息将明文 thinking 回传为 `reasoning_content`，无工具调用的轮次仍省略。请求级 `thinking:{"type":"disabled"}` 继续透传，并在该场景省略 `reasoning_effort`。
+- 历史 assistant `thinking` 不能当普通 text 注入 Chat prompt；带工具调用的 assistant 消息将明文 thinking 回传为 `reasoning_content`，无工具调用的轮次仍省略。
+- 公共转换器将请求级 `thinking:{"type":"disabled"}` 转为 `reasoning_effort:"none"`，省略 Chat `thinking`。build 的 Messages → Chat 出站策略在模型映射后调用 `applyOpenAICompatChatThinking`：最终模型属于 GPT / o1 / o3 / o4，或实际端点主机为 `api.openai.com` 时沿用公共字段；其它兼容上游恢复 `thinking.type=disabled` 并清空 effort，防止 GLM 将 `none` 映射为 `high`。不得按映射前的公开模型别名分类。
+- 显式关闭推理优先于模型的 `-xhigh` / `-max` 等后缀与 `output_config.effort`；不能从后缀重新开启推理。GPT-6.1 Sol 仍以原始请求体和最终模型执行校验，禁止的 `none` / `minimal` 或关闭推理返回 400 `invalid_request_error`。
+- Messages → Chat 在 provider / effort / fast 策略之后，对最终出站 body 调用 Ollama token 上限 helper，再提取 usage。实际 Chat 上游为 `ollama.com` 且映射后模型为 DeepSeek 时，任意平台均按账号 `extra.ollama_max_tokens_cap` 裁剪 `max_tokens` / `max_completion_tokens`；缺省上限为 65535，数值配置为 0 或负数时禁用。非 DeepSeek 仅沿用既有 OpenAI 平台 Ollama raw Chat 账号规则；非 Ollama 地址不裁剪，不修改原始入站 body。
 - Chat 上游返回非空 `tool_call.id` 时，Anthropic `tool_use.id` 必须原样使用。
 - Chat 上游缺失 `tool_call.id` 时，不能使用随机 id。必须在 index/name/完整 arguments 可确定后生成 fallback：
   ```text
@@ -64,7 +70,9 @@
   最终 `stop_reason` 也使用 `end_turn`。
 - 上游 SSE 只返回 `data: [DONE]` 且没有 chunk -> 输出 `message_start`、`message_delta(stop_reason=end_turn)`、`message_stop`。
 - Chat usage cached tokens 大于 prompt tokens -> Anthropic `input_tokens` 归零，不产生负数。
-- `thinking.type == "disabled"` -> 输出 Chat `thinking.type=disabled`，且 `reasoning_effort` 必须为空。
+- `thinking.type == "disabled"` -> 公共转换器输出 `reasoning_effort=none`；build 的最终模型/端点判定决定保留该结果，或恢复 `thinking.type=disabled` 且省略 effort。兼容关闭分支的 usage 不从模型后缀补 effort。
+- 公开 GPT 别名映射到 DeepSeek / GLM / 未知兼容模型 -> 按最终兼容模型保留关闭开关，不发送 `none`；兼容别名映射到 GPT 或实际官方端点 -> 使用 `none`。
+- Ollama 出站 token 超过默认/自定义上限 -> 单向裁剪；上限以内、显式禁用、非 Ollama 地址 -> 保持原值。
 - Anthropic body 含 `metadata.user_id` 且无显式 session 信号 -> 账号 sticky key 来自 `reqModel + "-" + metadata.user_id`，不被 model/tools/首条 user content fallback 覆盖。
 - Anthropic body 同时含显式 session 信号和 `metadata.user_id` -> 显式 session 信号优先。
 
@@ -77,8 +85,11 @@
 - Good: 上游只给出 tool call ID/arguments、始终不给 function name 时，不输出
   `name:""` 的非法 `tool_use`，并以 `end_turn` 完成。
 - Good: Claude Code 同一 `metadata.user_id` 即使首条用户内容或工具定义不同，账号 sticky key 仍稳定命中同一个账号绑定。
+- Good: `gpt-5.4-xhigh` 映射到 DeepSeek 且显式关闭推理，最终 Chat body 只有 `thinking.type=disabled`，usage effort 为 `nil`；Ollama 地址上的 256000 token 按缺省上限裁为 65535。
 - Base: 上游稳定返回 `tool_call.id`，桥接直接复用该 id，客户端下一轮 `tool_result.tool_use_id` 可稳定引用。
 - Base: 上游不返回 `tool_call.id`，相同 index/name/arguments 多次请求生成相同 `toolu_` fallback。
+- Base: 映射到支持关闭推理的 GPT 模型时发送 `reasoning_effort=none`；GPT-6.1 Sol 的禁用档位按上游校验契约拒绝，不绕过校验。
+- Bad: 按入站 GPT 别名给 GLM 发送 `none`，导致 provider 归一化恢复为 `high`。正确做法是在模型映射之后应用 build 出站策略，并从最终 body 提取 usage。
 - Bad: 为缺 id 的 tool call 调用 `crypto/rand` 或拼接请求 id、时间戳、message id。
 - Bad: 先发送 fallback id，后续 chunk 又收到上游 id，导致同一次工具调用在客户端侧 id 漂移。
 - Bad: 把 `tool_result` 后面的用户文本排在 `role:"tool"` 之前，破坏 Chat Completions 的 tool adjacency。
@@ -106,7 +117,9 @@
   - 缺失上游 `tool_call.id` 时 fallback id 可重复。
   - 后续 chunk 才提供 `tool_call.id` 时，最终使用上游 id。
   - 上游只返回 `[DONE]` 时，streaming 路径仍输出 `message_start`、`message_delta`、`message_stop`。
-  - `thinking:{"type":"disabled"}` 透传，且不输出 `reasoning_effort`。
+  - 公共转换器的 disabled → `none` 契约；`TestForwardMessagesChatDisabledThinkingUsesFinalProvider` 的原生模型、公开 GPT 别名映射到 DeepSeek、GLM、兼容别名映射到 GPT、官方端点、未知兼容模型六种实际出站断言。
+  - `TestCompatModelNormalizationDisabledThinkingDoesNotDeriveEffort`：显式关闭不从模型后缀派生 effort；兼容分支省略 effort 且 usage 为 `nil`。
+  - `TestMessagesChatFallbackClampsActualOllamaOutboundTokens`：实际出站模型与地址、默认/自定义上限、显式禁用、上限以内、非 Ollama 地址，以及入站 body 不被修改。
   - cached/cache creation token 分别映射，且
     `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` 不超过
     上游 `prompt_tokens`。
@@ -368,7 +381,8 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 | 未知值 | 原样透传 |
 
 - `extractOpenAIUpstreamReasoningEffort` 对 `grok-4.5` 只从最终请求体 trim 后读取，不做白名单过滤；最终请求体没有 effort 时保持 `nil`，不得调用 `ApplyThinkingEnabledFallback`。
-- 其它模型（含 GLM）与上游一致：按 `upstream -> billing -> original` 候选调用 `extractOpenAIReasoningEffortFromBody`，再 `ApplyThinkingEnabledFallback`；GLM 仅开启 thinking 而无 effort 时按上游默认档位记录（当前为 `high`）。
+- 最终 body 的 `thinking.type` 为 `disabled` 时，所有模型只从实际 effort 字段提取日志，不做后缀恢复或 thinking fallback；没有实际 effort 则记录 `nil`，显式 `none` 则保留 `none`。
+- 其它未关闭推理的模型（含 GLM）与上游一致：按 `upstream -> billing -> original` 候选调用 `extractOpenAIReasoningEffortFromBody`，再 `ApplyThinkingEnabledFallback`；GLM 仅开启 thinking 而无 effort 时按上游默认档位记录（当前为 `high`）。
 - `/v1/messages` 默认 Responses 路径与强制 Chat 路径保持既有缺省差异：Responses 转换器当前会发 `medium`；强制 Chat 未产生 effort 时上游 body 继续省略，不互相补默认值。
 - 前端继续读取现有 `reasoning_effort` 字段；`none` 显示为 `None`，`minimal` 显示为 `Minimal`，空值才显示 `-`。
 
@@ -378,6 +392,7 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 - 已是目标原生值 -> 请求体保持不变，返回 `changed=false`。
 - `banana` 等未知值 -> 请求体原样透传；上游接受时日志保留 trim 后实际值，上游拒绝时沿用现有错误路径。
 - effort 字段缺失或 trim 后为空 -> 不新增字段，Grok 4.5 日志为 `nil`。
+- `thinking.type=disabled` 且原始/计费模型仍有 effort 后缀 -> 不恢复后缀，usage 只读取最终 body 的实际 effort。
 - 同时存在嵌套和扁平字段 -> 只处理、记录嵌套字段，嵌套 effort 即使为空也优先于平铺字段。
 - 最终模型为 `grok-4.20-multi-agent` / `grok-4.3` -> 跳过 Grok 4.5 归一化。
 - 最终模型为 `glm-*` -> build 规则不参与；raw Chat / Messages fallback 结果与上游 `NormalizeGLMOpenAIReasoningEffort` 一致，Responses fallback 原样透传。
@@ -387,6 +402,7 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 - Good: 客户端向 `grok` 别名发送 `xhigh`，模型映射先得到 `grok-4.5`，最终上游 body 和 usage 日志都为 `high`。
 - Good: Responses、原生 Chat、Messages 两种分支和 Grok WebSocket HTTP bridge 复用同一 Grok 4.5 映射和最终值提取逻辑。
 - Base: 未提供 effort 时保持缺失；Grok 上游自身的默认档位不写入本地日志。
+- Base: GLM 最终 body 为 `thinking.type=disabled` 且无 effort，即使原始模型仍带 `-high`、计费模型仍带 `-max`，usage 仍为 `nil`。
 - Base: 非 Grok 4.5 模型继续原样接收 `xhigh`。
 - Bad: 在模型映射前按客户端 `grok`/`grok-latest` 名称判断，导致别名漏归一化。
 - Bad: 从转换前 DTO 或客户端原始 body 回填 `ReasoningEffort`，导致 `xhigh -> high` 后日志仍写 `xhigh`。
@@ -395,6 +411,7 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 ### 6. Tests Required
 
 - `openai_provider_reasoning_effort_test.go`：覆盖 Grok 4.5 完整映射表、大小写/分隔符、嵌套空值优先、未知值、缺失值、非 4.5 Grok 模型、最终值提取，以及 GLM 仅开启 thinking 时记录上游默认档位。
+- `TestExtractOpenAIUpstreamReasoningEffort_UsesMappedBillingOriginalOrder`：关闭推理不从原始/计费模型恢复 effort 后缀，最终 body 显式 `none` 时仍保留该值。
 - `gateway_request_test.go`（上游）：GLM OpenAI-compatible 映射，build 不维护副本。
 - `openai_gateway_grok_test.go`：覆盖 Grok Responses、原生 Chat、Messages Responses 的上游 body 与结果 effort 一致。
 - `openai_gateway_messages_chat_fallback_test.go`：覆盖强制 Chat 按最终模型与策略封顶提取 effort，以及 GLM 经统一入口委托上游归一后上游 body 与结果 effort 一致。
@@ -431,7 +448,7 @@ if normalizedBody, changed := normalizeOpenAIReasoningEffortForProvider(upstream
 reasoningEffort := extractOpenAIUpstreamReasoningEffort(upstreamBody, originalModel, upstreamModel, billingModel)
 ```
 
-先按最终模型改写上游 body，再从实际发送体提取日志值；Grok 4.5 不推断默认档位，其它模型（含 GLM）沿用上游候选提取与 thinking fallback。
+先按最终模型改写上游 body，再从实际发送体提取日志值；关闭推理或 Grok 4.5 不推断默认档位，其它未关闭推理的模型（含 GLM）沿用上游候选提取与 thinking fallback。
 
 ---
 
@@ -460,7 +477,7 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 ### 3. Contracts
 
 - 显式字段优先级固定为 `reasoning.effort` > `reasoning_effort`；命中显式值时，仅使用第一个非空模型候选判断模型感知归一化。
-- 请求体没有 effort 时，按全部候选顺序推导模型后缀。OAuth/Codex 标准化可能剥离 upstream model 的 `-high` / `-xhigh` / `-max`，因此必须保留 billing 和 original model 候选。
+- 请求体没有 effort 且未显式关闭推理时，按全部候选顺序推导模型后缀。OAuth/Codex 标准化可能剥离 upstream model 的 `-high` / `-xhigh` / `-max`，因此必须保留 billing 和 original model 候选。最终 body 的 `thinking.type=disabled` 时只提取实际 effort，禁止后缀恢复和 thinking fallback。
 - `max` 是否保留由第一个非空候选的 `supportsOpenAIReasoningEffortMax` 结果决定。当前支持 GPT-5.6、GPT-6 Astra 已知别名，以及 `deepseek-v4*`、`glm-*`、`kimi-*`、`moonshot-*`、`k3` / `k3-*`；其它模型统一为 `xhigh`。GPT 家族识别复用对应 helper，不能改成所有 `gpt-*` 都保留。
 - Grok 4.5 继续走 provider-specific 分支：直接读取最终上游 body，不用模型后缀或 thinking fallback 覆盖实际发送值；GLM 与上游一致走通用候选提取。
 - raw Chat、Messages fallback、Responses fallback 有 billing model 时都必须传入；WebSocket 只有 original/mapped model 时可省略额外候选。
@@ -476,8 +493,9 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 | body 无 effort，original model 为 `gpt-5.6-sol-max` | 从后缀恢复 `max` |
 | body 无 effort，original model 为 `gpt-5.4-xhigh` | 从后缀恢复 `xhigh` |
 | Grok 4.5 已完成 provider 归一化 | usage 记录最终 body 值，不应用后缀或 thinking fallback |
+| `thinking.type=disabled`，body 无 effort，但 original/billing 有后缀 | 返回 `nil`，不得恢复后缀 |
 | OpenAI OAuth GPT-5.6 compact + `max` | 上游 body 与 usage 均为 `xhigh` |
-| 所有候选均为空或无后缀，body 也无 effort | 返回 `nil`；仅非 provider-specific 路径可沿用既有 thinking fallback |
+| 所有候选均为空或无后缀，body 也无 effort | 返回 `nil`；仅未关闭推理且非 provider-specific 路径可沿用既有 thinking fallback |
 
 ### 5. Good/Base/Bad Cases
 
@@ -959,7 +977,7 @@ POST /backend-api/codex/alpha/search
 - OAuth 请求缺少入站 `Version` 时使用 `codexCLIVersion`；显式 `Version` 原样保留。客户端未提供 `OpenAI-Beta` 时不得额外注入该头。
 - 调度必须复用用户并发、账号并发、session sticky、模型限制、账号健康、最大切换次数和现有 failover 副作用。
 - 上游非切换错误原样返回状态、body 和白名单响应头；可切换错误必须先返回 `UpstreamFailoverError`，不得提前写下游响应。
-- 仅上游 2xx 表示一次真实成功的搜索：返回非 nil `OpenAIForwardResult`，并设置 `WebSearchCalls=1`。已原样透传的非 2xx 或重定向返回 `(nil, nil)`，不得计费；failover 和传输错误继续通过 error 返回。
+- 独立 Alpha Search 端点的直接转发仅在上游 2xx 时返回非 nil `OpenAIForwardResult`，并设置 `WebSearchCalls=1`；PAT / Responses SSE 桥接还必须满足解析器的成功完成契约，build 开关路径另须真实搜索证据。已原样透传的非 2xx 或重定向返回 `(nil, nil)`，不得计费；failover 和传输错误继续通过 error 返回。
 - handler 只在 result 非 nil 时使用 mandatory usage 池记录用量；池满时同步兜底，避免成功搜索漏扣费。请求体哈希、channel mapping、账号、订阅和 quota platform 必须进入现有 `RecordUsage` 链路。
 - 按次价格来自 `groups.web_search_price_per_call`；null 使用默认 `0.01 USD/次`，显式 `0` 表示免费。最终费用为调用次数 × 单次价格 × 分组倍率。
 - `web_search_price_per_call` 必须在 migration、Ent schema/生成代码、Group service/DTO、API key cache snapshot、前端 Group/Create/Update 类型和管理页之间保持 snake_case 契约一致。
@@ -1047,7 +1065,7 @@ model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 
 ### 1. Scope / Trigger
 
-- Trigger: 修改账号级 `openai_alpha_search_via_responses` 开关、alpha/search → Responses `web_search` 翻译、真实搜索证据判定、本地模拟兜底（命令解析、供应商执行、输出格式）或相关计费时，必须按本节检查。
+- Trigger: 修改账号级 `openai_alpha_search_via_responses` 开关、alpha/search → Responses `web_search` 翻译、真实搜索证据与成功完成判定、本地模拟兜底（命令解析、供应商执行、输出格式）或相关计费时，必须按本节检查。
 - 背景：Codex 对 Responses Lite 模型跳过全部托管工具，code mode 下 `web.run` 暴露为 `tools.web__run`，模型调用后 Codex 向 `{base_url}/alpha/search` 发独立请求。DeepSeek 等 OpenAI 兼容上游没有该端点，且其 `/responses` 会忽略 `web_search` 工具（实测无 `web_search_call`、无 `url_citation`，模型凭记忆作答）。
 - 适用路径：
   - `backend/internal/service/openai_alpha_search_responses_bridge.go`（build 私有领域 owner：开关、上游翻译、证据判定、兜底编排）
@@ -1063,7 +1081,7 @@ const accountExtraKeyOpenAIAlphaSearchViaResponses = "openai_alpha_search_via_re
 func (a *Account) IsOpenAIAlphaSearchViaResponsesEnabled() bool
 func (s *OpenAIGatewayService) forwardAlphaSearchViaUpstreamResponsesWebSearch(ctx context.Context, c *gin.Context, account *Account, alphaBody []byte, token, proxyURL, requestedModel, upstreamModel string) (*OpenAIForwardResult, error)
 func (s *OpenAIGatewayService) buildOpenAIAlphaSearchAPIKeyResponsesRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string) (*http.Request, error)
-func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (output string, results []any, searched bool)
+func parseOpenAIResponsesSSEForAlphaSearch(body []byte) (string, []any, bool, error)
 func encodeOpenAIAlphaSearchResponse(output string, results []any) ([]byte, error)
 
 func (s *OpenAIGatewayService) alphaSearchEmulationEligible(ctx context.Context, c *gin.Context, account *Account) bool
@@ -1082,14 +1100,16 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 
 - 开关只对 `platform=openai` 且 `type=apikey` 的账号生效；OAuth/PAT、国产平台账号恒为关闭。缺失、非布尔或 false 视为关闭，所有既有 alpha/search 行为不变。
 - 开启时 `ForwardAlphaSearch` 在 PAT 分支之后改走桥接：复用 `buildOpenAIAlphaSearchResponsesWebSearchBody` 构造 `stream=true`、`store=false`、`tools=[{type:web_search,…}]` 的 Responses 请求；目标为账号 base_url 派生的 Responses 端点（`buildOpenAIResponsesURLForPlatform`，无 base_url 时官方端点）；只带 Bearer 鉴权、`Content-Type`、`Accept: text/event-stream`、账号自定义 UA 或入站 UA、账号 header 覆盖，不带 ChatGPT 账号头、Codex 身份头、`OpenAI-Beta` 与 Lite 头。
-- 真实搜索证据：上游 2xx 且 SSE 中任一事件出现 `web_search_call` 输出项，或收集到至少一条 `url_citation`。有证据时写回 `{"output","results"}`，返回 `WebSearchCalls=1`、`UpstreamEndpoint=/v1/responses`。
+- 成功完成：上游 2xx 的 SSE 必须包含合法 `response.completed`，其中 `response` 是对象；`response.status` 可缺省，存在时必须为 `completed`。`error` / `response.failed` / `response.incomplete`、非法完成对象/状态、缺少完成事件均返回解析错误及空结果，不能把部分文本/引用作为可计费成功结果；HTTP 2xx、文本 delta 与 `[DONE]` 均不足以确认完成。
+- 真实搜索证据：成功完成后，SSE 任一事件出现 `web_search_call` 输出项，或收集到至少一条 `url_citation`。仅在解析无错且有证据时写回 `{"output","results"}`，返回 `WebSearchCalls=1`、`UpstreamEndpoint=/v1/responses`。
 - 本地模拟资格与 `resolveCodexWebSearchBridgeDecision` 同一判定：账号/渠道 Web Search Emulation 开启、系统设置开启、存在可用供应商；执行器优先取 `s.openAIWebSearchExecutor`。
 - 分类表：
 
 | 上游结果 | 模拟资格满足 | 模拟不可用 |
 |---|---|---|
-| 2xx 且有证据 | 写回并计费 | 写回并计费 |
-| 2xx 无证据 | 本地模拟 | 502 `error.code=web_search_failed`，不计费 |
+| 2xx、成功完成且有证据 | 写回并计费 | 写回并计费 |
+| 2xx、成功完成但无证据 | 本地模拟 | 502 `error.code=web_search_failed`，result nil，不计费 |
+| 2xx 但流失败、截断或完成事件非法（包括已有部分搜索证据） | 本地模拟，丢弃上游部分结果 | 502 `error.code=web_search_failed`，result nil，不计费 |
 | 非 2xx | 本地模拟（不触发账号错误副作用） | 与 PAT 路径相同：failover 条件或 404/405 返回 `UpstreamFailoverError`，否则原样透传状态/body/白名单头 |
 
 - 本地模拟只执行 `commands.search_query`（`image_query` 视同文本搜索），去重后最多 4 条；`settings.search_context_size` low/medium/high → 3/5/10；`search_query[].domains` 与 `settings.filters.allowed_domains` 为允许域名、`settings.filters.blocked_domains` 为拒绝域名；有 URL 的结果跨查询按 URL 去重、无 URL 的文本结果保留，连续编号 `turn0searchN`；`max_output_tokens` 存在时按 4 字符/token 截断 `output` 并附 `...<truncated>`。
@@ -1103,8 +1123,10 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 | 条件 | 必须结果 |
 |---|---|
 | 开关关闭 / OAuth / PAT / 国产平台 | 沿用 "Codex Alpha Search 独立端点转发" 全部契约 |
-| 开启 + 上游 SSE 含 `url_citation` | 200 `{"output","results"}`，`WebSearchCalls=1`，上游 URL 为 base_url 派生 Responses 端点，Bearer，无 ChatGPT/Lite 头 |
-| 开启 + 上游 SSE 仅含 `web_search_call` | 视为已搜索，200，`results` 省略 |
+| 开启 + 上游 SSE 成功完成且含 `url_citation` | 200 `{"output","results"}`，`WebSearchCalls=1`，上游 URL 为 base_url 派生 Responses 端点，Bearer，无 ChatGPT/Lite 头 |
+| 开启 + 上游 SSE 成功完成且证据仅为 `web_search_call` | 视为已搜索，200，`results` 省略 |
+| 开启 + 上游流失败/截断/非法完成事件 + 资格满足 | 使用本地模拟结果，不泄露上游部分回答，按本地结果计费 |
+| 开启 + 上游流失败/截断/非法完成事件 + 资格不满足 | 502 `error.code=web_search_failed`，result nil |
 | 开启 + 上游 2xx 无证据 + 资格满足 | 本地模拟 200，`WebSearchCalls=1` |
 | 开启 + 上游 2xx 无证据 + 资格不满足 | 502 `error.code=web_search_failed`，result nil |
 | 开启 + 上游 404 + 资格满足 | 本地模拟 200 |
@@ -1116,15 +1138,17 @@ func buildOpenAIAlphaSearchEmulationOutput(blocks []openAIAlphaSearchEmulationBl
 ### 5. Scenarios and Examples
 
 - Normal: Codex `gpt-6-astra` 经开启开关的 openai API Key 账号（base_url 指向 DeepSeek）：上游 `/responses` 忽略 `web_search`，网关判定无证据后用 Brave/Tavily/AnySearch 执行 `search_query`，Codex 收到含 `turn0search0` 的纯文本与 `results`。
-- Base: 同一开关配合支持托管 `web_search` 的 OpenAI 兼容上游：上游返回 `url_citation`，网关直接写回，不触发本地模拟。
+- Base: 同一开关配合支持托管 `web_search` 的 OpenAI 兼容上游：上游成功完成并返回 `url_citation`，网关直接写回，不触发本地模拟。
 - Incorrect use: 在开关关闭时对上游 404 自动模拟。Correct: 关闭时保持既有换号语义，模拟只由开关触发。
 - Incorrect use: 上游 2xx 就直接写回，不判定证据。Correct: 无 `web_search_call`/`url_citation` 视为未搜索，否则 Codex 会把模型凭记忆编的内容当作搜索结果。
+- Incorrect use: 上游已有文本/引用或 `[DONE]` 就接受截断流。Correct: 同时检查解析 `error` 与 `searched`，缺少合法成功完成事件时按资格本地兜底或返回 502，不返回部分成功结果。
 - Incorrect use: 在共享入口 `ForwardAlphaSearch` 内展开开关判断、请求构造与模拟逻辑。Correct: 共享入口只保留一次薄调用，逻辑在两个领域文件内。
 
 ### 6. Tests Required
 
 - websearch：`TestAnySearchProviderParsesMarkdownTextResults`，断言逐条 URL/标题/摘要/日期与非该格式文本的退化行为。
 - service：`TestEmulateOpenAIAlphaSearchKeepsResultsWithoutURL`、`TestAccount_IsOpenAIAlphaSearchViaResponsesEnabled`、`TestForwardAlphaSearchViaResponsesUsesUpstreamWebSearch`、`TestForwardAlphaSearchViaResponsesAcceptsWebSearchCallEvidence`、`TestForwardAlphaSearchViaResponsesFallsBackToEmulationWhenUpstreamDidNotSearch`、`TestForwardAlphaSearchViaResponsesUpstreamNotFound`、`TestForwardAlphaSearchViaResponsesNoSearchAndEmulationUnavailable`、`TestEmulateOpenAIAlphaSearchFiltersAndDedupes`、`TestEmulateOpenAIAlphaSearchUnsupportedCommands`、`TestEmulateOpenAIAlphaSearchProviderFailures`、`TestForwardAlphaSearchViaResponsesDisabledKeepsLegacyPath`。
+- `TestForwardAlphaSearchViaResponsesRejectsUnsuccessfulSearchStreams`：截断、失败事件、完成状态失败，即使已有搜索证据也返回 502、`web_search_failed`、result nil；`TestForwardAlphaSearchViaResponsesIncompleteStreamUsesLocalResults`：有资格时只返回本地结果，usage 端点为 `/v1/alpha/search`，不返回上游部分回答。
 - 前端：`features/alphaSearch/__tests__/extra.spec.ts`、`AlphaSearchViaResponsesToggle.spec.ts`，`EditAccountModal.spec.ts` / `CreateAccountModal.spec.ts` 的开关用例（openai apikey 显示、deepseek apikey 与 oauth 不显示、payload `extra.openai_alpha_search_via_responses`），`buildFeatureLocaleExtensions.spec.ts` 中英文配对。
 - 建议运行：
 
