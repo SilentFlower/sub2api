@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "同步 main 时保留 build 功能的独立所有权和薄接入"}
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "三协议、搜索、Lite、推理、模型映射和超时兼容"}
+{"file": ".trellis/spec/backend/antigravity-gif-compatibility.md", "reason": "GIF 与原生 Gemini 思考签名组合边界"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQL checksum、Ent 生成与隔离数据库验证"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量和测试门槛"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "配置组件与最终中英文渲染"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "前后端配置字段对应"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端全量验证门槛"}
+{"file": ".trellis/tasks/10-20-sync-main-cyber-build/research/merge-preview.md", "reason": "13 文件与无冲突语义处置"}
+{"file": ".trellis/tasks/10-20-sync-main-cyber-build/research/shared-files-audit.md", "reason": "77 文件完整保留与验证清单"}
+{"file": ".trellis/tasks/10-20-sync-main-cyber-build/research/validation-matrix.md", "reason": "V01–V16 功能验收范围"}
+{"file": ".trellis/tasks/10-20-sync-main-cyber-build/research/execution.md", "reason": "实际实施及失败归因记录"}

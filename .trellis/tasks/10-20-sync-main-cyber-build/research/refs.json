@@ -1,0 +1,16 @@
+{
+  "build": "f03c930bef832df4d49c90de0e895316e7ffc1fd",
+  "main": "8f2cbb53d9d1c40e1865b07ac460571f7d4c48de",
+  "base": "42bc7f6cffe24bcb471608e48e66b4a0afa1f882",
+  "source_pr": "https://github.com/xlplbo/sub2api/pull/1",
+  "patch_head": "f06f93c4e7b71d3e81c8a66d7e1dc4cb1b7d7014",
+  "patch_base": "bf598c1641bf98d1df201d299447a2f378fdf966",
+  "patch_commit": "14ba46df4fccf60a4f960befcc4c930d8d0cd7b1",
+  "upstream_patch": "5fbd4fee160e292f49ec67a1b2ad94372d6a0573",
+  "main_merge_tree": "2248d5cc8a5413b8f1b2c6a21905e81807bba0f3",
+  "main_merge_returncode": 1,
+  "patch_preview_returncode": 0,
+  "patch_conflicts": [],
+  "patch_preview_tree": "4d18d65a3c482a1d06d1a7c79d67c7c85d23becc",
+  "preview_directory": "/tmp/sub2api-sync-main-cyber-preview-hi0f7lxv"
+}

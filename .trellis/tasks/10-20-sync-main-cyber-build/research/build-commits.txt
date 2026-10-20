@@ -1,0 +1,285 @@
+c5d7a124b docs(trellis): 初始化 Trellis 并填充项目规范
+e94035bf9 chore(task): update 00-bootstrap-guidelines push snapshot
+9fac68950 chore(task): archive 00-bootstrap-guidelines
+ce4ccc809 chore: record journal
+4e75bfce3 ci(workflow): 切换为手动镜像构建流程
+e1a089e47 feat(openai): 新增 Codex reset 邀请重置功能
+16b69f681 chore(task): update openai-account-features push snapshot
+5d62ede7a Merge branch 'main' into build
+61f419b95 chore: trigger build [build]
+c084180cc fix(openai): 返回 Codex reset 上游错误原因 [build]
+313be1012 chore(task): update openai-account-features push snapshot
+d53e8b6c5 fix(openai): 返回 Codex reset 完整上游错误 [build]
+2d19a3a90 chore(task): update openai-account-features push snapshot
+638431ea8 chore(task): archive 06-16-openai-account-features
+4e3e12cd2 chore: record journal
+154c60825 [UPDATE] 优化 trellis 路由分发配置及文档
+416943fef feat(openai): 支持 Codex 自定义 UA 放行规则 [build]
+8af807c16 chore(task): update openai-codex-custom-client-allowlist push snapshot
+008e2d51c chore(task): archive 06-17-openai-codex-custom-client-allowlist
+5da1277a1 chore: record journal
+e086ca5df feat(openai): direct Anthropic messages<->chat/completions bridge
+5dba31809 fix(openai): force application/json on non-stream messages chat bridge
+24316df92 fix(apicompat): forward thinking:disabled to chat upstream, drop reasoning_effort
+97bcf147a chore(trellis): 更新工作流与技能配置
+35f8c0f02 Merge branch 'main' of https://github.com/SilentFlower/sub2api into build
+70d5bce22 chore(trellis): 同步工作流与任务规划
+a1728365e chore(task): update openai push snapshot
+524b9b7a0 feat(openai): 支持配置生图主模型与思考预算
+90fae5847 chore(task): update openai push snapshot
+4b5401982 chore(task): archive 07-03-openai
+ead4f7eda chore: record journal
+00cc20637 Merge branch 'feat/anthropic-chat-direct-bridge' into build
+014d69de4 fix(openai): 稳定 Anthropic Chat 桥接缓存前缀
+e81c3fc7a chore(task): update anthropic-chat-cliproxy-parity push snapshot
+d6d3f1bf3 fix(openai): 稳定并行工具结果顺序
+40b11bed7 chore(task): update anthropic-chat-cliproxy-parity push snapshot
+8f0705229 fix(openai): 稳定 Anthropic 消息账号粘性
+312c843bc chore(task): update anthropic-chat-cliproxy-parity push snapshot
+89e05bdc2 chore(openai): 补齐 raw chat 调试日志
+c9d52416c feat(openai): 显示 Codex 重置过期时间
+8a8530cd6 chore(task): update codex-reset-expiration-display push snapshot
+e28058143 chore(task): archive 07-06-codex-reset-expiration-display
+bad4bcdbe chore: record journal
+0b78e34f2 chore(trellis): 同步 workflow 与 finish-work 规则
+ac3dc0dd4 merge(main): 同步 main 并保留 build 功能
+9e5a3d402 chore(task): update merge-main-build-feature-parity push snapshot
+7e3b32aff fix(frontend): 修复 Codex 邀请弹窗中文文案
+5bfda0bbc chore(task): update merge-main-build-feature-parity push snapshot
+74d2b8196 test(backend): 修复 Codex 导入测试构造参数
+caab27f34 chore(task): update merge-main-build-feature-parity push snapshot
+b5bd16c86 chore(task): archive 07-08-merge-main-build-feature-parity
+9bbde043c chore: record journal
+da354c077 chore(task): archive 07-03-anthropic-chat-cliproxy-parity
+41675467f chore: record journal
+59d4c7e74 chore: update flower manifest to 0.4.11
+421df83b0 feat(grok): 支持 messages 强制走 chat completions
+aeea76d45 chore(task): update grok-messages-force-chat-completions push snapshot
+10b7e856f chore(task): archive 07-09-grok-messages-force-chat-completions
+57a11b4c9 chore: record journal
+ed66652d8 Merge remote-tracking branch 'origin/main' into build
+57e409da2 feat(grok): 新增套餐额度进度条
+b53770419 chore(task): update grok-cpa-quota-progress push snapshot
+cbd34d3af fix(grok): 优化套餐额度摘要展示
+cf9d6f945 chore(task): update grok-cpa-quota-progress push snapshot
+a328495d0 fix(grok): 对齐套餐额度进度条展示
+9aa3f56b9 chore(task): update grok-cpa-quota-progress push snapshot
+c239282b9 chore(task): archive 07-09-grok-cpa-quota-progress
+5af2b7f37 chore: record journal
+dd895c4ff Merge branch 'main' into build
+60d362744 fix(openai): 支持 GPT-5.6 max effort
+059184606 fix(openai): 对齐 Grok 4.5 effort 归一化
+46aa2c42d chore(task): update fix-grok45-effort-normalization push snapshot
+0a0911dce chore(task): archive 07-10-fix-grok45-effort-normalization
+3fd1e5c19 chore: record journal
+792c51ffb fix(openai): 统一 Codex 客户端版本身份
+c14c84d1e chore(task): update fix-openai-gpt56-codex-version push snapshot
+cde68b64c chore(task): archive 07-10-fix-openai-gpt56-codex-version
+75893bf93 chore: record journal
+a79bb140a merge: 合并 main 到 build 并保留现有 feature
+5d8f95629 chore(task): update merge-main-into-build push snapshot
+0ec8f52cf chore(task): archive 07-10-merge-main-into-build
+939b896b1 chore: record journal
+0712a1471 merge(main): 同步 0.1.151 并保留 build 特性
+baa627d15 chore(task): update sync-main-0151-into-build push snapshot
+d5fef3ec7 feat(dr): 添加双节点主备容灾脚本与规范
+a42297545 chore(task): update sub2api-primary-standby-dr push snapshot
+45561e0d3 feat(dr): 添加容灾镜像同步与提升门禁
+c973c9130 chore(task): update sub2api-primary-standby-dr push snapshot
+3fdb40c81 chore(task): archive 07-11-sub2api-primary-standby-dr
+771765f9f feat(ha): 添加自动故障切换与镜像同步编排
+ce660adca chore(task): update sub2api-automatic-failover-orchestration push snapshot
+0f1c4a6bb chore(ha): 调整心跳间隔与租约时长
+8f2834923 chore(task): update sub2api-automatic-failover-orchestration push snapshot
+d390f0575 feat(openai): 转发 Codex alpha search 独立端点
+b5a51fd0e fix(openai): 修复 Codex 生图 tool_choice none
+6de33c1f4 chore(task): update codex-imagegen-alpha-search-fixes push snapshot
+913487288 test(service): 共享 setting 仓库测试桩
+53fea5336 chore(ci): 修复全量 lint 阻塞
+6b7f24208 chore(task): 记录 Codex 修复生产发布结果
+f59991b56 fix(openai): 避免新版 Codex 生图回退旧工具
+80679de90 merge(main): 同步 0.1.152 并保留 build 特性
+daca269fa chore(task): update sync-main-0152-into-build push snapshot
+ad6fd5149 chore(task): archive 07-10-sync-main-0151-into-build
+46f4650cd chore(task): archive 07-12-codex-imagegen-alpha-search-fixes
+a561569e3 chore(task): archive 07-13-sync-main-0152-into-build
+0f9008f3f chore: record journal
+c7a40a73a docs(ha): 补充控制面心跳与租约规范
+1541846a4 chore(task): update sub2api-automatic-failover-orchestration push snapshot
+1fdfe9dcc fix(ha): 避免详细探测阻塞租约续期
+0eabc8749 chore(task): update sub2api-automatic-failover-orchestration push snapshot
+c37d3b7c1 chore(flower): 升级 flower-trellis 至 0.4.12-beta.0
+e92709bd2 chore(task): update sub2api-automatic-failover-orchestration push snapshot
+d4bd8705d chore(flower): 升级 flower-trellis 至 0.4.12-beta.1
+d191c8ea8 chore(task): update sub2api-automatic-failover-orchestration progress
+62091bfaa fix(openai): 支持 JSON Schema 降级与权限工具恢复
+fffb9bbcc chore(task): update account-json-schema-downgrade progress
+6d1adc9f4 Revert "chore(task): update account-json-schema-downgrade progress"
+a9ad55b38 Revert "fix(openai): 支持 JSON Schema 降级与权限工具恢复"
+f1ca3fdd4 merge: 同步 main 0.1.155 到 build 并保留定制能力
+c3e7a6a0d fix(trellis): 修正 merge commit 文件集校验
+6ed68dd0f chore(task): update sync-main-0155-into-build progress
+c0f819da7 chore(flower): 升级 flower-trellis 到 0.4.12-beta.2
+831eaa4a9 feat(openai): 兼容 JSON Schema 降级与 Web Search
+eaedffed7 chore(task): update deepseek-response-format-json-schema-compat progress
+d7e97a719 feat(openai): 支持 Codex web.run 搜索循环
+c6370966f chore(task): update deepseek-response-format-json-schema-compat progress
+62661ccbe feat(grok): 恢复独立套餐额度显示
+da218b1bc chore(task): update restore-build-grok-quota-display progress
+2f460f5ec fix(openai): 补全 web.run 搜索事件
+0823a6e39 chore(task): archive sub2api-automatic-failover-orchestration
+f365446fd chore(task): archive deepseek-response-format-json-schema-compat
+6faef30b0 chore(task): archive sync-main-0155-into-build
+587aa1f70 chore(task): archive restore-build-grok-quota-display
+9b6cc5c49 chore: record journal
+a02dca33c fix(openai): 修复 Responses Lite 生图桥接
+60133cd94 chore(task): update fix-codex-responses-lite-image-bridge progress
+525b2c7b1 chore(task): archive fix-codex-responses-lite-image-bridge
+4f683e954 chore: record journal
+96fa3d5bd merge: 同步 main 0.1.156 到 build
+f636c72d4 chore(task): update sync-main-0156-into-build progress
+6c9660475 chore(task): archive sync-main-0156-into-build
+e9e6d9e09 chore: record journal
+a0e2aaaf8 fix(openai): 支持 Chat fallback 混合工具 Web Search
+012dfa703 chore(task): update deepseek-mixed-tool-websearch progress
+2c56d5727 chore(task): archive deepseek-mixed-tool-websearch
+934982ae8 chore: record journal
+d3988a03a merge: 同步 main 0.1.157 并配置 Responses Lite Header 策略
+c73355346 chore(task): update merge-main-responses-lite-header-policy progress
+1dee25691 refactor(build): 隔离私有功能以降低上游合并冲突
+73484d86b chore(task): update build-private-feature-isolation progress
+dac223fb4 fix(openai): 兼容本地 Web Search external access
+2eec47d12 chore(task): update build-private-feature-isolation progress
+bb4eed405 merge(main): 同步 0.1.158 并保留 build 私有能力
+83a472f66 chore(task): update merge-main-responses-lite-header-policy progress
+dccfdeca1 chore(task): archive merge-main-responses-lite-header-policy
+2dbed319f chore: record journal
+2ec06ab99 feat(tools): add Grok bulk login userscript
+beb47d5bb chore(task): update grok-bulk-account-login progress
+c47c3b474 feat(tools): support HTTP Grok login console
+ce16c6b22 chore(task): update grok-bulk-account-login progress
+074ed6472 fix(tools): 修复 Grok 用户脚本登录流程
+7544f8e9a chore(task): update grok-bulk-account-login progress
+09296139b fix(tools): 区分 Grok 登录与清理标签标记
+189ca14d9 chore(task): update grok-bulk-account-login progress
+28e3d479b fix(tools): 修复 Grok 清理标签 auth.x.ai 承载页
+b8082b120 chore(task): update grok-bulk-account-login progress
+78659f55c fix(tools): 修复 Grok 中文设备码页自动提交
+fd40fe579 chore(task): update grok-bulk-account-login progress
+d3b1af5ca fix(tools): 修复 Grok 邮箱登录入口与悬浮球控制台
+770c79c0b chore(task): update grok-bulk-account-login progress
+faeab75d7 fix(tools): 修复 Grok Cloudflare 成功后登录提交
+4f8c5f3c1 chore(task): update grok-bulk-account-login progress
+ab5e6c912 fix(tools): 修复 Grok Cloudflare 成功后延迟提交
+413456bf5 chore(task): update grok-bulk-account-login progress
+2d30f2d3b fix(tools): 修复 Grok Cloudflare 后置等待状态
+d52855f01 chore(task): update grok-bulk-account-login progress
+6931a847e fix(tools): 修复 Grok 登录后账户页跳转
+b510c94af chore(task): update grok-bulk-account-login progress
+6350b2a4f fix(tools): 修复 Grok Device Flow 启动页上下文
+068093817 chore(task): update grok-bulk-account-login progress
+4e61bd4b8 fix(tools): 修复 Grok Device Flow 前置设备码
+e4db921ae chore(task): update grok-bulk-account-login progress
+43d74e2ef fix(tools): 修复 Grok Device Flow 已预填设备码确认
+4ae6cee6b chore(task): update grok-bulk-account-login progress
+87570aa24 fix(tools): 修复 Grok 登录后 Device Flow 授权流程
+a970de899 chore(task): update grok-bulk-account-login progress
+53e5a1e30 fix(tools): 修复 Grok 登录跳转后标签归属丢失
+ae1a10416 chore(task): update grok-bulk-account-login progress
+160e4902c fix(tools): 修复 Grok 最终授权后过快清理
+a2dac8f02 chore(task): update grok-bulk-account-login progress
+96d90aed0 fix(tools): 修复 Grok approve 授权页误提交
+6e75bfda5 chore(task): update grok-bulk-account-login progress
+720b4a27e fix(tools): 改为人工确认 Grok 最终授权
+fefb6a516 chore(task): update grok-bulk-account-login progress
+213a5b26f chore(task): archive grok-bulk-account-login
+da348e51c chore: record journal
+26b4ff7d0 refactor(settings): 抽离 Web Search Emulation 设置薄层
+ef7d5c951 chore(task): update websearch-settings-thin-layer progress
+9cbcd06c0 chore(tooling): upgrade flower-trellis to 0.5.0-beta.2
+54fb4cb51 chore(task): update websearch-settings-thin-layer progress
+4bf0c09d4 chore(tooling): upgrade flower-trellis to 0.5.0-beta.4
+23fa6cd4d chore(task): update websearch-settings-thin-layer progress
+06536b123 feat(antigravity): support GIF frame conversion
+3bf8d8659 chore(task): update antigravity-gif-frames progress
+89ccbb23f fix(antigravity): accept wrapped GIF data URI
+0057bd79e chore(task): update antigravity-gif-frames progress
+50a96ca1f fix(antigravity): convert GIF on Gemini retry requests
+4ad868e0b chore(task): update antigravity-gif-frames progress
+d26c16865 fix(antigravity): normalize GIF base64 variants and log diagnostics
+4c72ed99f chore(task): update antigravity-gif-frames progress
+81a3b1592 fix(antigravity): remove overbroad GIF base64 normalization
+884e89d8f chore(task): update antigravity-gif-frames progress
+90342b156 fix(antigravity): accept escaped GIF base64 data
+73f1612a9 fix(antigravity): accept GIF base64url data
+5f932d017 chore: record journal
+267734150 chore(trellis): update skill-garden to 0.5.6-beta.0
+807f631a0 merge(main): sync latest main into build
+dec43babc chore(trellis): update skill-garden to 0.5.6-beta.1
+3280eb274 chore: record journal
+0e2129819 chore(trellis): update skill-garden to 0.6.0-beta.5
+222cf5aeb chore(trellis): update skill-garden to 0.6.0
+da830dd32 merge(main): sync 0.1.173 into build
+4d372d4e6 chore(task): update merge-main-0-1-173-into-build progress
+82c4127c9 chore(task): archive merge-main-0-1-173-into-build
+9fa8fbe85 chore: record journal
+301d8a46e chore(tooling): upgrade flower-trellis to 0.6.1-beta.1
+9e1ef7564 feat(openai): 兼容 Responses Lite Web Search 桥接
+802dadf5a chore(task): update responses-lite-websearch-bridge progress
+45597908b chore(task): archive responses-lite-websearch-bridge
+215981672 chore: record journal
+7a6ab3280 chore(tooling): upgrade flower-trellis to 0.6.1-beta.2
+5a2179828 merge: 合并 main 0.1.176 到 build
+d44f715ac chore(task): update merge-main-0176 progress
+8ace0f499 chore(task): archive merge-main-0176
+03d0ddea6 chore: record journal
+98e75ac83 feat(openai): 自动降级 DeepSeek 缺失推理历史请求
+f029e24e6 chore(task): update deepseek-missing-reasoning-downgrade progress
+d430fe36a chore(task): archive deepseek-missing-reasoning-downgrade
+cbaac3819 chore: record journal
+21b421f47 fix(openai): Web Search 超限后继续生成回答
+442ad2e20 chore(flower): sync skill-garden to 0.6.1-beta.4
+c50a16338 merge: 合并 main 0.1.178 到 build
+d968f206b chore(task): update merge-main-0178-i18n progress
+38fa70276 docs(spec): 同步 Go 工具链版本事实
+426155bce chore(task): update merge-main-0178-i18n progress
+407910f55 chore(task): archive merge-main-0178-i18n
+c349e2265 chore: record journal
+45ca348e8 chore: sync flower skill-garden to 0.6.1-beta.5
+2befdb21b merge: main 0.1.179 into build
+6e0228827 chore(task): update merge-main-0179-build-i18n progress
+8796bee6f chore(task): archive merge-main-0179-build-i18n
+8da923ccb chore: record journal
+7cda2e4ff fix(openai): 恢复 Lite 图片桥接边界并保留模型阻止列表
+bc6e04f8e merge: 同步 main 0.2.0 并移除旧 Codex 邀请重置
+3e2ef10c1 feat(openai): 支持 GPT-6 Astra 并补齐模型回归
+a14196bd3 feat(openai): 补齐 GPT-5.6 和 GPT-6 Codex 专用提示词
+4e9829519 chore: 同步 Flower 至 0.6.5
+6884f7234 merge: 同步 main 0.2.1 并保留 build 定制功能
+71e30a704 chore(task): update merge-main-021-build progress
+cc213bac1 chore(task): archive 09-06-merge-main-021-build
+021f686fd chore: record journal
+1d2da17a9 chore: 同步 Flower 至 0.6.7
+cd2aeb441 merge: 同步 main 0.2.4 并保留 build 定制功能
+c5d9c25d3 chore: 同步 Flower 至 0.6.8-beta.1
+bd5f768f2 fix(openai): Responses Lite 兼容 chat 桥接 custom 子工具并新增原生降级开关
+b0af70c56 chore(task): update 09-11-responses-lite-namespace-custom-tools progress
+ac04f8ec6 feat(openai): Alpha Search 账号级开关经上游 Responses web_search 执行并支持本地模拟兜底
+541de48e4 chore(task): update 09-12-alpha-search-emulation progress
+e5db71692 fix(websearch): 解析 AnySearch Markdown 文本结果并保留 alpha 模拟的无 URL 结果
+e44545516 chore(task): update 09-12-alpha-search-emulation progress
+289cec9f5 chore: record journal
+0bd26bed3 chore(trellis): 升级 flower/skill-garden 至 0.6.10-beta.5
+1fb0ffc22 merge: 同步 main 0.2.8，生图设置/DeepSeek 降级/GLM 改用上游实现
+4792fbed5 chore(task): reconcile closeout metadata
+0fb9d1ce2 chore(trellis): 升级 flower/skill-garden 至 0.6.10-beta.6
+b2775b733 fix(openai): 统一 GPT-5.5 Lite 兼容规则
+1f6a835bb fix(openai): 为图片和非流式请求设置独立响应头超时
+0af9a875d chore(task): update openai-image-header-timeout progress
+7781952e0 chore(flower): update Trellis and skill-garden
+35233dc23 chore: 更新 Flower 至 0.6.10-beta.10
+9c914278c chore(task): gc closed tasks
+441cf02d4 merge: 同步 main 0.2.11 并保留 build 定制功能
+cc6702b37 chore(task): update merge-main-0211-build progress
+1aaab71b1 chore(task): gc closed tasks
+f03c930be chore: 更新 Flower 至 0.6.11

@@ -1,0 +1,25 @@
+{
+  "scope": "合并预演的旧声明引用扫描，以下匹配均已人工核对，不能直接作为编译错误",
+  "review": {
+    "defaultImageDownloadHTTPClient": "main 改为 sync.OnceValue 返回的可调用变量，调用合法，不是缺失符号",
+    "openCodeGoNativeProtocol": "残留于 C07 冲突块，计划随统一 profile 路由移除",
+    "resolveOpenCodeGoMappedModel": "残留于 C07 冲突块，计划改为 upstreamRoutingModel"
+  },
+  "matches": {
+    "defaultImageDownloadHTTPClient": [
+      "backend/internal/service/image_storage.go:49: httpClient = defaultImageDownloadHTTPClient()"
+    ],
+    "openCodeGoNativeProtocol": [
+      "backend/internal/service/openai_gateway_chat_completions.go:134: proto := openCodeGoNativeProtocol(account, mapped)"
+    ],
+    "resolveOpenCodeGoMappedModel": [
+      "backend/internal/service/openai_gateway_chat_completions.go:133: mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)"
+    ]
+  },
+  "actual_review": {
+    "remaining_openCodeGoNativeProtocol": [],
+    "remaining_resolveOpenCodeGoMappedModel": [],
+    "remaining_transcript_scope_in_production": [],
+    "defaultImageDownloadHTTPClient": "保留 main sync.OnceValue 的可调用变量形式，当前编译/lint 通过。"
+  }
+}

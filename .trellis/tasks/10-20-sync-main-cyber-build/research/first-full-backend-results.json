@@ -1,0 +1,203 @@
+{
+  "backend-unit": {
+    "counts": {
+      "pass:test": 23967,
+      "pass:package": 57,
+      "skip:package": 51,
+      "skip:test": 17,
+      "fail:test": 6,
+      "fail:package": 1
+    },
+    "failures": [
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestValidateCreateParams_CheckModeMatrix/quota_probe_requires_primary_model",
+        "output": "=== RUN   TestValidateCreateParams_CheckModeMatrix/quota_probe_requires_primary_model\n    channel_monitor_quota_mode_test.go:346: \n        \tError Trace:\t/root/project/my/sub2api/backend/internal/service/channel_monitor_quota_mode_test.go:346\n        \tError:      \tTarget error should be in err chain:\n        \t            \texpected: \"error: code=400 reason=\\\"CHANNEL_MONITOR_MISSING_PRIMARY_MODEL\\\" message=\\\"primary_model is required\\\" metadata=map[]\"\n        \t            \tin chain: \"error: code=400 reason=\\\"CHANNEL_MONITOR_ENDPOINT_UNREACHABLE\\\" message=\\\"endpoint hostname could not be resolved\\\" metadata=map[]\"\n        \tTest:       \tTestValidateCreateParams_CheckModeMatrix/quota_probe_requires_primary_model\n--- FAIL: TestValidateCreateParams_CheckModeMatrix/quota_probe_requires_primary_model (5.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestValidateCreateParams_CheckModeMatrix",
+        "output": "=== RUN   TestValidateCreateParams_CheckModeMatrix\n--- FAIL: TestValidateCreateParams_CheckModeMatrix (5.03s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames/data/passthrough",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames/data/passthrough\n    openai_model_retirement_test.go:157: \n        \tError Trace:\t/root/project/my/sub2api/backend/internal/service/openai_model_retirement_test.go:157\n        \tError:      \tmap[string]string{\"gpt-6.1-sol\":\"live\"} does not contain \"gpt-5.5\"\n        \tTest:       \tTestGPT55RetirementProjectionUsesPublicNames/data/passthrough\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames/data/passthrough (0.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames/models/passthrough",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames/models/passthrough\n    openai_model_retirement_test.go:157: \n        \tError Trace:\t/root/project/my/sub2api/backend/internal/service/openai_model_retirement_test.go:157\n        \tError:      \tmap[string]string{\"gpt-6.1-sol\":\"live\"} does not contain \"gpt-5.5\"\n        \tTest:       \tTestGPT55RetirementProjectionUsesPublicNames/models/passthrough\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames/models/passthrough (0.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames (0.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestUpstreamProtocolRoutingMatrixMatchesMainGolden",
+        "output": "tus\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=none|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=base|rules=false|chat_responses_shape|kimi-k2\n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=base|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=split|rules=false|chat_responses_shape|kimi-k2\n        \t            \tmain: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=split|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=both|rules=false|chat_responses_shape|kimi-k2\n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=|addresses=both|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=yes|addresses=none|rules=false|chat_responses_shape|kimi-k2\n        \t            \tmain: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=yes|addresses=none|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"https://api.moonshot.cn/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=yes|addresses=base|rules=false|chat_responses_shape|kimi-k2\n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tkimi|proto=|mode=|type=apikey|probe=yes|addresses=base|rules=false|chat_responses_shape| kimi-k2 \n        \t            \tmain: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"input\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n        \t            \tcurrent: {\"upstream\":[{\"url\":\"http://base.example/v1/chat/completions\",\"authorization\":\"Bearer sk-test\",\"body_kind\":\"messages\",\"model\":\"kimi-k2\"}],\"error\":\"upstream error: 502 (failover)\",\"status\":200}\n--- FAIL: TestUpstreamProtocolRoutingMatrixMatchesMainGolden (6.02s)\n"
+      }
+    ],
+    "skips": [
+      [
+        "github.com/Wei-Shaw/sub2api/internal/handler",
+        "TestDingTalkOAuthStart_Disabled"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint",
+        "TestDialerBasicConnection"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint",
+        "TestJA3Fingerprint"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint",
+        "TestAllProfiles"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditConfigCASSecretRoundTripInvalidationAndTTL"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestRedisPayloadStoreRoundTripTTLNamespaceAndDelete"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditMigrationSchemaAndLeakageGate"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditDatabasePersistsFullPromptOnEventsOnly"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryAdmissionClaimFencingAndEventTransaction"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryForeignKeysFiltersAndStableIdentitySnapshots"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryHighWaterAndSafeDeletion"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditServiceConfirmationKeepsPostPreviewEventsAndConcurrentDeletesAreSafe"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestAuthPendingIdentityService_UpsertAdoptionDecision_ClearsLegacyNullSessionReference"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestContentModerationTypeSafeLive"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestEstimateOpenAIInputTokens_CompareWithOpenAIAPI"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestPluginRuntimeIntegration"
+      ]
+    ]
+  },
+  "backend-integration": {
+    "counts": {
+      "pass:test": 14560,
+      "pass:package": 51,
+      "skip:package": 57,
+      "skip:test": 15,
+      "fail:test": 3,
+      "fail:package": 1
+    },
+    "failures": [
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames/data/passthrough",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames/data/passthrough\n    openai_model_retirement_test.go:157: \n        \tError Trace:\t/root/project/my/sub2api/backend/internal/service/openai_model_retirement_test.go:157\n        \tError:      \tmap[string]string{\"gpt-6.1-sol\":\"live\"} does not contain \"gpt-5.5\"\n        \tTest:       \tTestGPT55RetirementProjectionUsesPublicNames/data/passthrough\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames/data/passthrough (0.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames/models/passthrough",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames/models/passthrough\n    openai_model_retirement_test.go:157: \n        \tError Trace:\t/root/project/my/sub2api/backend/internal/service/openai_model_retirement_test.go:157\n        \tError:      \tmap[string]string{\"gpt-6.1-sol\":\"live\"} does not contain \"gpt-5.5\"\n        \tTest:       \tTestGPT55RetirementProjectionUsesPublicNames/models/passthrough\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames/models/passthrough (0.00s)\n"
+      },
+      {
+        "package": "github.com/Wei-Shaw/sub2api/internal/service",
+        "test": "TestGPT55RetirementProjectionUsesPublicNames",
+        "output": "=== RUN   TestGPT55RetirementProjectionUsesPublicNames\n--- FAIL: TestGPT55RetirementProjectionUsesPublicNames (0.00s)\n"
+      }
+    ],
+    "skips": [
+      [
+        "github.com/Wei-Shaw/sub2api/internal/handler",
+        "TestDingTalkOAuthStart_Disabled"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint",
+        "TestDialerAgainstCaptureServer"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditConfigCASSecretRoundTripInvalidationAndTTL"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestRedisPayloadStoreRoundTripTTLNamespaceAndDelete"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptRuntimeAggregatesConfigWorkersQueueRedisEndpointsAndGuardMetrics"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditMigrationSchemaAndLeakageGate"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditDatabasePersistsFullPromptOnEventsOnly"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryAdmissionClaimFencingAndEventTransaction"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryForeignKeysFiltersAndStableIdentitySnapshots"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditRepositoryHighWaterAndSafeDeletion"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/securityaudit",
+        "TestPromptAuditServiceConfirmationKeepsPostPreviewEventsAndConcurrentDeletesAreSafe"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/repository",
+        "TestConcurrencyCacheSuite/TestGetAccountsLoadBatch"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestContentModerationTypeSafeLive"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestEstimateOpenAIInputTokens_CompareWithOpenAIAPI"
+      ],
+      [
+        "github.com/Wei-Shaw/sub2api/internal/service",
+        "TestPluginRuntimeIntegration"
+      ]
+    ]
+  }
+}

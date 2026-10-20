@@ -1,0 +1,44 @@
+{
+  "id": "sync-main-cyber-build",
+  "name": "sync-main-cyber-build",
+  "title": "同步最新 main 并移植 cyber 会话隔离修复到 build",
+  "description": "已按确认方案合并 main 0.2.17 与限定 cyber 修复，完成双边功能适配、回归和规范收尾；用户确认后已提交并推送 build。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-10-20",
+  "completedAt": "2026-10-20",
+  "closeout": {
+    "status": "closed",
+    "closedAt": "2026-10-20T18:04:20Z",
+    "blockers": []
+  },
+  "branch": "build",
+  "base_branch": "build",
+  "worktree_path": null,
+  "commit": "f450d4e5b84718bdb590f28cf1221ec8299fb4c4",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "固定输入、恢复引用及本地验收证据见 research/。代码已推送 build，镜像构建由工作流触发；未生产部署、连接业务数据库或调用真实付费模型。原 main 时序测试偶发失败及所有跳过项已如实保留。",
+  "meta": {},
+  "progress": {
+    "completedSteps": [
+      "按用户确认方案合并固定 main 并移植 cyber 明确会话隔离修复，全部冲突及跨功能适配完成",
+      "77 个共同文件、双方独立文件与 V01–V16 本地验收完成，无意外功能文件丢失",
+      "后端完整单测、前端全部检查、构建、隔离集成、旧库迁移及部署配置验证通过",
+      "Full Check-All 通过，规范收尾与可执行契约更新完成",
+      "按用户确认的精确范围完成双父合并提交，并推送 origin/build，远端结果核对一致"
+    ],
+    "partialStep": null,
+    "nextStep": "由发布方核对 GHCR 镜像结果并安排生产部署及上线后验收；本任务代码交付完成",
+    "notes": "最终后端 unit 58 包、23985 个 pass 事件；前端 391 文件、2969 测试（retry=1）。中间失败、原 main 时序测试偶发失败及 skip 原因已保留。推送 build 会自动触发镜像构建；本轮没有执行生产部署、业务数据操作或真实付费调用。",
+    "updatedAt": "2026-10-20T18:04:20Z"
+  }
+}

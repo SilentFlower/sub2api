@@ -1,0 +1,14 @@
+{
+  "main_only": {
+    "count": 571,
+    "main_merge_differences": [],
+    "after_patch_differences": []
+  },
+  "build_only": {
+    "count": 728,
+    "main_merge_differences": [],
+    "after_patch_differences": [
+      ".gitignore"
+    ]
+  }
+}

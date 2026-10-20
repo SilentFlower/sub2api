@@ -1,0 +1,326 @@
+d1ba57977 feat: add native TypeSafe Jev System One support
+0da18e4a5 feat(admin): inline quick-adjust stepper for account priority
+58d605083 fix(admin): keep disabled priority stepper hidden until hover
+f48866958 fix(openai): only inject the Codex image generation bridge for OpenAI accounts
+cf19f30d2 fix(payment): rate-limit anonymous public order verify endpoint
+d359196ad fix(antigravity): sanitize upstream error body before returning to client
+b1ce3c6d5 fix(email): atomic verify-code attempts and hashed single-use reset tokens
+a56720855 fix(ui): refresh countdown when tab becomes visible
+a4ea8059b fix(openai): recover rejected encrypted reasoning signatures
+27de27ac6 fix(risk-control): remove deleted groups from moderation scope
+5ace0699b fix(pricing): preserve exponents when trimming scaled prices
+c4224045d fix(payment): calculate QR countdowns from elapsed time
+e180a939a fix(users): show normalized errors when bulk updating limits
+636faa695 fix(profile): ignore obsolete notification email code responses
+7d0bf9c87 fix(usage): preserve zero user multipliers in cost details
+3a1a37b7b fix(ops): retain byte units for sub-byte throughput
+cee76030b fix(announcements): report failed read confirmations accurately
+8bc375b59 fix(batch-image): allow access lookup retries after request failures
+8a495b0a5 fix(usage): ignore obsolete cleanup task list responses
+8167d85b3 fix(ui): close selectors when they become disabled
+2e2b8f6d5 fix(auth): avoid starting OAuth code cooldowns after unmount
+00a922c42 fix(backup): prevent polling from restarting after navigation
+e0019da46 fix(ui): limit Escape to the most recently opened dialog
+c64145312 fix(auth): share pending step-up verification prompts
+69d6d106f fix(monitor): allow adding missing platforms in v2 settings
+75420462a fix(plugins): ignore obsolete configuration UI sessions
+21d90fb5e fix(auth): keep cleared compliance state isolated from pending requests
+2e3c2cf59 fix(i18n): correct the custom error codes warning text
+00940743d fix(deps): upgrade axios to 1.20.0 to pass security audit
+3613174cf fix(grok): fail over silent-refusal empty response.completed on Grok Responses streams
+27f4a1780 test(grok): cover empty response.completed failover for PlatformGrok
+73381fc9c fix(openai-ws): bill each later turn with the current group pricing
+fdce5b8d0 修复 Grok CLI 版本门槛并对齐官方无界面请求头
+ad05eda15 依据正常交互式 CLI 抓包修正 Grok 身份头
+53158587a 升级 Axios 至 1.20.0 修复前端安全审计
+d6adebd22 Merge pull request #7780 from lyen1688/fix/grok-cli-identity-1-0-46
+71e97d135 fix(models): enforce account mappings for remote Codex discovery
+f3d752693 fix(apicompat): flatten named chat tool_choice for Responses
+9a8ab4f88 fix(apicompat): keep chat developer messages as developer role
+7a767d5ce fix(apicompat): pair legacy chat function calls with their results
+15f469c86 fix(gateway): ignore negative content block index in buffered Anthropic paths
+775c1a3c1 fix(apicompat): preserve refusals when converting Responses to Chat
+b6a157c19 fix(openai): account image input usage on WS passthrough
+1888de135 fix(models): list composite exact route aliases
+440784914 fix(channels): 追加模型时不再改写已留空的价格条目
+1b1039f4f feat(payment): 充值赠送阶梯（按金额档位额外赠送到账额度）
+1aa34d478 feat(payment): 充值优惠阶梯支持折扣模式，快捷金额角标改为促销价签
+0cecf3c36 feat(keys): support sorting API keys by group name
+722553835 merge: sync Jev support with latest upstream main
+bb97ab364 fix(typesafe): align System One validation with upstream schema
+2d8a38681 fix(typesafe): 补齐平台迁移、审计覆盖、端点隔离与错误策略
+9eb394e3e fix(typesafe): 堵住校验解析差异与审计盲区，收紧模型列表口径
+fa49647c6 test(model): 错误透传平台列表守卫纳入 typesafe
+34fe845f5 Merge pull request #7425 from aofee/codex/jev-system-one
+5637f469f Merge pull request #7802 from feeeei/feat/recharge-promotion-tiers
+f3dc0835d Merge pull request #7673 from william-drakemond/fix/public-order-verify-hardening
+719013053 Merge pull request #7803 from william-drakemond/feat/api-key-group-sort
+43c4c882f Merge pull request #7674 from william-drakemond/fix/antigravity-sanitize-upstream-error
+2529371ba Merge pull request #7676 from william-drakemond/fix/email-code-token-atomic
+46f5f5e8b Merge pull request #7773 from william-drakemond/fix/custom-error-codes-warning-text
+510606571 Merge pull request #7630 from william-drakemond/feat/account-priority-quick-adjust
+458b92abd chore: sync VERSION to 0.2.12 [skip ci]
+983cf297d fix(gateway): retry rejected structured input through chat endpoint
+c0e5a4670 fix(codex): never advertise null service_tiers in models manifest
+dd7ee2170 style(codex): use tagged switch for capability conflict fallback
+66a9e2e6b fix(billing): allow upstream billing probe for TypeSafe API-key accounts
+8b9788eeb test(billing): drop added comments
+18380398d chore(codex): drop added comments
+d9d433379 docs: add security policy with private vulnerability reporting
+99efaa477 docs(security): add dev@sub2api.org as fallback reporting email
+ae501cc22 Merge pull request #7814 from Wei-Shaw/docs/security-policy
+c2d5bbd93 fix(billing): settle usage when the API key is deleted before billing completes
+432a6a461 chore(billing): simplify comment
+f5aca7462 Merge pull request #7816 from Wei-Shaw/fix/usage-billing-deleted-key
+3040209f2 Merge pull request #7813 from kingsleydon/fix/typesafe-upstream-billing-probe
+b8dece900 chore: sync VERSION to 0.2.13 [skip ci]
+4b6ed15a8 fix(custom-pages): ignore obsolete Markdown responses
+1c996fe30 fix(payment): stop late Stripe callbacks after leaving the page
+abdfbb704 fix(web): bypass bare API aliases from embedded frontend fallback
+5800abf1c fix(models): preserve composite catalog isolation after base update
+852f0f824 fix(anthropic): preserve requested tool change beta headers
+5a25507dc feat(account): 临时不可调度规则新增作用范围 scope 选项
+a46249aac test(account): 补充临时不可调度作用范围单元测试
+abbe42ac4 fix(profile): preserve email binding draft during user refresh
+856d7ea90 fix: expose mapped antigravity test models
+f385bba92 docs: keep connectivity test fix out of README
+8f636513f fix(admin): keep scheduled test results scoped to the expanded plan
+4551fb0d8 fix(monitor): ignore obsolete template manager list responses
+b47204251 fix(ops): discard stale alert event pages after filter changes
+81bd85ec5 fix(ops): require loaded settings before saving
+b07b1fb5d fix(ops): validate alert rule durations as whole minutes
+da4419e62 fix(anthropic): keep cache TTL order valid on the mimic path
+bbba01dae fix: enable API-key discovery for remote Codex catalogs
+679a7186f feat(accounts): compact account search and filters
+9f84204c2 fix(streaming): preserve chat stream heartbeat comments
+412718edf fix(apicompat): always include `signature` on Anthropic thinking blocks
+c15d858ec fix(gateway): preserve Responses semantics in chat fallback
+f7f1112cd fix(deps): update Vue and source map security patches
+0173861a5 fix(channel-monitor): build zhipu probe URL from the configured endpoint
+5ef517d0f fix(accounts): attribute connectivity test failure logs
+54810f8c8 fix(grok): include consent token and origin in SSO device approval
+d1aac6b98 fix(payment): close EasyPay forged-callback sign reuse (fixes #7881)
+0dccd7b6f fix(opencode): correct Zen qwen3.8-max endpoint and reject unsupported models
+aa3b04900 fix(opencode): cap Retry-After hint at 24h for usage refresh backoff
+480f668ba fix(opencode): cap Retry-After hint for billing probe schedule
+df89228c2 fix(opencode): report 403 as neutral forbidden in usage snapshot
+33d9e72f9 Merge pull request #7851 from ZeroClover/fix/remote-model-catalog-discovery
+d97ccc952 Merge pull request #7888 from honestTai/fix/easypay-callback-forgery
+63800c50d fix(gateway): guard structured-input fallback against unsafe retries
+daa791574 fix(deps): update SheetJS past expired security exceptions
+6e315616e fix(setup): stop shipping guessable admin credentials on fresh installs (fixes #7850)
+0f9d460dc fix(deps): resolve frontend audit failures (vue, source-map-js, xlsx exceptions)
+0363b8cdb Merge pull request #7893 from Wei-Shaw/fix/issue-7850-admin-bootstrap-hardening
+3f1a2ea0a chore: sync VERSION to 0.2.14 [skip ci]
+d5f490e10 fix(usage): replace misleading long-context multiplier badge
+7b1aa9314 fix(groups): preserve numeric values when editing RPM overrides
+795a7e278 fix(payment): stop Airwallex checkout after leaving the page
+f022a0457 fix(admin): use the saved passthrough rule enabled state
+3f2f66f32 fix(profile): preserve username edits made during save
+8811c125e fix(groups): ignore stale rate multiplier loads
+61e1afdd4 perf(openai): lazily rebuild input when stripping namespaces
+6f6a27f9c feat(usage): show per-request output TPS by default
+38dd23f83 chore: remove PR screenshots
+1817a8428 feat(ops): show per-request output TPS percentiles
+18182f112 style(ops): align output TPS tooltip indentation
+07d51a6ae chore: sync upstream security updates
+df3c38e10 chore: align branch with current upstream main
+7cd3dc85c fix(channel-monitor): require request samples before health scoring
+db29b3a77 Merge pull request #7811 from kingsleydon/fix/codex-service-tiers-null-fallback
+6db4171cf Merge pull request #7779 from SPHINX998/fix/ws-turn-group-pricing
+ef16f8a3d Merge pull request #7792 from SPHINX998/fix/ws-passthrough-image-usage
+f087fdb20 Merge pull request #7785 from SPHINX998/fix/apicompat-chat-named-tool-choice
+f9bd97cc1 Merge pull request #7786 from SPHINX998/fix/apicompat-chat-developer-role
+8d5046680 Merge pull request #7787 from SPHINX998/fix/apicompat-chat-legacy-function-call
+9d49d275f Merge pull request #7788 from SPHINX998/fix/apicompat-responses-refusal-to-chat
+cc4a1e3f6 Merge pull request #7789 from SPHINX998/fix/anthropic-buffered-negative-block-index
+e473fba99 Merge pull request #7869 from 3219378872/fix/thinking-signature-key
+f19cd4fde Merge pull request #7844 from cyhhao/fix/anthropic-cache-ttl-order
+129369204 Merge pull request #7827 from Achordchan/fix/anthropic-tool-change-betas
+2afe7d457 Merge pull request #7910 from liuyh06/codex/fix-responses-namespace-noop
+6cacccc76 Merge pull request #7775 from YahooYuan666/fix/grok-empty-completed-silent-refusal
+90afaf120 Merge pull request #7854 from wucm667/fix/issue-7852-chat-stream-heartbeats
+bbf1d3778 Merge pull request #7891 from aishangwuji/fix/opencode-go-usage-retry-after-and-403
+3c274768c Merge pull request #7889 from aishangwuji/fix/opencode-zen-routing-and-unsupported-models
+bb0d4a53c Merge pull request #7887 from whhphd/fix/grok-sso-consent
+4b8c55770 Merge pull request #7877 from hezhaoqian1/fix/upstream-channel-monitor-zhipu-path
+3a7fd4ae7 Merge pull request #7837 from yJader/fix/antigravity-account-test-models
+458865ed1 Merge pull request #7878 from Achordchan/fix/account-test-log-context
+bc63bd287 Merge pull request #7782 from lyy0709/codex/fix-remote-model-catalog
+7ff5cff1b Merge pull request #7822 from neotan/fix/issue-7670-bare-api-alias-bypass
+4bcad0657 Merge pull request #7800 from duckducktw/fix/pricing-entry-autofill-append
+7fc5332b4 Merge pull request #7904 from ouchihao/codex/bug-group-rate-load-race
+b126b9452 Merge pull request #7903 from ouchihao/codex/bug-profile-username-draft
+cdbf1d6f4 Merge pull request #7902 from ouchihao/codex/bug-passthrough-toggle-state
+c2f0edc13 Merge pull request #7901 from ouchihao/codex/bug-airwallex-navigation
+1865f2846 Merge pull request #7900 from ouchihao/codex/bug-rpm-edit-number
+d1202bea5 Merge pull request #7843 from ouchihao/codex/bug-alert-rule-integer-duration
+486b226b6 Merge pull request #7842 from ouchihao/codex/bug-ops-settings-load-guard
+02aad478f Merge pull request #7841 from ouchihao/codex/bug-alert-events-pagination-race
+2c6bd63de Merge pull request #7840 from ouchihao/codex/bug-monitor-template-list-race
+f3bcad3c3 Merge pull request #7839 from ouchihao/codex/bug-scheduled-results-race
+4747827e3 Merge pull request #7819 from ouchihao/codex/bug-stripe-payment-unmount
+b94974467 Merge pull request #7818 from ouchihao/codex/bug-custom-page-request-race
+48c647b5d Merge pull request #7833 from ShanYi-Hui/fix/preserve-email-binding-draft
+ba3af6125 Merge pull request #7897 from wucm667/fix/issue-7894-long-context-marker
+0ac774e37 Merge pull request #7853 from wucm667/feat/issue-7847-compact-account-filters
+8e2c4fad3 Merge pull request #7793 from wucm667/fix/issue-7784-composite-route-model-list
+745ff1d3c Merge pull request #7911 from lyy0709/codex/usage-output-tps
+2eb7ccb6d Merge pull request #7703 from wucm667/fix/issue-7700-thinking-signature
+9e46f2d77 Merge pull request #7732 from ouchihao/codex/bug-step-up-concurrent-prompts
+068239305 Merge pull request #7765 from ouchihao/codex/bug-compliance-reset-race
+2c13fb595 Merge pull request #7764 from ouchihao/codex/bug-plugin-config-session-race
+3dc2a9c37 Merge pull request #7731 from ouchihao/codex/bug-dialog-escape-stack
+0b51cbe15 Merge pull request #7729 from ouchihao/codex/bug-backup-polling-unmount
+3149d6285 Merge pull request #7724 from ouchihao/codex/bug-cleanup-task-race
+6cfa0f4ef Merge pull request #7723 from ouchihao/codex/bug-batch-image-access-retry
+9663b5ccf Merge pull request #7722 from ouchihao/codex/bug-announcement-read-failure
+b0c2c4d62 Merge pull request #7720 from ouchihao/codex/bug-usage-zero-rate
+a61833898 Merge pull request #7719 from ouchihao/codex/bug-notify-email-timers
+d068b866f Merge pull request #7718 from ouchihao/codex/bug-bulk-user-error-message
+5a6e826f8 Merge pull request #7716 from ouchihao/codex/bug-scaled-price-exponent
+80dd7288a Merge pull request #7728 from ouchihao/codex/bug-oauth-code-unmount
+3a012ac0c Merge pull request #7725 from ouchihao/codex/bug-select-disabled-open
+3e6964339 Merge pull request #7721 from ouchihao/codex/bug-fractional-byte-rate
+5fc0e486c Merge pull request #7916 from wucm667/fix/issue-7914-monitor-request-sample
+ba280b3d5 feat(ops): show account names in request details table
+c063a4016 refactor(provider): 以 provider profile 收敛多协议供应商默认端点表
+3f8eea080 refactor(provider): profile 端点改为按协议登记，Responses 路径约定并入 profile
+d56f5e787 feat(gateway): adapt Claude Haiku 5.5
+8ac2936a3 refactor(gateway): 三个入站入口的上游协议分流收敛为 resolveUpstreamProtocol
+105c955c8 fix(gateway): /v1/responses 转 Anthropic 时统一以去空白的请求模型兜底映射
+3b89cc08d refactor(platform): 后端平台列表改由平台清单派生
+eefa7dd9d refactor(platform): 平台白名单由数据库约束改为应用层校验
+c556aee8f refactor(platform): 多协议供应商的转发与探测判断改查 profile
+7ffa38a8a feat(frontend): 平台列表与多协议账号表单改由平台清单驱动
+e2939cd8f feat(platform): 接入 Command Code 平台
+874871a25 feat(platform): 接入 Cline 平台
+926441461 fix(provider): 修复 Claude 计费与钱包冷却并隔离模型目录缓存
+7ca08d521 fix(frontend): 按平台能力展示模型同步入口并同步 Zen 规则
+387ee20ed test(platform): 补录制路由基准与平台约束迁移防护
+c61f6ebaa fix(security): 升级 Go 1.27.2 与 x/net 修复安全扫描
+5f93bb3b3 fix(ci): 升级 lint 支持 Go 1.27.2 并保留 HTTP2 兼容检查
+d85cebecc fix(ci): 升级 schema 导入器支持 Go 1.27.2 导出格式
+d0392edf0 Merge pull request #7618 from SavitarC/feat/provider-profile
+dab3b87ea fix(openai): declare web_search when OAuth history replays web_search_call
+64caa9af8 fix(openai): declare web_search via additional_tools for Responses Lite
+85e311095 fix(lint): check type assertions in web_search history helper and test
+f2669c8cf Merge pull request #7939 from IrisRainbowNeko/fix/issue-7927-web-search-history-tool
+3a6fd1c9d chore: sync VERSION to 0.2.15 [skip ci]
+9a5133310 feat(groups): 分组名称与描述支持多语言
+b68684271 fix(gateway): sync main routing without widening responses retry
+2bfc49477 fix(ops): initialize custom time ranges in local time
+d01628975 fix(select): preserve keyboard input during IME composition
+bd2f53b85 fix(groups): reject nonpositive rate multiplier edits
+8e3d75b57 fix(monitor): refresh cached availability on automatic reload
+5753552b9 fix(gemini): preserve authorization URL error messages
+29b2d721f test(web): use shipped SVG asset in embedded frontend tests
+66b7ce08e fix(frontend): show full account group names
+ce6242fca fix(quota): recognize international coding endpoints
+0f189af8d fix(groups): ignore stale RPM override loads
+3bfd40f5a fix(gemini): 引用缓存不存在的 403 不再停用账号并换号
+d5a802f84 feat(gemini): 支持显式上下文缓存（AI Studio / Vertex / 自建网关上游）
+3abd64658 fix(ops): Gemini 原生路由的网关本地错误按错误类型归类
+64331a979 ui(gemini): Vertex 显示名改为 Agent Platform (Vertex)
+81e6ec534 feat(gemini): Vertex 账号支持 API Key 认证
+2588675ce fix(gemini): 第三方上游 API Key 与 Vertex 不再套用 AI Studio 等级和模拟配额
+1c68f9996 feat(gemini): 适配 AI Studio AQ. 格式 Key
+6f9b02f12 feat(gemini): Vertex 服务账号支持同步上游模型列表
+c9e4b267b fix(account): 同步上游模型失败时显示后端返回的错误原因
+05d7946af fix(gemini): 显式缓存错误透传收窄到上游网关账号，延长沿用创建时计费口径
+f0ee427f0 feat(gemini): 显式缓存存储价内置官方价并按 Pro / Flash 系列兜底
+4426593e9 fix(gemini): 3.6 Flash 兜底价改为官方优惠价
+daebb7a80 fix(gemini): 模型列表与模型详情接口支持 Agent Platform (Vertex) 账号
+b63dafa42 Merge pull request #7982 from wucm667/fix/issue-7981-embedded-static-asset
+6977bb63b Merge pull request #7983 from hutututtt/fix/account-group-names
+da9799542 Merge pull request #7974 from ouchihao/codex/bug-gemini-auth-url-error
+0ae1b371f Merge pull request #7973 from ouchihao/codex/bug-monitor-auto-detail-refresh
+f2b1556bd Merge pull request #7972 from ouchihao/codex/bug-group-rate-edit-validation
+d70265306 Merge pull request #7970 from ouchihao/codex/bug-select-ime-navigation
+20b0be5b0 Merge pull request #7969 from ouchihao/codex/bug-ops-custom-timezone
+59fb22791 Merge pull request #7933 from yan9651688/feat/issue-7926-ops-details-account-column
+c2885c430 Merge pull request #7738 from r266-tech/codex/monitor-add-platform
+832677a5e Merge pull request #7717 from ouchihao/codex/bug-payment-countdown-drift
+6a6d4728a Merge pull request #7696 from a408665321/codex/issue-7687-timer-only
+6d509c632 Merge pull request #7711 from wucm667/fix/issue-7709-risk-control-groups
+5dbb8f708 Merge pull request #7649 from Yukinoshita-Yukino/fix/codex-image-bridge-openai-only
+e46826229 Merge pull request #8002 from obst4cle/fix/group-rpm-override-stale-load
+071858126 fix(codex): raise GPT-6.1 Sol generated context default to 500k
+43768680d fix(billing): 取消 GPT-6.1 Sol 订阅长上下文附加费
+7b03b1f75 Merge pull request #8036 from Wei-Shaw/fix/gpt61-sol-subscription-long-context
+26b31a83e fix(gemini): 显式缓存修改串行化、失败回滚，确定金额费用按 Key / 订阅预留
+9591136d4 Merge pull request #8033 from Larry-Labs/fix/gpt61-sol-500k-context
+fc82e8310 fix(account): 显式模型级 401 规则在网关故障转移入口生效
+8b74741ef fix(groups): 广场 Vary 保留 Origin，分组译文语言代码统一大小写
+ba2a71733 fix(gemini): preserve images from tool results
+492c63059 fix(gemini): satisfy test lint
+ab80abc6d Merge pull request #7960 from feeeei/feat/group-i18n
+2023c290e fix(account): 计数、Bedrock 与重试耗尽入口把上游模型交给错误处理
+43a3c197c fix(gemini): 显式缓存恢复流程区分账号已删除与暂不支持缓存，上游必已过期后作废意图
+cfbbfd6b3 fix(antigravity): isolate image model rate limits
+26f70c6a8 fix(gateway): wire Claude Haiku 5.5 into Responses bridge
+c4bdc4847 fix(haiku): 修正采样边界、默认模型配置与 lint
+b669dc6da test(frontend): 将模型白名单回归用例纳入 CI
+7c5afa4c3 Merge pull request #7957 from xcrong/feat/haiku-5-5-support-7919
+53c21fed2 Merge pull request #8006 from feeeei/feat/gemini-explicit-cache
+9d5e63a59 合并 main 并解决 PR #7828 的测试文件冲突
+49dc6e236 Merge pull request #7828 from feeeei/feat/temp-unsched-rule-scope
+bba85923b Merge pull request #8046 from wucm667/fix/issue-8040-antigravity-image-rate-limit
+8d7d3185e Merge pull request #8038 from wucm667/fix/issue-8035-gemini-tool-result-images
+49b2122dc Merge pull request #7991 from wucm667/fix/issue-7988-international-quota
+01842576b Merge pull request #7810 from wucm667/fix/issue-6247-responses-chat-fallback
+4d9ac3e48 chore: sync VERSION to 0.2.16 [skip ci]
+89ad4c2ca fix(gemini): Vertex 共享容量不足的 429 不冷却账号，改为同号退避重试
+9c2cca9e6 chore: update sponsors
+20c4bf5ae fix(gemini): Vertex SA 已不存在时账号置为 error 并换号
+14cd58717 fix(gemini): 每个上游错误响应只检查一次错误策略
+c6c9935ae feat(gemini): 补齐 Gemini 4 Argon 计费
+867563ae7 fix(gateway): honor Anthropic protocol base URLs
+26e55cf33 fix(openai): emulate web_search on /v1/messages for OpenAI API Key accounts
+7de15113c fix(openai): exclude OAuth accounts from web search emulation
+16611a8ee fix(openai): isolate Codex imports by workspace
+373d43533 feat(antigravity): support Gemini 4 Argon and accurate upstream model catalogs
+2a8cb088a feat(apicompat): configure minimum output token floor
+feab6d80d fix(antigravity): preserve tool_result images, native Gemini functionCall/thoughtSignature, and composite /v1beta routing
+92c9433d4 chore: update sponsors
+1774b79dc fix(zhipu): 修正 GLM Coding Plan 5h/weekly 用量窗口标反
+d19265ddb fix(gateway): 拒绝含 OpenAI 网关 OAuth 的 composite 歧义路由，防止凭据误入 Anthropic 管线
+3856a0285 Merge pull request #8106 from Wei-Shaw/fix/composite-oauth-ambiguous-misroute
+fdc7f1fa0 Merge pull request #8087 from coder-zhw/fix/zhipu-credit-limit-window-classification
+3b83e045e Merge pull request #8060 from feeeei/fix/gemini-vertex-shared-capacity-429
+abdc82725 Merge pull request #8076 from feeeei/fix/gemini-vertex-sa-and-error-policy
+dcde68aa5 Merge pull request #8078 from feeeei/feat/gemini-4-argon-pricing
+8afd2abd9 Merge remote-tracking branch 'origin/main' into contrib/gemini-4-argon-support
+9d3cc4507 fix(antigravity): keep legacy default passthroughs and bill Claude 5.5 tier IDs at base rates
+857a76d4a Merge pull request #8093 from baryon/contrib/gemini-4-argon-support
+64211de8d feat(gemini): 兼容入口转发思考档位并流式返回思考摘要
+58b5e858c Merge pull request #8094 from wucm667/feat/issue-8092-configurable-min-output
+ddef05527 Merge pull request #8079 from wucm667/fix/issue-8074-anthropic-base-url
+698d14246 Merge pull request #8088 from wucm667/fix/issue-8077-workspace-aware-import
+c2cca510f revert(accounts): restore inline account filters (#7853)
+26aab6dc0 fix(openai): respect GPT-5.5 retirement on ChatGPT upstreams
+1b2243a4f Merge pull request #8120 from Wei-Shaw/revert/inline-account-filters
+7c6f70680 fix(payment): validate order types and keep refund deductions while pending
+f996b0bfa fix(payment): load Stripe client secret from the local order snapshot
+44e35fbf8 fix(payment): finalize failed pending refunds atomically
+83337a0c6 fix(payment): query Alipay refund status and close unsupported order types
+f37b69b77 fix(payment): treat Alipay refund query errors as pending and delay not-found failure
+86f844304 fix(openai): evaluate retirement after public alias projection
+52b3ca960 Merge pull request #8122 from Wei-Shaw/fix/payment-order-type-refund-hold
+1b92038ea fix(payment): fix EasyPay order queries and confirm notifications before crediting
+b8cfb7884 Merge pull request #8133 from Wei-Shaw/fix/easypay-query-confirm
+a431e53f9 Merge remote-tracking branch 'origin/main' into pr-8114
+455d317d6 Merge pull request #8114 from feeeei/feat/gemini-compat-thinking
+bdfe215cb fix(responses): 网关送出的 Responses 对象一律带 created_at，修复 grok-build 反序列化失败
+f2e5b55f3 test(responses): 模型改写转发测试夹具补齐上游 created_at
+71e6b6a97 test(responses): 模型改写转发测试夹具补齐上游 created_at
+43157c478 Merge pull request #8121 from Larry-Labs/fix/gpt55-subscription-retirement
+b14f316ca Merge pull request #8080 from SipengXie2024/fix/openai-messages-web-search-emulation
+060d01604 Merge pull request #8140 from Wei-Shaw/fix/issue-8118-responses-created-at
+b0a02a330 chore: sync VERSION to 0.2.17 [skip ci]
+2b1f12938 fix(gemini): 流式中途客户端断开时按已收集用量计费
+9c41b3269 fix(gemini): prompt 被拦截只报缓存命中时 input_tokens 不再为负
+ab71e12ec fix(images): 异步生图转存的图片下载与同步回填策略对齐
+378984d87 Merge pull request #8223 from Wei-Shaw/fix/async-image-download-policy
+0fa02816a Merge pull request #8168 from feeeei/fix/gemini-stream-client-disconnect-billing
+8f2cbb53d Merge pull request #8177 from feeeei/fix/gemini-negative-input-tokens

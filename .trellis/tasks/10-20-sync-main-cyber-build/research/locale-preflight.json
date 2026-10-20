@@ -1,0 +1,28 @@
+{
+  "en": {
+    "counts": {
+      "base": 8417,
+      "main": 8498,
+      "build": 8453,
+      "preview": 8534
+    },
+    "missing_main_keys": [],
+    "changed_main_keys_kept_at_old_build_value": [],
+    "cyber_hint": "When enabled, locally block an upstream cyber_policy hit for the TTL only when an explicit session ID is available. Different sessions on the same API key remain isolated. Requests without a session ID are still evaluated upstream; IP, client type, cache keys and history length never identify a blocked session."
+  },
+  "zh": {
+    "counts": {
+      "base": 8417,
+      "main": 8498,
+      "build": 8453,
+      "preview": 8534
+    },
+    "missing_main_keys": [],
+    "changed_main_keys_kept_at_old_build_value": [],
+    "cyber_hint": "开启后，仅对携带明确会话 ID 且被上游网络安全策略(cyber_policy)拦截的会话，在 TTL 内执行本地屏蔽。同 Key 的不同会话互不影响。缺少会话 ID 时仍由上游审核，不根据 IP、客户端类型、缓存 key 或历史长度推断封锁。"
+  },
+  "preview_language_key_difference": {
+    "only_en": [],
+    "only_zh": []
+  }
+}

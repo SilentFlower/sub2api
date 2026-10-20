@@ -1,0 +1,36 @@
+{
+  "main": {
+    "total": 571,
+    "intentional_deletions": [
+      "assets/partners/logos/aimzoon.jpg",
+      "assets/partners/logos/proxy4free.png"
+    ],
+    "unexpected_missing": [],
+    "changed_for_integration": [
+      "backend/go.sum",
+      "backend/internal/service/openai_model_retirement_test.go",
+      "backend/internal/service/openai_models_list.go",
+      "backend/internal/service/upstream_protocol_routing.go",
+      "backend/internal/service/upstream_protocol_routing_matrix_test.go"
+    ]
+  },
+  "build": {
+    "total": 728,
+    "intentional_deletions": [
+      ".github/workflows/cla.yml"
+    ],
+    "unexpected_missing": [],
+    "changed_for_integration": [
+      ".gitignore",
+      ".trellis/spec/backend/protocol-adapter-guidelines.md",
+      ".trellis/spec/backend/quality-guidelines.md",
+      "backend/internal/pkg/apicompat/anthropic_websearch_responses_test.go",
+      "backend/internal/service/antigravity_gif_gateway_test.go",
+      "backend/internal/service/openai_gateway_grok_force_chat_test.go",
+      "backend/internal/service/openai_gateway_messages_route.go",
+      "backend/internal/service/openai_model_mapping.go",
+      "backend/internal/service/openai_responses_lite_downgrade.go",
+      "backend/internal/service/openai_responses_lite_image_bridge_test.go"
+    ]
+  }
+}

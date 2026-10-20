@@ -1,0 +1,11 @@
+Applied patch to '.gitignore' cleanly.
+Applied patch to 'backend/internal/handler/openai_cyber_allowlist_test.go' cleanly.
+Applied patch to 'backend/internal/handler/openai_gateway_cyber_test.go' cleanly.
+Applied patch to 'backend/internal/handler/openai_gateway_handler.go' cleanly.
+Applied patch to 'backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go' cleanly.
+Applied patch to 'backend/internal/service/openai_cyber_session_block.go' cleanly.
+Applied patch to 'backend/internal/service/openai_cyber_session_block_test.go' cleanly.
+Falling back to direct application...
+Falling back to direct application...
+Applied patch to 'frontend/src/i18n/locales/en/admin/settings.ts' cleanly.
+Applied patch to 'frontend/src/i18n/locales/zh/admin/settings.ts' cleanly.

@@ -1,0 +1,18 @@
+{
+  "main_added": [
+    "claude-haiku-5-5",
+    "gemini-4-argon",
+    "gemini-4-argon-cyber-permissive"
+  ],
+  "main_removed": [],
+  "main_modified": [
+    "gemini-3.6-flash"
+  ],
+  "build_changed": [
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra"
+  ],
+  "main_changed_not_retained": [],
+  "build_changed_not_retained": []
+}

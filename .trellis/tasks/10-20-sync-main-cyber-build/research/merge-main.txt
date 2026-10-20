@@ -1,0 +1,105 @@
+2248d5cc8a5413b8f1b2c6a21905e81807bba0f3
+backend/internal/handler/endpoint.go
+backend/internal/pkg/apicompat/types.go
+backend/internal/service/account.go
+backend/internal/service/account_websearch_test.go
+backend/internal/service/antigravity_gateway_gemini.go
+backend/internal/service/gateway_forward_as_responses.go
+backend/internal/service/openai_gateway_chat_completions.go
+backend/internal/service/openai_gateway_messages.go
+backend/internal/service/openai_gateway_messages_chat_fallback.go
+backend/internal/service/openai_gateway_responses_chat_fallback_test.go
+backend/internal/service/openai_image_generation_controls_test.go
+frontend/src/components/account/EditAccountModal.vue
+frontend/src/components/account/__tests__/EditAccountModal.spec.ts
+
+Auto-merging README_CN.md
+Auto-merging backend/internal/config/config.go
+Auto-merging backend/internal/config/config_test.go
+Auto-merging backend/internal/handler/admin/account_handler.go
+Auto-merging backend/internal/handler/admin/setting_handler.go
+Auto-merging backend/internal/handler/admin/setting_handler_update.go
+Auto-merging backend/internal/handler/dto/settings.go
+Auto-merging backend/internal/handler/dto/types.go
+Auto-merging backend/internal/handler/endpoint.go
+CONFLICT (content): Merge conflict in backend/internal/handler/endpoint.go
+Auto-merging backend/internal/handler/openai_gateway_handler.go
+Auto-merging backend/internal/handler/openai_gateway_handler_test.go
+Auto-merging backend/internal/pkg/apicompat/anthropic_to_responses.go
+Auto-merging backend/internal/pkg/apicompat/anthropic_to_responses_response.go
+Auto-merging backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go
+Auto-merging backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge_test.go
+Auto-merging backend/internal/pkg/apicompat/responses_to_anthropic_request.go
+Auto-merging backend/internal/pkg/apicompat/types.go
+CONFLICT (content): Merge conflict in backend/internal/pkg/apicompat/types.go
+Auto-merging backend/internal/repository/http_upstream.go
+Auto-merging backend/internal/repository/http_upstream_test.go
+Auto-merging backend/internal/server/api_contract_test.go
+Auto-merging backend/internal/service/account.go
+CONFLICT (content): Merge conflict in backend/internal/service/account.go
+Auto-merging backend/internal/service/account_header_override.go
+Auto-merging backend/internal/service/account_websearch_test.go
+CONFLICT (content): Merge conflict in backend/internal/service/account_websearch_test.go
+Auto-merging backend/internal/service/antigravity_gateway_gemini.go
+CONFLICT (content): Merge conflict in backend/internal/service/antigravity_gateway_gemini.go
+Auto-merging backend/internal/service/billing_service.go
+Auto-merging backend/internal/service/domain_constants.go
+Auto-merging backend/internal/service/gateway_forward_as_chat_completions.go
+Auto-merging backend/internal/service/gateway_forward_as_responses.go
+CONFLICT (content): Merge conflict in backend/internal/service/gateway_forward_as_responses.go
+Auto-merging backend/internal/service/gateway_service.go
+Auto-merging backend/internal/service/gateway_websearch_emulation.go
+Auto-merging backend/internal/service/openai_codex_models_service.go
+Auto-merging backend/internal/service/openai_codex_models_service_test.go
+Auto-merging backend/internal/service/openai_codex_transform.go
+Auto-merging backend/internal/service/openai_gateway_cc_pipeline.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_chat_completions.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions_raw.go
+Auto-merging backend/internal/service/openai_gateway_chat_completions_test.go
+Auto-merging backend/internal/service/openai_gateway_forward.go
+Auto-merging backend/internal/service/openai_gateway_grok.go
+Auto-merging backend/internal/service/openai_gateway_messages.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_messages.go
+Auto-merging backend/internal/service/openai_gateway_messages_chat_fallback.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_messages_chat_fallback.go
+Auto-merging backend/internal/service/openai_gateway_passthrough.go
+Auto-merging backend/internal/service/openai_gateway_request_body.go
+Auto-merging backend/internal/service/openai_gateway_responses_chat_fallback.go
+Auto-merging backend/internal/service/openai_gateway_responses_chat_fallback_test.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_gateway_responses_chat_fallback_test.go
+Auto-merging backend/internal/service/openai_gateway_scheduling.go
+Auto-merging backend/internal/service/openai_gateway_service.go
+Auto-merging backend/internal/service/openai_gateway_service_hotpath_test.go
+Auto-merging backend/internal/service/openai_image_generation_controls_test.go
+CONFLICT (content): Merge conflict in backend/internal/service/openai_image_generation_controls_test.go
+Auto-merging backend/internal/service/openai_ws_forwarder_ingress.go
+Auto-merging backend/internal/service/openai_ws_http_bridge.go
+Auto-merging backend/internal/service/openai_ws_v2_passthrough_adapter.go
+Auto-merging backend/internal/service/wire.go
+Auto-merging backend/internal/web/embed_test.go
+Auto-merging backend/resources/model-pricing/model_prices_and_context_window.json
+Auto-merging deploy/.env.example
+Auto-merging deploy/config.example.yaml
+Auto-merging deploy/docker-compose.dev.yml
+Auto-merging deploy/docker-compose.local.yml
+Auto-merging deploy/docker-compose.standalone.yml
+Auto-merging deploy/docker-compose.yml
+Auto-merging frontend/src/api/admin/settings.ts
+Auto-merging frontend/src/components/account/CreateAccountModal.vue
+Auto-merging frontend/src/components/account/EditAccountModal.vue
+CONFLICT (content): Merge conflict in frontend/src/components/account/EditAccountModal.vue
+Auto-merging frontend/src/components/account/__tests__/CreateAccountModal.spec.ts
+Auto-merging frontend/src/components/account/__tests__/EditAccountModal.spec.ts
+CONFLICT (content): Merge conflict in frontend/src/components/account/__tests__/EditAccountModal.spec.ts
+Auto-merging frontend/src/components/account/__tests__/credentialsBuilder.spec.ts
+Auto-merging frontend/src/components/account/credentialsBuilder.ts
+Auto-merging frontend/src/components/keys/__tests__/UseKeyModal.spec.ts
+Auto-merging frontend/src/i18n/locales/en/admin/accounts.ts
+Auto-merging frontend/src/i18n/locales/en/admin/settings.ts
+Auto-merging frontend/src/i18n/locales/zh/admin/accounts.ts
+Auto-merging frontend/src/i18n/locales/zh/admin/settings.ts
+Auto-merging frontend/src/utils/format.ts
+Auto-merging frontend/src/views/admin/ChannelsView.vue
+Auto-merging frontend/src/views/admin/SettingsView.vue
+Auto-merging frontend/src/views/admin/__tests__/SettingsView.spec.ts

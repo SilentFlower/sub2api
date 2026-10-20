@@ -1,0 +1,783 @@
+diff --git a/.gitignore b/.gitignore
+index 0c977fdfa..47688127b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -142,6 +142,7 @@ docs/*
+ !docs/PLUGIN_DEVELOPMENT.md
+ !docs/channel-monitor-v2-safe-defaults.md
+ !docs/codex-credits.md
++!docs/cyber-session-blocking.md
+ !docs/legal/
+ !docs/legal/*.md
+ !docs/screenshots/
+diff --git a/backend/internal/handler/openai_cyber_allowlist_test.go b/backend/internal/handler/openai_cyber_allowlist_test.go
+index 22bb67458..00139a609 100644
+--- a/backend/internal/handler/openai_cyber_allowlist_test.go
++++ b/backend/internal/handler/openai_cyber_allowlist_test.go
+@@ -46,7 +46,9 @@ func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *test
+ 	payload := []byte(`{"type":"response.create","model":"gpt-5.1","prompt_cache_key":"trusted-session","input":"test"}`)
+ 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+ 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(string(payload)))
++	c.Request.Header.Set("session_id", "existing-blocked-session")
+ 	explicitKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, c, payload)
++	require.NotEmpty(t, explicitKey)
+ 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
+ 	require.True(t, ok)
+ 	require.NoError(t, store.SetCyberSessionBlocked(context.Background(), "", []string{explicitKey}, time.Minute))
+@@ -63,9 +65,13 @@ func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *test
+ 		logs := harness.moderationRepo.logSnapshot()
+ 		return len(logs) == 1 && logs[0].Mode == service.ContentModerationModeCyberLogOnly
+ 	}, 3*time.Second, 10*time.Millisecond)
+-	matched, err := store.FindCyberSessionBlocked(ctx, service.CyberSessionTranscriptBlockKeys(harness.apiKey.ID, payload))
++	c.Request.Header.Set("session_id", "ws-test-session")
++	wsKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, c, payload)
++	require.NotEmpty(t, wsKey)
++	require.NotEqual(t, explicitKey, wsKey)
++	matched, err := store.FindCyberSessionBlocked(ctx, []string{wsKey})
+ 	require.NoError(t, err)
+-	require.Empty(t, matched, "the cyber response must not write new transcript blocks")
++	require.Empty(t, matched, "the cyber response must not write a new explicit session block")
+ 	require.NoError(t, harness.clientConn.Write(ctx, coderws.MessageText, payload))
+ 	_, event, err = harness.clientConn.Read(ctx)
+ 	require.NoError(t, err)
+diff --git a/backend/internal/handler/openai_gateway_cyber_test.go b/backend/internal/handler/openai_gateway_cyber_test.go
+index 4be214cdc..3b38c4806 100644
+--- a/backend/internal/handler/openai_gateway_cyber_test.go
++++ b/backend/internal/handler/openai_gateway_cyber_test.go
+@@ -178,7 +178,7 @@ func TestRejectIfCyberSessionBlocked_FailOpen(t *testing.T) {
+ 	require.False(t, h2.rejectIfCyberSessionBlocked(c, key, []byte(`{}`), "gpt-5", cyberBlockFormatResponses), "nil gateway service → pass")
+ }
+ 
+-func TestBuildCyberSessionBlockWritePlanCombinesExplicitAndTranscriptKeys(t *testing.T) {
++func TestBuildCyberSessionBlockWritePlanUsesOnlyExplicitIdentity(t *testing.T) {
+ 	body := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}`)
+ 	c := newTestGinContext()
+ 	c.Request = httptest.NewRequest("POST", "/openai/v1/responses", strings.NewReader(string(body)))
+@@ -186,13 +186,14 @@ func TestBuildCyberSessionBlockWritePlanCombinesExplicitAndTranscriptKeys(t *tes
+ 	c.Request.Header.Set("User-Agent", "client/1.2.3")
+ 
+ 	plan := buildCyberSessionBlockWritePlan(7, c, body)
+-	require.Len(t, plan.keys, 2)
+-	require.NotEmpty(t, plan.scopeKey)
++	require.Empty(t, plan.keys)
+ 
+ 	c.Request.Header.Set("session_id", "sess-explicit")
+ 	plan = buildCyberSessionBlockWritePlan(7, c, body)
+-	require.Len(t, plan.keys, 3)
+-	require.NotEmpty(t, plan.scopeKey)
++	require.Equal(t, []string{service.CyberSessionExplicitBlockKey(7, c, body)}, plan.keys)
++
++	c.Request.Header.Del("session_id")
++	require.Empty(t, buildCyberSessionBlockWritePlan(7, c, []byte(`{"prompt_cache_key":"shared-cache"}`)).keys)
+ }
+ 
+ // TestRecordCyberPolicyIfMarked_BlockKeyPlumbed verifies the 6th param is
+diff --git a/backend/internal/handler/openai_gateway_handler.go b/backend/internal/handler/openai_gateway_handler.go
+index 20f6cb5e6..aa32b0602 100644
+--- a/backend/internal/handler/openai_gateway_handler.go
++++ b/backend/internal/handler/openai_gateway_handler.go
+@@ -4505,8 +4505,7 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
+ }
+ 
+ type cyberSessionBlockWritePlan struct {
+-	scopeKey string
+-	keys     []string
++	keys []string
+ }
+ 
+ func buildCyberSessionBlockWritePlan(apiKeyID int64, c *gin.Context, body []byte) cyberSessionBlockWritePlan {
+@@ -4514,15 +4513,6 @@ func buildCyberSessionBlockWritePlan(apiKeyID int64, c *gin.Context, body []byte
+ 	if key := service.CyberSessionExplicitBlockKey(apiKeyID, c, body); key != "" {
+ 		plan.keys = append(plan.keys, key)
+ 	}
+-	transcriptKeys := service.CyberSessionTranscriptBlockKeys(apiKeyID, body)
+-	for _, key := range transcriptKeys {
+-		if len(plan.keys) == 0 || key != plan.keys[0] {
+-			plan.keys = append(plan.keys, key)
+-		}
+-	}
+-	if len(transcriptKeys) > 0 {
+-		plan.scopeKey = cyberSessionScopeKey(apiKeyID, c)
+-	}
+ 	return plan
+ }
+ 
+@@ -4538,13 +4528,6 @@ func findBlockedCyberSessionKey(ctx context.Context, gatewayService *service.Ope
+ 	return gatewayService.FindCyberSessionBlockedForRequest(ctx, apiKeyID, c, body, clientIP, userAgent)
+ }
+ 
+-func cyberSessionScopeKey(apiKeyID int64, c *gin.Context) string {
+-	if c == nil {
+-		return ""
+-	}
+-	return service.CyberSessionScopeKey(apiKeyID, strings.TrimSpace(ip.GetClientIP(c)), c.GetHeader("User-Agent"))
+-}
+-
+ // enqueueCyberSessionBlockedOpsEntry captures request meta and enqueues the
+ // ops_error_logs entry for a locally blocked request.
+ func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context, apiKey *service.APIKey, model string, sessionBlockKey string) {
+@@ -4675,7 +4658,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey
+ 		plan := buildCyberSessionBlockWritePlan(apiKey.ID, c, cyberBlockBody)
+ 		if len(plan.keys) > 0 {
+ 			blockCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+-			gwSvc.MarkCyberSessionBlocked(blockCtx, plan.scopeKey, plan.keys)
++			gwSvc.MarkCyberSessionBlocked(blockCtx, "", plan.keys)
+ 			cancel()
+ 		}
+ 	}
+diff --git a/backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go b/backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go
+index 61ba54488..958b5adec 100644
+--- a/backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go
++++ b/backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go
+@@ -117,7 +117,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, sett
+ 	t.Cleanup(handlerServer.Close)
+ 
+ 	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+-	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(handlerServer.URL, "http")+"/openai/v1/responses", nil)
++	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(handlerServer.URL, "http")+"/openai/v1/responses", &coderws.DialOptions{HTTPHeader: http.Header{"Session_id": []string{"ws-test-session"}}})
+ 	cancelDial()
+ 	require.NoError(t, err)
+ 	t.Cleanup(func() { _ = clientConn.CloseNow() })
+@@ -191,6 +191,7 @@ func TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn(t *te
+ 
+ 	keyCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+ 	keyCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(requestPayload))
++	keyCtx.Request.Header.Set("session_id", "ws-test-session")
+ 	blockKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, keyCtx, []byte(requestPayload))
+ 	require.NotEmpty(t, blockKey)
+ 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
+@@ -299,6 +300,7 @@ func TestOpenAIResponsesWebSocketV2PassthroughNonCyberTurnAllowsFollowup(t *test
+ 
+ 	keyCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+ 	keyCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(firstPayload))
++	keyCtx.Request.Header.Set("session_id", "ws-test-session")
+ 	blockKey := service.CyberSessionExplicitBlockKey(harness.apiKey.ID, keyCtx, []byte(firstPayload))
+ 	require.NotEmpty(t, blockKey)
+ 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
+diff --git a/backend/internal/service/openai_cyber_session_block.go b/backend/internal/service/openai_cyber_session_block.go
+index 44c3ece44..830b0853f 100644
+--- a/backend/internal/service/openai_cyber_session_block.go
++++ b/backend/internal/service/openai_cyber_session_block.go
+@@ -21,53 +21,27 @@ type CyberSessionBlockStore interface {
+ 	FindCyberSessionBlocked(ctx context.Context, keys []string) (string, error)
+ }
+ 
+-const cyberSessionTranscriptLookupOverflowBlockKey = "transcript_lookup_limit_exceeded"
+-
+-// CyberSessionExplicitBlockKey returns an inexpensive exact key when the
+-// client supplies a stable session signal.
+-func CyberSessionExplicitBlockKey(apiKeyID int64, c *gin.Context, body []byte) string {
+-	return hashCyberSessionBlockKey(apiKeyID, explicitOpenAISessionID(c, body))
+-}
+-
+-// CyberSessionTranscriptBlockKeys returns the exact full-request key followed
+-// by an optional rewrite-tolerant context key. The latter is emitted only after
+-// model-generated history has been observed.
+-func CyberSessionTranscriptBlockKeys(apiKeyID int64, body []byte) []string {
+-	derived := deriveOpenAICyberTranscriptBlockKeys(apiKeyID, body)
+-	if len(derived.lookupKeys) == 0 {
+-		return nil
+-	}
+-	keys := []string{derived.lookupKeys[len(derived.lookupKeys)-1]}
+-	if derived.preLatestUserKey != "" && derived.preLatestUserKey != keys[0] {
+-		keys = append(keys, derived.preLatestUserKey)
+-	}
+-	return keys
+-}
+-
+-func CyberSessionTranscriptLookupKeys(apiKeyID int64, body []byte) []string {
+-	return deriveOpenAICyberTranscriptBlockKeys(apiKeyID, body).lookupKeys
+-}
+-
+-// CyberSessionScopeKey is a coarse, non-blocking fingerprint used only to
+-// avoid transcript parsing and MGET for sources that never produced a hit.
+-func CyberSessionScopeKey(apiKeyID int64, clientIP, userAgent string) string {
+-	if apiKeyID <= 0 {
++// CyberSessionExplicitBlockKey accepts conversation-scoped headers only.
++// Cache/affinity hints and transcript similarity are not session identities.
++// API keys define the authenticated namespace; relays sharing a key must supply
++// a distinct session ID for each downstream conversation.
++func CyberSessionExplicitBlockKey(apiKeyID int64, c *gin.Context, _ []byte) string {
++	if apiKeyID <= 0 || c == nil || c.Request == nil {
+ 		return ""
+ 	}
+-	raw := "cyber-scope:v1|api_key=" + strconv.FormatInt(apiKeyID, 10) +
+-		"|ip=" + strings.TrimSpace(clientIP) +
+-		"|ua=" + NormalizeSessionUserAgent(userAgent)
+-	sum := sha256.Sum256([]byte(raw))
+-	return hex.EncodeToString(sum[:])
+-}
+-
+-func hashCyberSessionBlockKey(apiKeyID int64, raw string) string {
+-	if raw == "" {
+-		return ""
++	for _, header := range []string{
++		"session-id", "session_id", "conversation_id",
++		openCodeSessionIDHeader, openCodeNativeSessionHeader, codeBuddyConversationHeader,
++	} {
++		if sessionID := strings.TrimSpace(c.GetHeader(header)); sessionID != "" {
++			// A separate namespace avoids interpreting legacy prompt_cache_key
++			// blocks as explicit session blocks during a rolling upgrade.
++			raw := "cyber-explicit-session:v2|api_key=" + strconv.FormatInt(apiKeyID, 10) + "|session=" + sessionID
++			sum := sha256.Sum256([]byte(raw))
++			return hex.EncodeToString(sum[:])
++		}
+ 	}
+-	isolated := isolateOpenAISessionID(apiKeyID, raw)
+-	sum := sha256.Sum256([]byte(isolated))
+-	return hex.EncodeToString(sum[:])
++	return ""
+ }
+ 
+ // cyberSessionBlockStore 探测 cache 是否具备屏蔽存储能力。
+@@ -114,50 +88,27 @@ func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, scop
+ 	}
+ }
+ 
+-// FindCyberSessionBlockedForRequest applies explicit-first lookup followed by
+-// scope-gated transcript matching. All failures remain fail-open.
+-func (s *OpenAIGatewayService) FindCyberSessionBlockedForRequest(ctx context.Context, apiKeyID int64, c *gin.Context, body []byte, clientIP, userAgent string) string {
++// FindCyberSessionBlockedForRequest blocks only an exact session identity.
++// Unknown identity and storage failures remain fail-open: the upstream still
++// evaluates the request. Source metadata and history length cannot prove that
++// a request belongs to a previously blocked session.
++func (s *OpenAIGatewayService) FindCyberSessionBlockedForRequest(ctx context.Context, apiKeyID int64, c *gin.Context, body []byte, _ string, _ string) string {
+ 	enabled, _ := s.CyberSessionBlockRuntime(ctx)
+ 	if !enabled {
+ 		return ""
+ 	}
+-	store := s.cyberSessionBlockStore()
+-	if store == nil {
++	key := CyberSessionExplicitBlockKey(apiKeyID, c, body)
++	if key == "" {
+ 		return ""
+ 	}
+-	if explicitKey := CyberSessionExplicitBlockKey(apiKeyID, c, body); explicitKey != "" {
+-		key, err := store.FindCyberSessionBlocked(ctx, []string{explicitKey})
+-		if err != nil {
+-			logger.LegacyPrintf("service.openai_gateway", "cyber explicit session read failed: err=%v", err)
+-			return ""
+-		}
+-		if key != "" {
+-			return key
+-		}
+-	}
+-	scopeKey := CyberSessionScopeKey(apiKeyID, clientIP, userAgent)
+-	active, err := store.IsCyberSessionScopeActive(ctx, scopeKey)
+-	if err != nil {
+-		logger.LegacyPrintf("service.openai_gateway", "cyber session scope read failed: err=%v", err)
+-		return ""
+-	}
+-	if !active {
+-		return ""
+-	}
+-	transcript := deriveOpenAICyberTranscriptBlockKeys(apiKeyID, body)
+-	if transcript.lookupKeysTruncated {
+-		// Once the coarse scope is active, silently dropping old candidates would
+-		// let a blocked client evade prefix matching by appending dummy items.
+-		return cyberSessionTranscriptLookupOverflowBlockKey
+-	}
+-	keys := transcript.lookupKeys
+-	if len(keys) == 0 {
++	store := s.cyberSessionBlockStore()
++	if store == nil {
+ 		return ""
+ 	}
+-	key, err := store.FindCyberSessionBlocked(ctx, keys)
++	matched, err := store.FindCyberSessionBlocked(ctx, []string{key})
+ 	if err != nil {
+-		logger.LegacyPrintf("service.openai_gateway", "cyber session block batch read failed: err=%v", err)
++		logger.LegacyPrintf("service.openai_gateway", "cyber explicit session read failed: err=%v", err)
+ 		return ""
+ 	}
+-	return key
++	return matched
+ }
+diff --git a/backend/internal/service/openai_cyber_session_block_test.go b/backend/internal/service/openai_cyber_session_block_test.go
+index aff46df25..c77fd994a 100644
+--- a/backend/internal/service/openai_cyber_session_block_test.go
++++ b/backend/internal/service/openai_cyber_session_block_test.go
+@@ -2,6 +2,8 @@ package service
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
++	"encoding/hex"
+ 	"encoding/json"
+ 	"errors"
+ 	"net/http/httptest"
+@@ -25,84 +27,14 @@ func newCyberBlockTestCtx(headers map[string]string, body string) (*gin.Context,
+ 	return c, []byte(body)
+ }
+ 
+-func TestCyberSessionExplicitBlockKey(t *testing.T) {
+-	c1, b1 := newCyberBlockTestCtx(map[string]string{"session_id": "sess-abc"}, `{}`)
+-	k1 := CyberSessionExplicitBlockKey(101, c1, b1)
+-	require.NotEmpty(t, k1)
+-
+-	// Same session, different apiKey → different key (isolation).
+-	c2, b2 := newCyberBlockTestCtx(map[string]string{"session_id": "sess-abc"}, `{}`)
+-	require.NotEqual(t, k1, CyberSessionExplicitBlockKey(202, c2, b2))
+-
+-	// Same session + same apiKey → stable key.
+-	c3, b3 := newCyberBlockTestCtx(map[string]string{"session_id": "sess-abc"}, `{}`)
+-	require.Equal(t, k1, CyberSessionExplicitBlockKey(101, c3, b3))
+-
+-	// prompt_cache_key in body counts as explicit.
+-	c4, b4 := newCyberBlockTestCtx(nil, `{"prompt_cache_key":"pck-1"}`)
+-	require.NotEmpty(t, CyberSessionExplicitBlockKey(101, c4, b4))
+-
+-	// No explicit signal → empty key → caller must skip blocking entirely.
+-	c5, b5 := newCyberBlockTestCtx(nil, `{"input":"hello world"}`)
+-	require.Empty(t, CyberSessionExplicitBlockKey(101, c5, b5))
+-
+-	// conversation_id header counts as explicit; key is stable and non-empty.
+-	c6, b6 := newCyberBlockTestCtx(map[string]string{"conversation_id": "conv-xyz"}, `{}`)
+-	k6 := CyberSessionExplicitBlockKey(101, c6, b6)
+-	require.NotEmpty(t, k6)
+-	c6b, b6b := newCyberBlockTestCtx(map[string]string{"conversation_id": "conv-xyz"}, `{}`)
+-	require.Equal(t, k6, CyberSessionExplicitBlockKey(101, c6b, b6b), "conversation_id key must be stable")
+-}
+-
+-func TestCyberTranscriptBlockKeysRequireModelGeneratedHistory(t *testing.T) {
+-	first := []byte(`{"instructions":"shared","input":[{"role":"user","content":"fixed environment"},{"role":"user","content":"question one"}]}`)
+-	second := []byte(`{"instructions":"shared","input":[{"role":"user","content":"fixed environment"},{"role":"user","content":"question two"}]}`)
+-	firstKeys := CyberSessionTranscriptBlockKeys(77, first)
+-	secondKeys := CyberSessionTranscriptBlockKeys(77, second)
+-	require.Len(t, firstKeys, 1)
+-	require.Len(t, secondKeys, 1)
+-	require.NotEqual(t, firstKeys[0], secondKeys[0])
+-
+-	hit := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}`)
+-	continuation := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"different trigger"},{"role":"assistant","content":"blocked"},{"role":"user","content":"continue"}]}`)
+-	hitKeys := CyberSessionTranscriptBlockKeys(77, hit)
+-	require.Len(t, hitKeys, 2)
+-	require.Contains(t, CyberSessionTranscriptLookupKeys(77, continuation), hitKeys[1])
+-}
+-
+-func TestCyberTranscriptBlockKeysWebSocketResponseCreate(t *testing.T) {
+-	body := []byte(`{"type":"response.create","response":{"prompt_cache_key":"ws-session","input":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}}`)
+-	c, _ := newCyberBlockTestCtx(nil, string(body))
+-	require.NotEmpty(t, CyberSessionExplicitBlockKey(88, c, body))
+-	require.Len(t, CyberSessionTranscriptBlockKeys(88, body), 2)
+-}
+-
+-func TestCyberTranscriptLookupKeysAreBoundedAndKeepNewestOrder(t *testing.T) {
+-	messages := make([]map[string]string, maxOpenAICyberTranscriptLookupKeys+44)
+-	for i := range messages {
+-		messages[i] = map[string]string{"role": "user", "content": "message-" + strconv.Itoa(i)}
+-	}
+-	body, err := json.Marshal(map[string]any{"messages": messages})
+-	require.NoError(t, err)
+-
+-	keys := CyberSessionTranscriptLookupKeys(77, body)
+-	require.Len(t, keys, maxOpenAICyberTranscriptLookupKeys)
+-
+-	firstRetainedBody, err := json.Marshal(map[string]any{"messages": messages[:45]})
+-	require.NoError(t, err)
+-	firstRetainedPrefix := CyberSessionTranscriptLookupKeys(77, firstRetainedBody)
+-	require.Equal(t, firstRetainedPrefix[len(firstRetainedPrefix)-1], keys[0])
+-
+-	fullKey := CyberSessionTranscriptBlockKeys(77, body)[0]
+-	require.Equal(t, fullKey, keys[len(keys)-1])
+-}
+-
+ // --- fakes ---
+ 
+ type fakeCyberBlockStore struct {
+-	blocked   map[string]bool
+-	scopes    map[string]bool
+-	findCalls int
++	blocked    map[string]bool
++	scopes     map[string]bool
++	findCalls  int
++	findErr    error
++	scopeCalls int
+ }
+ 
+ var _ CyberSessionBlockStore = (*fakeCyberBlockStore)(nil)
+@@ -124,11 +56,15 @@ func (f *fakeCyberBlockStore) SetCyberSessionBlocked(_ context.Context, scopeKey
+ }
+ 
+ func (f *fakeCyberBlockStore) IsCyberSessionScopeActive(_ context.Context, scopeKey string) (bool, error) {
++	f.scopeCalls++
+ 	return f.scopes[scopeKey], nil
+ }
+ 
+ func (f *fakeCyberBlockStore) FindCyberSessionBlocked(_ context.Context, keys []string) (string, error) {
+ 	f.findCalls++
++	if f.findErr != nil {
++		return "", f.findErr
++	}
+ 	for _, key := range keys {
+ 		if f.blocked[key] {
+ 			return key, nil
+@@ -272,61 +208,94 @@ func TestCyberSessionBlock_RoundTrip(t *testing.T) {
+ 	require.Equal(t, explicitKey, svc.FindCyberSessionBlockedForRequest(ctx, 1, c, body, "203.0.113.1", "client/1.0"))
+ }
+ 
+-func TestFindCyberSessionBlockedForRequestUsesScopeForTranscript(t *testing.T) {
+-	settingSvc := &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+-		SettingKeyCyberSessionBlockEnabled:    "true",
+-		SettingKeyCyberSessionBlockTTLSeconds: "60",
+-	}}}
+-	combo := &comboCacheAndStore{}
+-	svc := &OpenAIGatewayService{cache: combo, settingService: settingSvc}
+-	ctx := context.Background()
++func TestCyberSessionExplicitBlockKeyUsesSessionHeadersOnly(t *testing.T) {
++	var expected string
++	for _, header := range []string{"session-id", "session_id", "conversation_id", "X-Session-Id", "X-OpenCode-Session", "X-Conversation-ID"} {
++		c, body := newCyberBlockTestCtx(map[string]string{header: " conversation-a "}, `{"prompt_cache_key":"shared-cache"}`)
++		key := CyberSessionExplicitBlockKey(7, c, body)
++		require.NotEmpty(t, key, header)
++		if expected == "" {
++			expected = key
++		}
++		require.Equal(t, expected, key, "header aliases must identify the same conversation")
++		require.NotEqual(t, key, CyberSessionExplicitBlockKey(8, c, body))
++		require.Empty(t, CyberSessionExplicitBlockKey(0, c, body))
++		require.Empty(t, CyberSessionExplicitBlockKey(-1, c, body))
++	}
++	for _, body := range []string{`{}`, `{"prompt_cache_key":"conversation-a"}`, `{"type":"response.create","response":{"prompt_cache_key":"conversation-a","input":"hello"}}`} {
++		c, b := newCyberBlockTestCtx(map[string]string{"X-Session-Affinity": "conversation-a"}, body)
++		require.Empty(t, CyberSessionExplicitBlockKey(7, c, b))
++	}
++	require.Empty(t, CyberSessionExplicitBlockKey(7, nil, nil))
++	require.Empty(t, CyberSessionExplicitBlockKey(7, &gin.Context{}, nil))
++}
+ 
+-	hitBody := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}`)
+-	nextBody := []byte(`{"messages":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"different trigger"},{"role":"assistant","content":"blocked"},{"role":"user","content":"continue"}]}`)
+-	nextCtx, _ := newCyberBlockTestCtx(nil, string(nextBody))
+-	const clientIP = "203.0.113.20"
+-	const userAgent = "Codex CLI 1.2.3"
+-	blockKey := CyberSessionTranscriptBlockKeys(9, hitBody)[1]
+-
+-	// Without an active source scope, transcript candidates are never blocks.
+-	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 9, nextCtx, nextBody, clientIP, userAgent))
+-	scopeKey := CyberSessionScopeKey(9, clientIP, userAgent)
+-	svc.MarkCyberSessionBlocked(ctx, scopeKey, []string{blockKey})
+-	require.Equal(t, blockKey, svc.FindCyberSessionBlockedForRequest(ctx, 9, nextCtx, nextBody, clientIP, "Codex CLI 1.2.4"))
+-}
+-
+-func TestFindCyberSessionBlockedForRequestFailsClosedOnScopedTranscriptOverflow(t *testing.T) {
+-	settingSvc := &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+-		SettingKeyCyberSessionBlockEnabled:    "true",
+-		SettingKeyCyberSessionBlockTTLSeconds: "60",
+-	}}}
+-	combo := &comboCacheAndStore{}
+-	svc := &OpenAIGatewayService{cache: combo, settingService: settingSvc}
++func TestCyberSessionIsolationAcrossSharedKeyAndLongHistory(t *testing.T) {
+ 	ctx := context.Background()
+-	const apiKeyID = int64(9)
+-	const clientIP = "203.0.113.20"
+-	const userAgent = "Codex CLI 1.2.3"
+-
+-	messages := make([]map[string]string, maxOpenAICyberTranscriptLookupKeys+1)
+-	for i := range messages {
+-		messages[i] = map[string]string{"role": "user", "content": "message-" + strconv.Itoa(i)}
++	combo := &comboCacheAndStore{}
++	svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
++		SettingKeyCyberSessionBlockEnabled: "true", SettingKeyCyberSessionBlockTTLSeconds: "60",
++	}}}}
++	// Same input, cache hint and source cannot merge distinct session IDs.
++	items := make([]map[string]string, 600)
++	for i := range items {
++		items[i] = map[string]string{"type": "function_call_output", "call_id": "call-" + strconv.Itoa(i), "output": "ordinary tool result"}
+ 	}
+-	body, err := json.Marshal(map[string]any{"messages": messages})
++	payload, err := json.Marshal(map[string]any{"input": items, "prompt_cache_key": "shared-cache"})
+ 	require.NoError(t, err)
+-	c, _ := newCyberBlockTestCtx(nil, string(body))
+-	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, apiKeyID, c, body, clientIP, userAgent),
+-		"overflow alone must not bypass the scope gate")
+-	combo.store.scopes = map[string]bool{CyberSessionScopeKey(apiKeyID, clientIP, userAgent): true}
+-
+-	require.Equal(t, cyberSessionTranscriptLookupOverflowBlockKey,
+-		svc.FindCyberSessionBlockedForRequest(ctx, apiKeyID, c, body, clientIP, userAgent))
+-	require.Zero(t, combo.store.findCalls, "overflow must not issue an unbounded Redis lookup")
+-}
+-
+-func TestCyberSessionScopeKeyNormalizesUserAgentVersion(t *testing.T) {
+-	base := CyberSessionScopeKey(7, "203.0.113.10", "Codex CLI 1.2.3")
+-	require.NotEmpty(t, base)
+-	require.Equal(t, base, CyberSessionScopeKey(7, "203.0.113.10", "Codex CLI 1.2.4"))
+-	require.NotEqual(t, base, CyberSessionScopeKey(8, "203.0.113.10", "Codex CLI 1.2.3"))
+-	require.NotEqual(t, base, CyberSessionScopeKey(7, "203.0.113.11", "Codex CLI 1.2.3"))
++	a, _ := newCyberBlockTestCtx(map[string]string{"session_id": "conversation-a"}, string(payload))
++	aKey := CyberSessionExplicitBlockKey(7, a, payload)
++	legacyScope := sha256.Sum256([]byte("cyber-scope:v1|api_key=7|ip=203.0.113.20|ua=" + NormalizeSessionUserAgent("Codex CLI 1.2.3")))
++	svc.MarkCyberSessionBlocked(ctx, hex.EncodeToString(legacyScope[:]), []string{aKey})
++
++	for _, tc := range []struct {
++		name, session string
++		apiKey        int64
++		blocked       bool
++	}{
++		{"original session remains blocked", "conversation-a", 7, true},
++		{"another session shares key and history", "conversation-b", 7, false},
++		{"another authenticated key reuses session name", "conversation-a", 8, false},
++		{"no explicit identity with shared cache", "", 7, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			c, _ := newCyberBlockTestCtx(map[string]string{"session_id": tc.session}, string(payload))
++			got := svc.FindCyberSessionBlockedForRequest(ctx, tc.apiKey, c, payload, "203.0.113.20", "Codex CLI 1.2.3")
++			if tc.blocked {
++				require.Equal(t, aKey, got)
++			} else {
++				require.Empty(t, got)
++			}
++		})
++	}
++	// A reconnect/model change and a different network must not evade an exact block.
++	require.Equal(t, aKey, svc.FindCyberSessionBlockedForRequest(ctx, 7, a, []byte(`{"model":"another-model","input":"next turn"}`), "203.0.113.99", "AnotherClient/2"))
++	require.Zero(t, combo.store.scopeCalls, "a shared source is never a blocking identity")
++}
++
++func TestCyberSessionIgnoresLegacyCacheBlocks(t *testing.T) {
++	ctx := context.Background()
++	combo := &comboCacheAndStore{}
++	svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{SettingKeyCyberSessionBlockEnabled: "true"}}}}
++	// Before v2, a prompt_cache_key used the same digest as a session header.
++	legacy := sha256.Sum256([]byte(isolateOpenAISessionID(7, "shared-value")))
++	svc.MarkCyberSessionBlocked(ctx, "legacy-scope", []string{hex.EncodeToString(legacy[:])})
++	c, body := newCyberBlockTestCtx(map[string]string{"session_id": "shared-value"}, `{}`)
++	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, body, "", ""))
++}
++
++func TestCyberSessionLookupFailOpen(t *testing.T) {
++	c, body := newCyberBlockTestCtx(map[string]string{"session_id": "session-a"}, `{}`)
++	for _, enabled := range []string{"false", "true"} {
++		t.Run(enabled, func(t *testing.T) {
++			combo := &comboCacheAndStore{store: fakeCyberBlockStore{findErr: errors.New("storage unavailable")}}
++			svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{SettingKeyCyberSessionBlockEnabled: enabled}}}}
++			require.Empty(t, svc.FindCyberSessionBlockedForRequest(context.Background(), 7, c, body, "", ""))
++			if enabled == "false" {
++				require.Zero(t, combo.store.findCalls)
++			} else {
++				require.Equal(t, 1, combo.store.findCalls)
++			}
++		})
++	}
+ }
+diff --git a/backend/internal/service/openai_cyber_transcript.go b/backend/internal/service/openai_cyber_transcript.go
+deleted file mode 100644
+index b286c0476..000000000
+--- a/backend/internal/service/openai_cyber_transcript.go
++++ /dev/null
+@@ -1,157 +0,0 @@
+-package service
+-
+-import (
+-	"crypto/sha256"
+-	"encoding/hex"
+-	"encoding/json"
+-	"strconv"
+-	"strings"
+-
+-	"github.com/tidwall/gjson"
+-)
+-
+-type openAICyberTranscriptBlockKeys struct {
+-	lookupKeys          []string
+-	preLatestUserKey    string
+-	lookupKeysTruncated bool
+-}
+-
+-// Bound the Redis lookup work for a single request while retaining the most
+-// recent transcript prefixes, where a continuation is most likely to match.
+-const maxOpenAICyberTranscriptLookupKeys = 256
+-
+-// deriveOpenAICyberTranscriptBlockKeys returns cumulative semantic-history
+-// hashes plus the context key immediately before the latest user turn. The
+-// context key requires model-generated history so shared first-turn templates
+-// cannot block unrelated conversations.
+-func deriveOpenAICyberTranscriptBlockKeys(apiKeyID int64, body []byte) openAICyberTranscriptBlockKeys {
+-	if len(body) == 0 {
+-		return openAICyberTranscriptBlockKeys{}
+-	}
+-	root := openAIRequestPayloadView(body)
+-	if !root.Exists() || !root.IsObject() {
+-		return openAICyberTranscriptBlockKeys{}
+-	}
+-
+-	h := sha256.New()
+-	_, _ = h.Write([]byte("cyber-transcript:v3|api_key="))
+-	_, _ = h.Write([]byte(strconv.FormatInt(apiKeyID, 10)))
+-	// Model and tool definitions are request configuration rather than history.
+-	// Root instructions remain model-visible context and participate in identity.
+-	for _, field := range []string{"instructions"} {
+-		v := root.Get(field)
+-		if !v.Exists() || (v.Type == gjson.String && strings.TrimSpace(v.String()) == "") {
+-			continue
+-		}
+-		canonical := normalizeCompatSeedJSON(json.RawMessage(v.Raw))
+-		if v.Type == gjson.String {
+-			canonical = v.String()
+-		}
+-		_, _ = h.Write([]byte("|"))
+-		_, _ = h.Write([]byte(field))
+-		_, _ = h.Write([]byte("="))
+-		_, _ = h.Write([]byte(canonical))
+-	}
+-
+-	appendSequence := func(sequence gjson.Result) openAICyberTranscriptBlockKeys {
+-		if !sequence.Exists() || !sequence.IsArray() {
+-			return openAICyberTranscriptBlockKeys{}
+-		}
+-		result := openAICyberTranscriptBlockKeys{
+-			lookupKeys: make([]string, 0, maxOpenAICyberTranscriptLookupKeys),
+-		}
+-		nextLookupKey := 0
+-		lookupKeysRotated := false
+-		lastLookupKey := ""
+-		// This is an entropy heuristic, not provenance proof: authenticated
+-		// server-side history would be required to distinguish fixed few-shot
+-		// assistant items perfectly.
+-		hasModelGeneratedItem := false
+-		sequence.ForEach(func(_, item gjson.Result) bool {
+-			canonical := item.Raw
+-			switch item.Type {
+-			case gjson.String:
+-				encoded, _ := json.Marshal(item.String())
+-				canonical = string(encoded)
+-			case gjson.JSON:
+-				canonical = normalizeCompatSeedJSON(json.RawMessage(item.Raw))
+-			}
+-			if strings.TrimSpace(canonical) == "" {
+-				return true
+-			}
+-			if openAICyberTranscriptItemStartsUserTurn(item) && hasModelGeneratedItem && lastLookupKey != "" {
+-				result.preLatestUserKey = lastLookupKey
+-			}
+-			_, _ = h.Write([]byte("|item="))
+-			_, _ = h.Write([]byte(canonical))
+-			lastLookupKey = hex.EncodeToString(h.Sum(nil))
+-			if len(result.lookupKeys) < maxOpenAICyberTranscriptLookupKeys {
+-				result.lookupKeys = append(result.lookupKeys, lastLookupKey)
+-			} else {
+-				result.lookupKeys[nextLookupKey] = lastLookupKey
+-				nextLookupKey = (nextLookupKey + 1) % maxOpenAICyberTranscriptLookupKeys
+-				lookupKeysRotated = true
+-				result.lookupKeysTruncated = true
+-			}
+-			if openAICyberTranscriptItemIsModelGenerated(item) {
+-				hasModelGeneratedItem = true
+-			}
+-			return true
+-		})
+-		if lookupKeysRotated {
+-			ordered := make([]string, 0, len(result.lookupKeys))
+-			ordered = append(ordered, result.lookupKeys[nextLookupKey:]...)
+-			ordered = append(ordered, result.lookupKeys[:nextLookupKey]...)
+-			result.lookupKeys = ordered
+-		}
+-		return result
+-	}
+-
+-	if messages := root.Get("messages"); messages.Exists() {
+-		return appendSequence(messages)
+-	}
+-	input := root.Get("input")
+-	if input.IsArray() {
+-		return appendSequence(input)
+-	}
+-	if input.Type == gjson.String && strings.TrimSpace(input.String()) != "" {
+-		encoded, _ := json.Marshal(input.String())
+-		_, _ = h.Write([]byte("|item="))
+-		_, _ = h.Write(encoded)
+-		return openAICyberTranscriptBlockKeys{lookupKeys: []string{hex.EncodeToString(h.Sum(nil))}}
+-	}
+-	return openAICyberTranscriptBlockKeys{}
+-}
+-
+-func openAICyberTranscriptItemStartsUserTurn(item gjson.Result) bool {
+-	if strings.EqualFold(strings.TrimSpace(item.Get("role").String()), "user") {
+-		content := item.Get("content")
+-		if content.IsArray() {
+-			hasUserContent := false
+-			content.ForEach(func(_, block gjson.Result) bool {
+-				switch strings.ToLower(strings.TrimSpace(block.Get("type").String())) {
+-				case "tool_result", "function_call_output", "custom_tool_call_output", "computer_call_output":
+-				default:
+-					hasUserContent = true
+-				}
+-				return !hasUserContent
+-			})
+-			return hasUserContent
+-		}
+-		return content.Exists()
+-	}
+-	return strings.EqualFold(strings.TrimSpace(item.Get("type").String()), "input_text")
+-}
+-
+-func openAICyberTranscriptItemIsModelGenerated(item gjson.Result) bool {
+-	switch strings.ToLower(strings.TrimSpace(item.Get("role").String())) {
+-	case "assistant", "model":
+-		return true
+-	}
+-	switch strings.ToLower(strings.TrimSpace(item.Get("type").String())) {
+-	case "output_text", "function_call", "tool_call", "custom_tool_call", "computer_call":
+-		return true
+-	default:
+-		return false
+-	}
+-}
+diff --git a/docs/cyber-session-blocking.md b/docs/cyber-session-blocking.md
+new file mode 100644
+index 000000000..e8941f429
+--- /dev/null
++++ b/docs/cyber-session-blocking.md
+@@ -0,0 +1,26 @@
++# Cyber 会话屏蔽的身份边界
++
++`cyber_session_block_enabled` 控制上游实际返回 `cyber_policy` 后的本地会话屏蔽。仅凭请求历史长度或共享来源信息，不判定会话已被封锁。
++
++## 支持的身份
++
++本地封锁按认证后的 API Key ID 和明确会话 ID 派生独立哈希，按以下顺序读取请求头：
++
++- `session-id`
++- `session_id`
++- `conversation_id`
++- `X-Session-Id`
++- `X-OpenCode-Session`
++- `X-Conversation-ID`
++
++同一会话在 HTTP / WebSocket 重连时应保持 ID 稳定。共用一个 API Key 的转发网关必须为不同下游用户的不同会话提供互不复用的 ID，例如由可信网关按用户与会话生成不透明标识。客户端声明的会话 ID 不是用户认证凭据；本机制用于抑制重复请求，不替代上游内容审核。
++
++`prompt_cache_key`、`X-Session-Affinity`、IP、User-Agent、历史相似度和条目数均不构成封锁身份。没有明确会话 ID 时，不写入或查询跨请求的会话封锁；上游真实策略拒绝仍正常透传并记录。同一 WebSocket 连接已有的命中后阻断语义保留。
++
++## 升级影响
++
++新的会话封锁使用独立的 v2 哈希命名空间。旧版无法区分显式会话 ID 和缓存 key，不能安全继承其封锁记录；已有记录留在 Redis 中按原 TTL 自行过期，不迁移或删除。升级后的新命中按配置 TTL 重新记录。
++
++滚动升级期间，旧实例仍执行旧逻辑；需要所有实例运行修复版本才能消除该误拦。本变更不自动解除下游网关已经记录的用户或会话限制。
++
++问题记录：[上游 issue #6831](https://github.com/Wei-Shaw/sub2api/issues/6831)。
+diff --git a/frontend/src/i18n/locales/en/admin/settings.ts b/frontend/src/i18n/locales/en/admin/settings.ts
+index 4a4a35a43..2483ff8d7 100644
+--- a/frontend/src/i18n/locales/en/admin/settings.ts
++++ b/frontend/src/i18n/locales/en/admin/settings.ts
+@@ -83,7 +83,7 @@ export default {
+           enabled: 'Enable Risk Control',
+           enabledHint: 'When off, the admin sidebar entry is hidden and gateway moderation is skipped.',
+           cyberSessionBlock: 'Cyber session auto-block',
+-          cyberSessionBlockHint: 'When enabled, sessions hit by upstream cyber_policy are blocked locally for the TTL and no longer forwarded. Only the offending session is blocked; other sessions on the same key are unaffected.',
++          cyberSessionBlockHint: 'When enabled, locally block an upstream cyber_policy hit for the TTL only when an explicit session ID is available. Different sessions on the same API key remain isolated. Requests without a session ID are still evaluated upstream; IP, client type, cache keys and history length never identify a blocked session.',
+           riskControlUserAllowlist: 'Risk control allowlist',
+           riskControlUserAllowlistHint: 'Enter any email keyword to search for matching users. Allowlisted users will not trigger account bans or local blocking, but upstream restrictions still apply. This feature is typically used for trusted downstream relays.',
+           cyberSessionBlockTTL: 'Block TTL (seconds)',
+diff --git a/frontend/src/i18n/locales/zh/admin/settings.ts b/frontend/src/i18n/locales/zh/admin/settings.ts
+index 2c05b59e9..0558199e6 100644
+--- a/frontend/src/i18n/locales/zh/admin/settings.ts
++++ b/frontend/src/i18n/locales/zh/admin/settings.ts
+@@ -83,7 +83,7 @@ export default {
+           enabled: '启用风控中心',
+           enabledHint: '关闭后管理员侧边栏入口隐藏，网关内容审计不会执行。',
+           cyberSessionBlock: 'cyber 会话自动屏蔽',
+-          cyberSessionBlockHint: '开启后,被上游网络安全策略(cyber_policy)拦截的会话将在 TTL 内被本地屏蔽,不再发往上游。仅屏蔽该会话,不影响同 Key 其他会话。',
++          cyberSessionBlockHint: '开启后，仅对携带明确会话 ID 且被上游网络安全策略(cyber_policy)拦截的会话，在 TTL 内执行本地屏蔽。同 Key 的不同会话互不影响。缺少会话 ID 时仍由上游审核，不根据 IP、客户端类型、缓存 key 或历史长度推断封锁。',
+           riskControlUserAllowlist: '风控白名单',
+           riskControlUserAllowlistHint: '输入任意邮箱关键词进行模糊搜索。 白名单中的用户不会触发封号或本地屏蔽，但仍然无法突破上游拦截。该功能通常用于可信的下游中转站。',
+           cyberSessionBlockTTL: '屏蔽时长(秒)',

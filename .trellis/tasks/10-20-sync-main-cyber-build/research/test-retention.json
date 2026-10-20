@@ -1,0 +1,267 @@
+{
+  "files": 17,
+  "sources": 34,
+  "missing": [
+    {
+      "file": "backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge_test.go",
+      "source": "origin/main",
+      "count": 47,
+      "missing": [
+        "TestAnthropicToChatCompletionsRequest_UserArrayContentFoldsToString",
+        "TestDirectBridge_RequestMatchesDoubleConversion_ArrayUserContent"
+      ],
+      "disposition": "已核对的改名或已审阅的契约替代",
+      "evidence": "两项旧断言要求将文本数组折叠成 string，与已审阅的 build typed parts 缓存契约相反。由 TestAnthropicToChatCompletionsRequest_UserArrayContentKeepsTypedParts、TestDirectBridge_ArrayUserContentKeepsStableShape 验证相同输入的稳定形状；不是本次意外遗漏。"
+    },
+    {
+      "file": "backend/internal/service/openai_image_generation_controls_test.go",
+      "source": "origin/main",
+      "count": 19,
+      "missing": [
+        "TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader"
+      ],
+      "disposition": "已核对的改名或已审阅的契约替代",
+      "evidence": "原无条件透传 Lite Header 已由 build 最终模型策略替代；TestOpenAIBuildUpstreamRequestOpenAIPassthroughFiltersResponsesLiteHeader 和 openai_responses_lite_policy/image_bridge/WS tests 覆盖默认阻止、显式放行及入站图片桥接边界。"
+    },
+    {
+      "file": "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts",
+      "source": "origin/main",
+      "count": 21,
+      "missing": [
+        "it:renders GPT-5.4 mini entry in OpenCode config"
+      ],
+      "disposition": "已核对的改名或已审阅的契约替代",
+      "evidence": "原 GPT-5.4 Mini 配置断言已保留在扩展后的 renders GPT-5.6 max variants and GPT-5.4 mini entry in OpenCode config；同时校验三款 GPT-5.6 max，不丢旧字段。"
+    },
+    {
+      "file": "frontend/src/views/admin/__tests__/SettingsView.spec.ts",
+      "source": "HEAD",
+      "count": 45,
+      "missing": [
+        "it:从 baseSettings 加载默认平台配额数据并在 Users tab 渲染 5 平台行",
+        "it:保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象（含全 5 平台）",
+        "it:加载后 form.default_platform_quotas 含全 5 平台，从嵌套 JSON 正确读取数值"
+      ],
+      "disposition": "已核对的改名或已审阅的契约替代",
+      "evidence": "main 新增 TypeSafe，3 项标题从 5 平台更新为 6 平台；原配额对象/空值/保存断言仍在，并增加 typesafe 断言。"
+    }
+  ],
+  "details": [
+    {
+      "file": "backend/internal/config/config_test.go",
+      "source": "HEAD",
+      "count": 96,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/config/config_test.go",
+      "source": "origin/main",
+      "count": 99,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/handler/openai_gateway_handler_test.go",
+      "source": "HEAD",
+      "count": 73,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/handler/openai_gateway_handler_test.go",
+      "source": "origin/main",
+      "count": 71,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge_test.go",
+      "source": "HEAD",
+      "count": 46,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge_test.go",
+      "source": "origin/main",
+      "count": 47,
+      "missing": [
+        "TestAnthropicToChatCompletionsRequest_UserArrayContentFoldsToString",
+        "TestDirectBridge_RequestMatchesDoubleConversion_ArrayUserContent"
+      ]
+    },
+    {
+      "file": "backend/internal/repository/http_upstream_test.go",
+      "source": "HEAD",
+      "count": 14,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/repository/http_upstream_test.go",
+      "source": "origin/main",
+      "count": 14,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/server/api_contract_test.go",
+      "source": "HEAD",
+      "count": 1,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/server/api_contract_test.go",
+      "source": "origin/main",
+      "count": 1,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/account_websearch_test.go",
+      "source": "HEAD",
+      "count": 12,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/account_websearch_test.go",
+      "source": "origin/main",
+      "count": 13,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_codex_models_service_test.go",
+      "source": "HEAD",
+      "count": 93,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_codex_models_service_test.go",
+      "source": "origin/main",
+      "count": 94,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_chat_completions_test.go",
+      "source": "HEAD",
+      "count": 37,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_chat_completions_test.go",
+      "source": "origin/main",
+      "count": 45,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",
+      "source": "HEAD",
+      "count": 40,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",
+      "source": "origin/main",
+      "count": 10,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_service_hotpath_test.go",
+      "source": "HEAD",
+      "count": 35,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_gateway_service_hotpath_test.go",
+      "source": "origin/main",
+      "count": 37,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_image_generation_controls_test.go",
+      "source": "HEAD",
+      "count": 22,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/service/openai_image_generation_controls_test.go",
+      "source": "origin/main",
+      "count": 19,
+      "missing": [
+        "TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader"
+      ]
+    },
+    {
+      "file": "backend/internal/web/embed_test.go",
+      "source": "HEAD",
+      "count": 14,
+      "missing": []
+    },
+    {
+      "file": "backend/internal/web/embed_test.go",
+      "source": "origin/main",
+      "count": 15,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/CreateAccountModal.spec.ts",
+      "source": "HEAD",
+      "count": 41,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/CreateAccountModal.spec.ts",
+      "source": "origin/main",
+      "count": 52,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "source": "HEAD",
+      "count": 77,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "source": "origin/main",
+      "count": 75,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/credentialsBuilder.spec.ts",
+      "source": "HEAD",
+      "count": 81,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/account/__tests__/credentialsBuilder.spec.ts",
+      "source": "origin/main",
+      "count": 82,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts",
+      "source": "HEAD",
+      "count": 21,
+      "missing": []
+    },
+    {
+      "file": "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts",
+      "source": "origin/main",
+      "count": 21,
+      "missing": [
+        "it:renders GPT-5.4 mini entry in OpenCode config"
+      ]
+    },
+    {
+      "file": "frontend/src/views/admin/__tests__/SettingsView.spec.ts",
+      "source": "HEAD",
+      "count": 45,
+      "missing": [
+        "it:从 baseSettings 加载默认平台配额数据并在 Users tab 渲染 5 平台行",
+        "it:保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象（含全 5 平台）",
+        "it:加载后 form.default_platform_quotas 含全 5 平台，从嵌套 JSON 正确读取数值"
+      ]
+    },
+    {
+      "file": "frontend/src/views/admin/__tests__/SettingsView.spec.ts",
+      "source": "origin/main",
+      "count": 46,
+      "missing": []
+    }
+  ],
+  "unexplained_missing": []
+}

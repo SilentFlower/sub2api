@@ -1,0 +1,1445 @@
+
+### backend/internal/handler/endpoint.go
+
+#### 冲突块 1
+
+176: }
+177: 
+178: // isBareOrSubpathOf reports whether path is exactly root, or a subpath
+179: // rooted at root (i.e. root followed by "/"). This anchors the match
+180: // at the start of path so it cannot match paths where root appears
+181: // nested under some other unrelated prefix.
+182: func isBareOrSubpathOf(path, root string) bool {
+183: 	return path == root || strings.HasPrefix(path, root+"/")
+184: }
+185: 
+186: // DeriveUpstreamEndpoint 根据账号平台和归一化入站端点确定上游端点。
+187: //
+188: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+189: // 平台规则：
+190: //   - OpenAI 和 Grok 文本兼容路由默认转发到 /v1/responses，并保留 compact 等子路径；
+191: //     embeddings、alpha search、图片和视频等原生端点保留路径。Grok raw Chat 的实际端点
+192: //     由转发结果或运行时上下文覆盖，避免仅根据入站路径猜测。
+193: //   - Anthropic 转发到 /v1/messages。
+194: //   - Gemini 转发到 /v1beta/models。
+195: //   - Antigravity 可能指向 Claude 或 Gemini，需要根据入站端点区分。
+196: //
+197: // @param inbound 已归一化的入站端点。
+198: // @param rawRequestPath 原始请求路径，用于保留 Responses 子路径。
+199: // @param platform 目标账号平台。
+200: // @return 对应的上游端点。
+201: =======
+202: // Platform-specific rules:
+203: //   - OpenAI and Grok text compatibility routes forward to /v1/responses
+204: //     (with optional subpath such as /v1/responses/compact preserved from
+205: //     the raw URL); native endpoints such as embeddings and alpha search
+206: //     retain their paths. Grok raw Chat requests override this through the
+207: //     forwarding result consumed by resolveOpenAIUpstreamEndpoint.
+208: //   - Anthropic  → /v1/messages
+209: //   - Gemini     → /v1beta/models（显式缓存管理接口保留 /v1beta/cachedContents）
+210: //   - Antigravity → /v1/messages (Claude) or gemini (Gemini)
+211: //   - Antigravity routes may target either Claude or Gemini, so the
+212: //     inbound endpoint is used to distinguish.
+213: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+214: func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
+215: 	inbound = strings.TrimSpace(inbound)
+216: 
+217: 	switch platform {
+218: 	case service.PlatformOpenAI, service.PlatformGrok:
+219: 		if inbound == EndpointEmbeddings || inbound == EndpointAlphaSearch || inbound == EndpointResponsesInputTokens || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideosEdits || inbound == EndpointVideosExtensions || inbound == EndpointVideos {
+220: 			return inbound
+221: 		}
+222: 		// OpenAI forwards everything to the Responses API.
+223: 		// Preserve subresource suffix (e.g. /v1/responses/compact,
+224: 		// /v1/responses/compact/detail) as derived from the raw path.
+225: 		if suffix := responsesSubpathSuffix(rawRequestPath); suffix != "" {
+
+### backend/internal/pkg/apicompat/types.go
+
+#### 冲突块 1
+
+336: 	}
+337: 	if err := json.Unmarshal(output, &i.Output); err == nil {
+338: 		return nil
+339: 	}
+340: 
+341: 	i.outputRaw = append(i.outputRaw[:0], output...)
+342: 	i.Output = string(output)
+343: 	return nil
+344: }
+345: 
+346: // ResponsesContentPart is a typed content part in a Responses message.
+347: type ResponsesContentPart struct {
+348: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+349: 	PromptCacheBreakpoint json.RawMessage       `json:"prompt_cache_breakpoint,omitempty"`
+350: 	Type                  string                `json:"type"` // "input_text" | "output_text" | "input_image" | "input_file"
+351: 	Text                  string                `json:"text,omitempty"`
+352: 	ImageURL              string                `json:"image_url,omitempty"` // data URI for input_image
+353: 	Annotations           []ResponsesAnnotation `json:"annotations,omitempty"`
+354: 	// input_file 文件字段。
+355: =======
+356: 	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
+357: 	Type                  string          `json:"type"` // "input_text" | "output_text" | "refusal" | "input_image" | "input_file"
+358: 	Text                  string          `json:"text,omitempty"`
+359: 	Refusal               string          `json:"refusal,omitempty"`   // type=refusal
+360: 	ImageURL              string          `json:"image_url,omitempty"` // data URI for input_image
+361: 
+362: 	// input_file fields.
+363: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+364: 	Filename string `json:"filename,omitempty"`
+365: 	FileData string `json:"file_data,omitempty"` // data URI
+366: 	FileID   string `json:"file_id,omitempty"`
+367: }
+368: 
+369: // ResponsesAnnotation 描述 Responses 输出文本上的 URL 引用。
+370: type ResponsesAnnotation struct {
+371: 	Type       string `json:"type"`
+372: 	URL        string `json:"url"`
+373: 	Title      string `json:"title,omitempty"`
+374: 	StartIndex int    `json:"start_index"`
+375: 	EndIndex   int    `json:"end_index"`
+
+### backend/internal/service/account.go
+
+#### 冲突块 1
+
+904: // 如果未配置 mapping，返回 true（允许所有模型）。
+905: //
+906: // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
+907: // 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
+908: // 会把未知模型原样透传，Codex 上游对这类模型必然返回不可重试的 400，导致
+909: // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
+910: // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
+911: //
+912: // 例外：DeepSeek 平台的空映射不再是「允许所有」，改按官方模型白名单判定
+913: // （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
+914: // per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
+915: func (a *Account) IsModelSupported(requestedModel string) bool {
+916: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+917: 	// 透传模式不把 model_mapping 当作调度白名单，因此放行所有请求模型。OAuth
+918: 	// Forward 仍可应用账号映射，API Key 原生 Responses 则保持入站模型不变。
+919: =======
+920: 	return supportsOpenAIRequestModel(a, requestedModel, false)
+921: }
+922: 
+923: func (a *Account) isModelMappingSupported(requestedModel string) bool {
+924: 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
+925: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+926: 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
+927: 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
+928: 	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
+929: 	if a.IsOpenAIPassthroughEnabled() {
+930: 		return true
+931: 	}
+932: 	mapping := a.GetModelMapping()
+933: 	if len(mapping) == 0 {
+934: 		if a.IsOpenAIOAuth() {
+935: 			return isOpenAIOAuthServableModel(requestedModel)
+936: 		}
+937: 		if a.Platform == PlatformDeepseek {
+#### 冲突块 2
+
+2331: 
+2332: // IsAnthropicAPIKeyPassthroughEnabled 返回 Anthropic API Key 账号是否启用"自动透传（仅替换认证）"。
+2333: // 字段：accounts.extra.anthropic_passthrough。
+2334: // 字段缺失或类型不正确时，按 false（关闭）处理。
+2335: func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
+2336: 	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+2337: 		return false
+2338: 	}
+2339: 	enabled, ok := a.Extra["anthropic_passthrough"].(bool)
+2340: 	return ok && enabled
+2341: }
+2342: 
+2343: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+2344: =======
+2345: // WebSearch 模拟三态常量
+2346: const (
+2347: 	WebSearchModeDefault  = "default"  // 跟随渠道配置
+2348: 	WebSearchModeEnabled  = "enabled"  // 强制开启
+2349: 	WebSearchModeDisabled = "disabled" // 强制关闭
+2350: )
+2351: 
+2352: // GetWebSearchEmulationMode 返回账号的 WebSearch 模拟模式。
+2353: // 三态：default（跟随渠道）/ enabled（强制开启）/ disabled（强制关闭）。
+2354: // 兼容旧 bool 值：true→enabled, false→default（并记录 debug 日志）。
+2355: func (a *Account) GetWebSearchEmulationMode() string {
+2356: 	// OpenAI API Key accounts reach this via /v1/messages; their upstreams
+2357: 	// (DeepSeek etc. over Chat Completions) have no web_search tool.
+2358: 	if a == nil || a.Type != AccountTypeAPIKey || a.Extra == nil ||
+2359: 		(a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI) {
+2360: 		return WebSearchModeDefault
+2361: 	}
+2362: 	raw := a.Extra[featureKeyWebSearchEmulation]
+2363: 	// Tolerant: legacy bool values (pre-migration or stale writes)
+2364: 	if b, ok := raw.(bool); ok {
+2365: 		slog.Debug("legacy bool web_search_emulation value", "account_id", a.ID, "value", b)
+2366: 		if b {
+2367: 			return WebSearchModeEnabled
+2368: 		}
+2369: 		return WebSearchModeDefault
+2370: 	}
+2371: 	mode, ok := raw.(string)
+2372: 	if !ok {
+2373: 		return WebSearchModeDefault
+2374: 	}
+2375: 	switch mode {
+2376: 	case WebSearchModeEnabled, WebSearchModeDisabled:
+2377: 		return mode
+2378: 	default:
+2379: 		return WebSearchModeDefault
+2380: 	}
+2381: }
+2382: 
+2383: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+2384: // IsCodexCLIOnlyEnabled 返回 OpenAI OAuth 账号是否启用"仅允许 Codex 官方客户端"。
+2385: // 字段：accounts.extra.codex_cli_only。
+2386: // 字段缺失或类型不正确时，按 false（关闭）处理。
+2387: func (a *Account) IsCodexCLIOnlyEnabled() bool {
+2388: 	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
+2389: 		return false
+2390: 	}
+2391: 	enabled, ok := a.Extra["codex_cli_only"].(bool)
+2392: 	return ok && enabled
+2393: }
+2394: 
+2395: // IsCodexCLIOnlyAppServerAllowed 返回 codex_cli_only 账号是否额外放行 Codex app-server
+
+### backend/internal/service/account_websearch_test.go
+
+#### 冲突块 1
+
+86: 	require.Equal(t, WebSearchModeDefault, a.GetWebSearchEmulationMode())
+87: }
+88: 
+89: func TestGetWebSearchEmulationMode_OpenAIAPIKey(t *testing.T) {
+90: 	a := &Account{
+91: 		Platform: PlatformOpenAI,
+92: 		Type:     AccountTypeAPIKey,
+93: 		Extra:    map[string]any{featureKeyWebSearchEmulation: "enabled"},
+94: 	}
+95: 	require.Equal(t, WebSearchModeEnabled, a.GetWebSearchEmulationMode())
+96: }
+97: 
+98: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+99: func TestGetWebSearchEmulationMode_UnsupportedPlatform(t *testing.T) {
+100: 	a := &Account{
+101: 		Platform: PlatformGrok,
+102: =======
+103: func TestGetWebSearchEmulationMode_OpenAIOAuth(t *testing.T) {
+104: 	a := &Account{
+105: 		Platform: PlatformOpenAI,
+106: 		Type:     AccountTypeOAuth,
+107: 		Extra:    map[string]any{featureKeyWebSearchEmulation: "enabled"},
+108: 	}
+109: 	require.Equal(t, WebSearchModeDefault, a.GetWebSearchEmulationMode())
+110: }
+111: 
+112: func TestGetWebSearchEmulationMode_OtherPlatform(t *testing.T) {
+113: 	a := &Account{
+114: 		Platform: PlatformGemini,
+115: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+116: 		Type:     AccountTypeAPIKey,
+117: 		Extra:    map[string]any{featureKeyWebSearchEmulation: "enabled"},
+118: 	}
+119: 	require.Equal(t, WebSearchModeDefault, a.GetWebSearchEmulationMode())
+120: }
+121: 
+122: func TestGetWebSearchEmulationMode_NonAPIKeyType(t *testing.T) {
+123: 	a := &Account{
+124: 		Platform: PlatformAnthropic,
+125: 		Type:     AccountTypeOAuth,
+126: 		Extra:    map[string]any{featureKeyWebSearchEmulation: "enabled"},
+127: 	}
+
+### backend/internal/service/antigravity_gateway_gemini.go
+
+#### 冲突块 1
+
+132: 	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
+133: 		injectedBody = cleanedBody
+134: 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Cleaned request schema in forwarded request for account %s", account.Name)
+135: 	} else {
+136: 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
+137: 	}
+138: 
+139: 	// Antigravity v1internal rejects built-in + functionDeclarations mixes (#6464).
+140: 	if reconciled, err := enableMixedGeminiToolInvocations(injectedBody); err == nil {
+141: 		injectedBody = reconciled
+142: 	}
+143: 
+144: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+145: 	// GIF 兼容逻辑由独立领域 helper 拥有，并在最终包装后校验完整上游请求大小。
+146: 	wrappedBody, err := s.wrapV1InternalRequestWithGIFCompatibility(ctx, projectID, mappedModel, injectedBody)
+147: =======
+148: 	injectedBody = ensureGeminiFunctionCallThoughtSignatures(injectedBody)
+149: 
+150: 	// 包装请求
+151: 	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
+152: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+153: 	if err != nil {
+154: 		if antigravity.IsGIFCompatibilityError(err) {
+155: 			return nil, s.writeGoogleError(c, http.StatusBadRequest, antigravityGIFClientErrorMessage(err, "Invalid request"))
+156: 		}
+157: 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
+158: 	}
+159: 
+160: 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent
+161: 	// 如果客户端请求非流式，在响应处理阶段会收集完整流式响应后返回
+162: 	upstreamAction := "streamGenerateContent"
+163: 
+164: 	// 执行带重试的请求
+
+### backend/internal/service/gateway_forward_as_responses.go
+
+#### 冲突块 1
+
+444: 			block := *event.ContentBlock
+445: 			if block.Type == "text" && len(pendingCitations) > 0 {
+446: 				// DeepSeek 会把 citation delta 放在搜索结果块中，但它描述的是后续文本。
+447: 				block.Citations = append(block.Citations, pendingCitations...)
+448: 				pendingCitations = nil
+449: 			}
+450: 			finalResp.Content = append(finalResp.Content, block)
+451: 			if event.Index != nil {
+452: 				contentPositionByUpstreamIndex[*event.Index] = len(finalResp.Content) - 1
+453: 			}
+454: 		}
+455: 		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
+456: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+457: 			contentPosition, ok := contentPositionByUpstreamIndex[*event.Index]
+458: 			if !ok && *event.Index >= 0 && *event.Index < len(finalResp.Content) {
+459: 				// 兼容没有 content_block_start 映射的旧连续索引流。
+460: 				contentPosition = *event.Index
+461: 				ok = true
+462: 			}
+463: 			if ok {
+464: =======
+465: 			idx := *event.Index
+466: 			if idx >= 0 && idx < len(finalResp.Content) {
+467: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+468: 				switch event.Delta.Type {
+469: 				case "text_delta":
+470: 					finalResp.Content[contentPosition].Text += event.Delta.Text
+471: 				case "thinking_delta":
+472: 					finalResp.Content[contentPosition].Thinking += event.Delta.Thinking
+473: 				case "signature_delta":
+474: 					finalResp.Content[contentPosition].Signature += event.Delta.Signature
+475: 				case "input_json_delta":
+476: 					finalResp.Content[contentPosition].Input = appendRawJSON(finalResp.Content[contentPosition].Input, event.Delta.PartialJSON)
+477: 				case "citations_delta":
+478: 					if event.Delta.Citation != nil {
+479: 						if finalResp.Content[contentPosition].Type == "text" {
+
+### backend/internal/service/openai_gateway_chat_completions.go
+
+#### 冲突块 1
+
+117: 			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {
+118: 				return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+119: 			} else {
+120: 				logger.L().Debug("grok chat_completions: using raw fallback",
+121: 					zap.Int64("account_id", account.ID),
+122: 					zap.String("reason", reason),
+123: 				)
+124: 			}
+125: 		}
+126: 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+127: 	}
+128: 
+129: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+130: 	// OpenCode Go：按模型原生协议分流（与 inbound 协议正交）。
+131: 	// 规则未命中一律兜底 Chat Completions，只有显式 Responses 才走下方转换链。
+132: 	if account.IsOpenCodeGo() {
+133: 		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
+134: 		proto := openCodeGoNativeProtocol(account, mapped)
+135: 		if proto != APIProtocolResponses {
+136: 			if isResponsesShape {
+137: 				if proto == APIProtocolAnthropic {
+138: 					return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
+139: 				}
+140: 				var responsesReq apicompat.ResponsesRequest
+141: 				if err := json.Unmarshal(body, &responsesReq); err != nil {
+142: 					return nil, fmt.Errorf("parse responses-shaped chat completions request: %w", err)
+143: 				}
+144: 				chatReq, err := apicompat.ResponsesToChatCompletionsRequestWithOptions(
+145: 					&responsesReq,
+146: 					&apicompat.ResponsesToChatOptions{ReasoningContentByID: s.reasoningContentByID},
+147: 				)
+148: 				if err != nil {
+149: 					return nil, fmt.Errorf("convert responses-shaped chat completions request: %w", err)
+150: 				}
+151: 				chatBody, err := json.Marshal(chatReq)
+152: 				if err != nil {
+153: 					return nil, fmt.Errorf("marshal converted chat completions request: %w", err)
+154: 				}
+155: 				return s.forwardAsRawChatCompletions(ctx, c, account, chatBody, defaultMappedModel)
+156: 			}
+157: 			if proto == APIProtocolAnthropic {
+158: 				return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
+159: 			}
+160: 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+161: 		}
+162: =======
+163: 	// Cursor compatibility: some clients send a Responses-shaped body to the
+164: 	// /v1/chat/completions URL. Detect it before protocol routing so adaptive
+165: 	// accounts never forward the body unchanged to a Chat Completions endpoint.
+166: 	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+167: 	inbound := APIProtocolChatCompletions
+168: 	if isResponsesShape {
+169: 		inbound = APIProtocolResponses
+170: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+171: 	}
+172: 	// 按模型分流与 adaptive 账号按请求体形状处理 Responses 形状入站；其余账号
+173: 	// 维持原样把请求体交给所选路径。
+174: 	convertResponsesShape := isResponsesShape && (account.routesByModel() || account.IsAdaptiveAPIProtocol())
+175: 
+176: 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。Anthropic 分流必须先于
+177: 	// ShouldUseResponsesAPI：Anthropic 协议账号经 probe 落标
+178: 	// openai_responses_supported=false，否则会命中 CC 直转。
+179: 	routingModel := upstreamRoutingModel(account, body, defaultMappedModel)
+180: 	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+181: 		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
+182: 	}
+#### 冲突块 2
+
+186: 			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
+187: 		}
+188: 		// CC 入站经 CC→Responses→Anthropic 转换链直通供应商原生 Anthropic 端点。
+189: 		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
+190: 	case APIProtocolChatCompletions:
+191: 		if convertResponsesShape {
+192: 			chatBody, err := s.convertResponsesShapedChatBody(body)
+193: 			if err != nil {
+194: 				return nil, err
+195: 			}
+196: 			return s.forwardAsRawChatCompletions(ctx, c, account, chatBody, defaultMappedModel)
+197: 		}
+198: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+199: 		// DeepSeek / Kimi 原生 Responses 请求继续走下方 Responses→Chat 回程转换。
+200: 	}
+201: 
+202: 	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点，
+203: 	// CC 入站请求经 CC→Responses→Anthropic 转换链直通该端点。必须先于
+204: 	// ShouldUseResponsesAPI 分流：该类账号经 probe 落标
+205: 	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
+206: 	if account.IsAnthropicProtocol() {
+207: 		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
+208: 	}
+209: 
+210: 	// 固定 chat_completions 的 CN 账号，以及强制或已探测确认不支持 Responses
+211: 	// 的其他 APIKey 账号，均走 CC 直转。Responses 形状必须先转成标准 CC，
+212: 	// 避免兼容客户端把 input 请求体原样发给只支持 messages 的上游。
+213: 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+214: 		if isResponsesShape {
+215: 			body, prepareErr = convertResponsesShapeToRawChatBody(body)
+216: 			if prepareErr != nil {
+217: 				return nil, prepareErr
+218: 			}
+219: 		}
+220: =======
+221: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+222: 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+223: 	}
+224: 	// 上游为 Responses（含 adaptive 下 Responses 形状入站且供应商有原生
+225: 	// Responses 端点）：走下方 Chat Completions ↔ Responses 转换链。
+226: 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
+227: 
+228: 	startTime := time.Now()
+229: 
+230: 	// 1. Parse Chat Completions request
+231: 	var chatReq apicompat.ChatCompletionsRequest
+232: 	if err := json.Unmarshal(body, &chatReq); err != nil {
+233: 		return nil, fmt.Errorf("parse chat completions request: %w", err)
+#### 冲突块 3
+
+525: 	// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
+526: 	if handleErr == nil && account.Type == AccountTypeOAuth && !account.IsShadow() {
+527: 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
+528: 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+529: 		}
+530: 	} else if handleErr == nil && account.IsShadow() && account.ParentAccountID != nil {
+531: 		notifyOpenAIAutoReset(*account.ParentAccountID)
+532: 	}
+533: 
+534: 	return result, handleErr
+535: }
+536: 
+537: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+538: // convertResponsesShapeToRawChatBody 把误投到 Chat 端点的 Responses 请求转换为真实 Chat 请求。
+539: //
+540: // @param body 已完成兼容预处理的 Responses 请求体。
+541: // @return 可发送到 Chat Completions 上游的请求体，或无法保持语义时的错误。
+542: func convertResponsesShapeToRawChatBody(body []byte) ([]byte, error) {
+543: 	var req apicompat.ResponsesRequest
+544: 	if err := json.Unmarshal(body, &req); err != nil {
+545: 		return nil, fmt.Errorf("parse responses-shaped chat request: %w", err)
+546: 	}
+547: 	if bytes.Contains(body, []byte("web_search")) {
+548: 		request, toolCount, webSearchCount, err := parseOpenAIResponsesWebSearchRequest(body)
+549: 		if err != nil {
+550: 			return nil, err
+551: 		}
+552: 		if shouldRejectChatFallbackWebSearch(toolCount, webSearchCount, request.ToolChoice.Kind) {
+553: 			return nil, errors.New("responses-shaped request sent to Chat Completions cannot execute the requested web_search tool")
+554: 		}
+555: 	}
+556: 	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&req)
+557: 	if err != nil {
+558: 		return nil, fmt.Errorf("convert responses-shaped chat request: %w", err)
+559: 	}
+560: 	converted, err := json.Marshal(chatReq)
+561: 	if err != nil {
+562: 		return nil, fmt.Errorf("marshal converted chat request: %w", err)
+563: 	}
+564: 	return converted, nil
+565: =======
+566: var responsesInputStringValidationError = regexp.MustCompile(`^['"]loc['"]\s*:\s*\(\s*['"]body['"]\s*,\s*['"]input['"]\s*,\s*['"]str['"]\s*\)$`)
+567: var responsesStringValidationMessage = regexp.MustCompile(`^['"]msg['"]\s*:\s*['"]Input should be a valid string['"]$`)
+568: var responsesStringValidationType = regexp.MustCompile(`^['"]type['"]\s*:\s*['"]string_type['"]$`)
+569: var responsesValidationErrors = regexp.MustCompile(`(?s)^([1-9][0-9]*) validation errors?(?: for [^\r\n:]+)?:\s*(\[.*\])$`)
+570: var responsesInvalidInputTypeMessage = regexp.MustCompile(`(?i)^(?:Invalid type for ['"]input['"]:\s*)?Expected a string(?: for input)?, but got an (?:array|object) instead\.?$`)
+571: 
+572: func isResponsesInputStringValidationMessage(message string) bool {
+573: 	match := responsesValidationErrors.FindStringSubmatch(strings.TrimSpace(message))
+574: 	if match == nil {
+575: 		return false
+576: 	}
+577: 	entries, ok := splitResponsesValidationFields(match[2][1 : len(match[2])-1])
+578: 	count, err := strconv.Atoi(match[1])
+579: 	if !ok || err != nil || count != len(entries) {
+580: 		return false
+581: 	}
+582: 	matched := false
+583: 	for _, entry := range entries {
+584: 		if !strings.HasPrefix(entry, "{") || !strings.HasSuffix(entry, "}") {
+585: 			return false
+586: 		}
+587: 		fields, ok := splitResponsesValidationFields(entry[1 : len(entry)-1])
+588: 		if !ok {
+589: 			return false
+590: 		}
+591: 		location, message, stringType := false, false, false
+592: 		keys := make(map[string]bool, len(fields))
+593: 		for _, field := range fields {
+594: 			key, value, found := strings.Cut(field, ":")
+595: 			key = strings.TrimSpace(key)
+596: 			if !found || len(key) < 3 || (key[0] != '\'' && key[0] != '"') || key[len(key)-1] != key[0] || strings.TrimSpace(value) == "" || keys[key[1:len(key)-1]] {
+597: 				return false
+598: 			}
+599: 			keys[key[1:len(key)-1]] = true
+600: 			location = location || responsesInputStringValidationError.MatchString(field)
+601: 			message = message || responsesStringValidationMessage.MatchString(field)
+602: 			stringType = stringType || responsesStringValidationType.MatchString(field)
+603: 		}
+604: 		matched = matched || (location && message && stringType)
+605: 	}
+606: 	return matched
+607: }
+608: 
+609: func splitResponsesValidationFields(value string) ([]string, bool) {
+610: 	var fields []string
+611: 	var brackets []byte
+612: 	var quote byte
+613: 	escaped := false
+614: 	start := 0
+615: 	for index := 0; index < len(value); index++ {
+616: 		character := value[index]
+617: 		if quote != 0 {
+618: 			if escaped {
+619: 				escaped = false
+620: 			} else if character == '\\' {
+621: 				escaped = true
+622: 			} else if character == quote {
+623: 				quote = 0
+624: 			}
+625: 			continue
+626: 		}
+627: 		switch character {
+628: 		case '\'', '"':
+629: 			quote = character
+630: 		case '{', '[', '(':
+631: 			brackets = append(brackets, character)
+632: 		case '}', ']', ')':
+633: 			if len(brackets) == 0 {
+634: 				return nil, false
+635: 			}
+636: 			opening := brackets[len(brackets)-1]
+637: 			if (character == '}' && opening != '{') || (character == ']' && opening != '[') || (character == ')' && opening != '(') {
+638: 				return nil, false
+639: 			}
+640: 			brackets = brackets[:len(brackets)-1]
+641: 		case ',':
+642: 			if len(brackets) == 0 {
+643: 				field := strings.TrimSpace(value[start:index])
+644: 				if field == "" {
+645: 					return nil, false
+646: 				}
+647: 				fields = append(fields, field)
+648: 				start = index + 1
+649: 			}
+650: 		}
+651: 	}
+652: 	if quote != 0 || len(brackets) != 0 {
+653: 		return nil, false
+654: 	}
+655: 	if field := strings.TrimSpace(value[start:]); field != "" {
+656: 		fields = append(fields, field)
+657: 	}
+658: 	return fields, len(fields) > 0
+659: }
+660: 
+661: func isConvertedResponsesInputStringRejection(status int, responseBody []byte) bool {
+662: 	if status != http.StatusBadRequest || !json.Valid(responseBody) {
+663: 		return false
+664: 	}
+665: 	envelope := gjson.ParseBytes(responseBody)
+666: 	for _, object := range []gjson.Result{envelope, envelope.Get("error")} {
+667: 		if !object.IsObject() {
+668: 			return false
+669: 		}
+670: 		keys := make(map[string]bool)
+671: 		unambiguous := true
+672: 		object.ForEach(func(key, value gjson.Result) bool {
+673: 			name := key.String()
+674: 			if keys[name] {
+675: 				unambiguous = false
+676: 				return false
+677: 			}
+678: 			keys[name] = true
+679: 			switch name {
+680: 			case "usage", "output", "output_text", "choices", "tool_calls", "response", "status", "incomplete_details":
+681: 				unambiguous = false
+682: 			case "code":
+683: 				code := strings.ToLower(strings.TrimSpace(value.String()))
+684: 				unambiguous = code == "" || code == "invalid_type" || code == "invalid_request_error"
+685: 			case "param":
+686: 				param := strings.ToLower(strings.TrimSpace(value.String()))
+687: 				unambiguous = param == "" || param == "input"
+688: 			case "type":
+689: 				errorType := strings.ToLower(strings.TrimSpace(value.String()))
+690: 				unambiguous = errorType == "" || errorType == "invalid_type" || errorType == "invalid_request_error"
+691: 			}
+692: 			return unambiguous
+693: 		})
+694: 		if !unambiguous {
+695: 			return false
+696: 		}
+697: 	}
+698: 	message := gjson.GetBytes(responseBody, "error.message").String()
+699: 	if isResponsesInputStringValidationMessage(message) {
+700: 		return true
+701: 	}
+702: 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String()))
+703: 	typ := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()))
+704: 	if code != "invalid_type" && typ != "invalid_type" {
+705: 		return false
+706: 	}
+707: 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
+708: 	if param != "input" {
+709: 		return false
+710: 	}
+711: 	message = strings.ToLower(strings.TrimSpace(message))
+712: 	return responsesInvalidInputTypeMessage.MatchString(message)
+713: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+714: }
+715: 
+716: func normalizeResponsesRequestServiceTier(req *apicompat.ResponsesRequest) {
+717: 	if req == nil {
+718: 		return
+719: 	}
+720: 	req.ServiceTier = normalizedOpenAIServiceTierValue(req.ServiceTier)
+721: }
+722: 
+723: func normalizeResponsesBodyServiceTier(body []byte) ([]byte, string, error) {
+724: 	if len(body) == 0 {
+725: 		return body, "", nil
+
+### backend/internal/service/openai_gateway_messages.go
+
+#### 冲突块 1
+
+61: 	setCodexToolNameReverse(c, nil)
+62: 	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
+63: 		return nil, err
+64: 	}
+65: 
+66: 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。Anthropic 分流必须先于
+67: 	// ShouldUseResponsesAPI：Anthropic 协议账号经 probe 落标
+68: 	// openai_responses_supported=false，否则会命中 CC 直转。
+69: 	routingModel := upstreamRoutingModel(account, body, defaultMappedModel)
+70: 	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+71: 		return nil, writeOpenCodeUnsupportedModelError(c, true, routingModel)
+72: 	}
+73: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+74: 
+75: 	// build 的统一判定额外覆盖 Grok 强制 Chat，同时包含 OpenAI APIKey
+76: 	// 与固定 chat_completions 的 CN 账号；固定 responses 不会被旧探针值覆盖。
+77: 	if ShouldForwardAnthropicMessagesViaRawChatCompletions(account) {
+78: =======
+79: 	switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, routingModel) {
+80: 	case APIProtocolAnthropic:
+81: 		// 上游为供应商原生 Anthropic 端点：/v1/messages 零转换直通（仅模型名映射 +
+82: 		// 少量 body 清洗），完整保留 thinking / tool_use / cache 语义。
+83: 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+84: 	case APIProtocolChatCompletions:
+85: 		// 固定 chat_completions 的多协议账号、规则命中 CC 的按模型分流账号，以及
+86: 		// 不支持 Responses 的其他 APIKey 账号，均将 Messages 转为 CC。
+87: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+88: 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+89: 	}
+90: 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
+91: 
+92: 	startTime := time.Now()
+93: 
+94: 	// 1. Parse Anthropic request
+95: 	var anthropicReq apicompat.AnthropicRequest
+96: 	if err := json.Unmarshal(body, &anthropicReq); err != nil {
+97: 		return nil, fmt.Errorf("parse anthropic request: %w", err)
+98: 	}
+99: 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
+
+### backend/internal/service/openai_gateway_messages_chat_fallback.go
+
+#### 冲突块 1
+
+44: 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+45: 		return nil, fmt.Errorf("missing model in request")
+46: 	}
+47: 	derivedReasoningEffort := applyOpenAICompatModelNormalization(&anthropicReq)
+48: 	clientStream := anthropicReq.Stream
+49: 	debugLogGatewaySnapshot(&s.debugGatewayBodyFile, "CLIENT_ORIGINAL_MESSAGES_RAW_CHAT", c.Request.Header, body, map[string]string{
+50: 		"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
+51: 		"account_type": string(account.Type),
+52: 		"model":        originalModel,
+53: 		"stream":       fmt.Sprintf("%t", clientStream),
+54: 	})
+55: 
+56: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+57: 	chatReq, err := apicompat.AnthropicToChatCompletionsRequest(&anthropicReq)
+58: =======
+59: 	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
+60: 	chatReq, err := apicompat.AnthropicToChatCompletionsRequestWithMinOutputTokens(
+61: 		&anthropicReq,
+62: 		configuredMinOutputTokens(s.cfg),
+63: 	)
+64: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+65: 	if err != nil {
+66: 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+67: 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
+68: 	}
+69: 	if derivedReasoningEffort != "" {
+70: 		chatReq.ReasoningEffort = derivedReasoningEffort
+71: 	}
+72: 
+73: 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
+74: 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+75: 	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+76: 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+
+### backend/internal/service/openai_gateway_responses_chat_fallback_test.go
+
+#### 冲突块 1
+
+1: //go:build unit
+2: 
+3: package service
+4: 
+5: import (
+6: 	"bytes"
+7: 	"context"
+8: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+9: 	"encoding/json"
+10: 	"errors"
+11: =======
+12: 	"fmt"
+13: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+14: 	"io"
+15: 	"net/http"
+16: 	"net/http/httptest"
+17: 	"strings"
+18: 	"sync"
+19: 	"testing"
+20: 	"time"
+21: 
+22: 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+23: 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+24: 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
+25: 	"github.com/gin-gonic/gin"
+#### 冲突块 2
+
+18: 	"sync"
+19: 	"testing"
+20: 	"time"
+21: 
+22: 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+23: 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+24: 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
+25: 	"github.com/gin-gonic/gin"
+26: 	"github.com/stretchr/testify/require"
+27: 	"github.com/tidwall/gjson"
+28: )
+29: 
+30: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+31: type openAIResponsesWebRunFailingWriter struct {
+32: 	gin.ResponseWriter
+33: }
+34: 
+35: func (w *openAIResponsesWebRunFailingWriter) Write([]byte) (int, error) {
+36: 	return 0, errors.New("write failed")
+37: }
+38: 
+39: func (w *openAIResponsesWebRunFailingWriter) WriteString(string) (int, error) {
+40: 	return 0, errors.New("write failed")
+41: =======
+42: func TestForwardResponses_ChatFallbackPreservesProvidedStartTime(t *testing.T) {
+43: 	for _, stream := range []bool{false, true} {
+44: 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+45: 			body := []byte(fmt.Sprintf(`{"model":"gpt-5.4","input":"hello","stream":%t}`, stream))
+46: 			rec := httptest.NewRecorder()
+47: 			c, _ := gin.CreateTestContext(rec)
+48: 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+49: 			responseBody := `{"id":"chatcmpl_timing","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
+50: 			contentType := "application/json"
+51: 			if stream {
+52: 				responseBody = "data: {\"id\":\"chatcmpl_timing\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n"
+53: 				contentType = "text/event-stream"
+54: 			}
+55: 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(responseBody))}}
+56: 			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+57: 			startTime := time.Now().Add(-time.Minute)
+58: 			result, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, forceChatResponsesFallbackAccount(), body, startTime)
+59: 			require.NoError(t, err)
+60: 			require.NotNil(t, result)
+61: 			require.GreaterOrEqual(t, result.Duration, time.Minute)
+62: 			if stream {
+63: 				require.NotNil(t, result.FirstTokenMs)
+64: 				require.GreaterOrEqual(t, *result.FirstTokenMs, int(time.Minute.Milliseconds()))
+65: 			}
+66: 		})
+67: 	}
+68: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+69: }
+70: 
+71: func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
+72: 	gin.SetMode(gin.TestMode)
+73: 
+74: 	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false,"service_tier":"priority"}`)
+75: 	rec := httptest.NewRecorder()
+76: 	c, _ := gin.CreateTestContext(rec)
+77: 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+78: 	c.Request.Header.Set("Content-Type", "application/json")
+79: 
+80: 	upstream := &httpUpstreamRecorder{resp: &http.Response{
+
+### backend/internal/service/openai_image_generation_controls_test.go
+
+#### 冲突块 1
+
+523: 	svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+524: 	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.98.0")
+525: 	account := newOpenAIImageGenerationControlTestAccount()
+526: 
+527: 	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.4","input":"draw","stream":false,"tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`))
+528: 
+529: 	require.NoError(t, err)
+530: 	require.NotNil(t, result)
+531: 	require.NotNil(t, upstream.lastReq)
+532: 	require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tool_choice.type").String())
+533: }
+534: 
+535: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+536: func TestOpenAIGatewayServiceForward_CodexBridgeOverridesNoneToolChoice(t *testing.T) {
+537: 	gin.SetMode(gin.TestMode)
+538: 
+539: 	upstream := &httpUpstreamRecorder{
+540: 		resp: &http.Response{
+541: 			StatusCode: http.StatusOK,
+542: 			Header:     http.Header{"Content-Type": []string{"application/json"}},
+543: 			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_codex_none_choice","model":"gpt-5.4","usage":{"input_tokens":1,"output_tokens":1}}`)),
+544: 		},
+545: 	}
+546: 	svc := newOpenAIImageGenerationControlTestService(upstream)
+547: 	svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+548: 	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+549: 	account := newOpenAIImageGenerationControlTestAccount()
+550: 	body := []byte(`{"model":"gpt-5.4","input":"draw","stream":false,"tool_choice":"none"}`)
+551: 
+552: 	result, err := svc.Forward(context.Background(), c, account, body)
+553: 
+554: 	require.NoError(t, err)
+555: 	require.NotNil(t, result)
+556: 	require.NotNil(t, upstream.lastReq)
+557: 	require.True(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+558: 	require.Equal(t, "auto", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+559: =======
+560: // 国产原生 Responses 账号（Kimi / DeepSeek / MiniMax）在桥接由渠道级开关或全局开关
+561: // 单独打开时，发往上游的请求体都不能带 hosted image_generation 工具 / tool_choice / 桥接指令。
+562: func TestOpenAIGatewayServiceForward_CodexBridgeSkipsNativeCNResponsesAccounts(t *testing.T) {
+563: 	gin.SetMode(gin.TestMode)
+564: 
+565: 	groupID := int64(4242)
+566: 	triggers := []struct {
+567: 		name    string
+568: 		global  bool
+569: 		channel *Channel
+570: 	}{
+571: 		{
+572: 			name:   "channel_openai_true_global_off",
+573: 			global: false,
+574: 			channel: &Channel{ID: 1, Status: StatusActive, FeaturesConfig: map[string]any{
+575: 				featureKeyCodexImageGenerationBridge: map[string]any{PlatformOpenAI: true},
+576: 			}},
+577: 		},
+578: 		{
+579: 			name:   "global_on_no_channel",
+580: 			global: true,
+581: 		},
+582: 	}
+583: 	for _, platform := range []string{PlatformKimi, PlatformDeepseek, PlatformMiniMax} {
+584: 		for _, trig := range triggers {
+585: 			t.Run(platform+"/"+trig.name, func(t *testing.T) {
+586: 				upstream := &httpUpstreamRecorder{
+587: 					resp: &http.Response{
+588: 						StatusCode: http.StatusOK,
+589: 						Header:     http.Header{"Content-Type": []string{"application/json"}},
+590: 						Body:       io.NopCloser(strings.NewReader(`{"id":"resp_cn_codex","model":"cn-model","usage":{"input_tokens":1,"output_tokens":1}}`)),
+591: 					},
+592: 				}
+593: 				svc := newOpenAIImageGenerationControlTestService(upstream)
+594: 				svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = trig.global
+595: 				if trig.channel != nil {
+596: 					svc.channelService = newOpenAIImageGenerationControlChannelService(groupID, trig.channel)
+597: 				}
+598: 				c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+599: 				account := &Account{
+600: 					ID:          6100,
+601: 					Name:        platform + "-native-responses",
+602: 					Platform:    platform,
+603: 					Type:        AccountTypeAPIKey,
+604: 					Status:      StatusActive,
+605: 					Schedulable: true,
+606: 					Concurrency: 1,
+607: 					Credentials: map[string]any{
+608: 						"api_key":      "sk-cn-test",
+609: 						"api_protocol": APIProtocolResponses,
+610: 					},
+611: 				}
+612: 				// 前置条件：账号确实走原生 Responses 转发，而不是 Chat Completions 转换链。
+613: 				require.True(t, account.UsesNativeCNResponses())
+614: 				require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
+615: 
+616: 				result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"cn-model","input":"hello","stream":false,"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}]}`))
+617: 
+618: 				require.NoError(t, err)
+619: 				require.NotNil(t, result)
+620: 				require.NotNil(t, upstream.lastReq)
+621: 				require.Falsef(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists(), "image_generation tool injected into %s upstream body", platform)
+622: 				require.Falsef(t, gjson.GetBytes(upstream.lastBody, "tool_choice").Exists(), "tool_choice injected into %s upstream body", platform)
+623: 				require.NotContains(t, gjson.GetBytes(upstream.lastBody, "instructions").String(), codexImageGenerationBridgeMarker)
+624: 				require.Equal(t, "shell", gjson.GetBytes(upstream.lastBody, "tools.0.name").String())
+625: 			})
+626: 		}
+627: 	}
+628: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+629: }
+630: 
+631: func TestOpenAIGatewayServiceForward_CodexBridgeSkipsCompactRequests(t *testing.T) {
+632: 	gin.SetMode(gin.TestMode)
+633: 
+634: 	upstream := &httpUpstreamRecorder{
+635: 		resp: &http.Response{
+636: 			StatusCode: http.StatusOK,
+637: 			Header:     http.Header{"Content-Type": []string{"application/json"}},
+638: 			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_codex_compact","model":"gpt-5.4","usage":{"input_tokens":1,"output_tokens":1}}`)),
+639: 		},
+640: 	}
+
+### frontend/src/components/account/EditAccountModal.vue
+
+#### 冲突块 1
+
+2237:             <label class="input-label mb-0">{{ t('admin.accounts.anthropic.apiKeyAuthScheme') }}</label>
+2238:             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+2239:               {{ t('admin.accounts.anthropic.apiKeyAuthSchemeDesc') }}
+2240:             </p>
+2241:           </div>
+2242:           <select v-model="anthropicAPIKeyAuthScheme" class="input w-52 text-sm">
+2243:             <option value="x_api_key">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeXApiKey') }}</option>
+2244:             <option value="authorization_bearer">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeBearer') }}</option>
+2245:           </select>
+2246:         </div>
+2247:       </div>
+2248: 
+2249: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+2250:       <WebSearchEmulationField
+2251:         v-if="(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
+2252:         v-model="webSearchEmulationMode"
+2253:       />
+2254: 
+2255:       <AccountCodexWebSearchBridgeField
+2256:         v-if="account?.platform === 'openai' && account?.type === 'apikey' && webSearchGlobalEnabled"
+2257:         v-model="codexWebSearchBridgeMode"
+2258:       />
+2259: =======
+2260:       <!-- Anthropic / OpenAI API Key: Web Search Emulation (hidden when global disabled) -->
+2261:       <div
+2262:         v-if="(account?.platform === 'anthropic' || account?.platform === 'openai') && account?.type === 'apikey' && webSearchGlobalEnabled"
+2263:         class="border-t border-gray-200 pt-4 dark:border-dark-600"
+2264:       >
+2265:         <div class="flex items-center justify-between">
+2266:           <div>
+2267:             <label class="input-label mb-0">{{ t('admin.accounts.anthropic.webSearchEmulation') }}</label>
+2268:             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+2269:               {{ t('admin.accounts.anthropic.webSearchEmulationDesc') }}
+2270:             </p>
+2271:           </div>
+2272:           <select v-model="webSearchEmulationMode" class="input w-24 text-sm">
+2273:             <option value="default">{{ t('admin.accounts.anthropic.webSearchDefault') }}</option>
+2274:             <option value="enabled">{{ t('admin.accounts.anthropic.webSearchEnabled') }}</option>
+2275:             <option value="disabled">{{ t('admin.accounts.anthropic.webSearchDisabled') }}</option>
+2276:           </select>
+2277:         </div>
+2278:       </div>
+2279: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+2280: 
+2281:       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
+2282:       <div
+2283:         v-if="account?.platform === 'anthropic' && (account?.type === 'apikey' || account?.type === 'bedrock')"
+2284:         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+2285:       >
+2286:         <div class="mb-3">
+2287:           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
+2288:           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+2289:             {{ t('admin.accounts.quotaControl.hint') }}
+2290:           </p>
+2291:         </div>
+#### 冲突块 2
+
+4501:   }
+4502:   if ((newAccount.platform === 'anthropic' || newAccount.platform === 'openai') && newAccount.type === 'apikey') {
+4503:     webSearchEmulationMode.value = compatibility.webSearchEmulation
+4504:   }
+4505:   if (newAccount.platform === 'openai' && newAccount.type === 'apikey') {
+4506:     codexWebSearchBridgeMode.value = normalizeCodexWebSearchBridgeMode(extra?.codex_web_search_bridge)
+4507:   }
+4508:   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
+4509:     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
+4510:     anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
+4511:       ? 'authorization_bearer'
+4512:       : 'x_api_key'
+4513: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+4514: =======
+4515:   }
+4516:   if ((newAccount.platform === 'anthropic' || newAccount.platform === 'openai') && newAccount.type === 'apikey') {
+4517:     // 三态：string "default"/"enabled"/"disabled"，向后兼容旧 bool
+4518:     const wsVal = extra?.web_search_emulation
+4519:     if (wsVal === 'enabled' || wsVal === 'disabled') {
+4520:       webSearchEmulationMode.value = wsVal
+4521:     } else if (wsVal === true) {
+4522:       webSearchEmulationMode.value = 'enabled'
+4523:     } else {
+4524:       webSearchEmulationMode.value = 'default'
+4525:     }
+4526: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+4527:   }
+4528: 
+4529:   // Load quota limit for apikey/bedrock accounts (bedrock quota is also loaded in its own branch above)
+4530:   if (newAccount.type === 'apikey' || newAccount.type === 'bedrock') {
+4531:     const quotaVal = extra?.quota_limit as number | undefined
+4532:     editQuotaLimit.value = (quotaVal && quotaVal > 0) ? quotaVal : null
+4533:     const dailyVal = extra?.quota_daily_limit as number | undefined
+4534:     editQuotaDailyLimit.value = (dailyVal && dailyVal > 0) ? dailyVal : null
+4535:     const weeklyVal = extra?.quota_weekly_limit as number | undefined
+4536:     editQuotaWeeklyLimit.value = (weeklyVal && weeklyVal > 0) ? weeklyVal : null
+4537:     // Load quota reset mode config
+4538:     editDailyResetMode.value = (extra?.quota_daily_reset_mode as 'rolling' | 'fixed') || null
+#### 冲突块 3
+
+6001:         delete newExtra.openai_responses_flatten_namespaces
+6002:       }
+6003:       if (isSparkShadow.value) {
+6004:         delete newExtra.openai_long_context_billing_enabled
+6005:       } else {
+6006:         newExtra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+6007:       }
+6008:       if (openAICompactMode.value === 'auto') {
+6009:         delete newExtra.openai_compact_mode
+6010:       } else {
+6011:         newExtra.openai_compact_mode = openAICompactMode.value
+6012:       }
+6013: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+6014:       newExtra = applyOpenAICompatibilityExtra(newExtra, {
+6015:         responsesMode:
+6016:           props.account.type === 'apikey' && openAITextGenerationCapabilityEnabled.value
+6017:             ? openAIResponsesMode.value
+6018:             : null,
+6019:         jsonSchemaToJSONObject:
+6020:           props.account.type === 'apikey' ? openAIJSONSchemaDowngradeEnabled.value : null,
+6021:         webSearchEmulation:
+6022:           props.account.type === 'apikey' ? webSearchEmulationMode.value : null
+6023:       })
+6024:       if (props.account.type === 'apikey' && openAIImagesUrlToB64JsonEnabled.value) {
+6025:         newExtra.images_url_to_b64_json = true
+6026:       } else {
+6027:         delete newExtra.images_url_to_b64_json
+6028:       }
+6029:       newExtra = applyAccountCodexWebSearchBridgeExtra(
+6030:         newExtra,
+6031:         props.account.type === 'apikey' ? codexWebSearchBridgeMode.value : 'inherit'
+6032:       )
+6033:       if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
+6034:         newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
+6035:       } else {
+6036:         delete newExtra.auto_pause_5h_threshold
+6037:       }
+6038:       if (autoPause7dThreshold.value != null && autoPause7dThreshold.value > 0) {
+6039:         newExtra.auto_pause_7d_threshold = autoPause7dThreshold.value / 100
+6040:       } else {
+6041:         delete newExtra.auto_pause_7d_threshold
+6042:       }
+6043:       if (autoPause5hDisabled.value) {
+6044:         newExtra.auto_pause_5h_disabled = true
+6045:       } else {
+6046:         delete newExtra.auto_pause_5h_disabled
+6047:       }
+6048:       if (autoPause7dDisabled.value) {
+6049:         newExtra.auto_pause_7d_disabled = true
+6050:       } else {
+6051:         delete newExtra.auto_pause_7d_disabled
+6052:       }
+6053:       if (props.account.type === 'oauth' && !isSparkShadow.value) {
+6054:         newExtra.auto_reset_credit_enabled = autoResetCreditEnabled.value
+6055:         newExtra.auto_reset_credit_5h_threshold = autoResetCredit5hThreshold.value / 100
+6056:         newExtra.auto_reset_credit_7d_threshold = autoResetCredit7dThreshold.value / 100
+6057:       }
+6058:       // 运行态只允许后端服务更新，账号编辑不得回写旧状态。
+6059:       delete newExtra.codex_auto_reset_credit_state
+6060: =======
+6061: 		if (props.account.type === 'apikey') {
+6062:         if (!openAITextGenerationCapabilityEnabled.value || openAIResponsesMode.value === 'auto') {
+6063:           delete newExtra.openai_responses_mode
+6064:         } else {
+6065:           newExtra.openai_responses_mode = openAIResponsesMode.value
+6066:         }
+6067:         if (openAIImagesUrlToB64JsonEnabled.value) {
+6068:           newExtra.images_url_to_b64_json = true
+6069:         } else {
+6070:           delete newExtra.images_url_to_b64_json
+6071:         }
+6072:         if (webSearchEmulationMode.value === 'default') {
+6073:           delete newExtra.web_search_emulation
+6074:         } else {
+6075:           newExtra.web_search_emulation = webSearchEmulationMode.value
+6076:         }
+6077: 		}
+6078: 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
+6079: 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
+6080: 		} else {
+6081: 			delete newExtra.auto_pause_5h_threshold
+6082: 		}
+6083: 		if (autoPause7dThreshold.value != null && autoPause7dThreshold.value > 0) {
+6084: 			newExtra.auto_pause_7d_threshold = autoPause7dThreshold.value / 100
+6085: 		} else {
+6086: 			delete newExtra.auto_pause_7d_threshold
+6087: 		}
+6088: 		if (autoPause5hDisabled.value) {
+6089: 			newExtra.auto_pause_5h_disabled = true
+6090: 		} else {
+6091: 			delete newExtra.auto_pause_5h_disabled
+6092: 		}
+6093: 		if (autoPause7dDisabled.value) {
+6094: 			newExtra.auto_pause_7d_disabled = true
+6095: 		} else {
+6096: 			delete newExtra.auto_pause_7d_disabled
+6097: 		}
+6098: 		if (props.account.type === 'oauth' && !isSparkShadow.value) {
+6099: 			newExtra.auto_reset_credit_enabled = autoResetCreditEnabled.value
+6100: 			newExtra.auto_reset_credit_5h_threshold = autoResetCredit5hThreshold.value / 100
+6101: 			newExtra.auto_reset_credit_7d_threshold = autoResetCredit7dThreshold.value / 100
+6102: 		}
+6103: 		// 运行态只允许后端服务更新，账号编辑不得回写旧状态。
+6104: 		delete newExtra.codex_auto_reset_credit_state
+6105: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+6106: 
+6107:       delete newExtra.codex_image_generation_bridge_enabled
+6108:       switch (codexImageToolMode.value) {
+6109:         case 'enabled':
+6110:         case 'disabled':
+6111:           newExtra.codex_image_generation_bridge = codexImageToolMode.value === 'enabled'
+6112:           delete newExtra.codex_image_generation_explicit_tool_policy
+6113:           break
+6114:         case 'block':
+6115:           newExtra.codex_image_generation_explicit_tool_policy = 'strip'
+6116:           delete newExtra.codex_image_generation_bridge
+6117:           break
+
+### frontend/src/components/account/__tests__/EditAccountModal.spec.ts
+
+#### 冲突块 1
+
+2123:   })
+2124: 
+2125:   it('开启后拒绝超出 0.1–100 范围的任一阈值', async () => {
+2126:     const wrapper = mountModal(buildOpenAIOAuthParentAccount())
+2127:     await wrapper.get('[data-testid="auto-reset-credit-enabled"]').trigger('click')
+2128:     await wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').setValue('0')
+2129:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2130:     expect(updateAccountMock).not.toHaveBeenCalled()
+2131:     wrapper.unmount()
+2132:   })
+2133: })
+2134: 
+2135: <<<<<<< f03c930bef832df4d49c90de0e895316e7ffc1fd
+2136: describe('EditAccountModal Responses Lite 降级开关', () => {
+2137:   beforeEach(() => {
+2138:     updateAccountMock.mockReset().mockResolvedValue(buildAccount())
+2139:     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+2140:   })
+2141: 
+2142:   it('OpenAI API Key 账号显示开关并把开启状态写入 extra', async () => {
+2143:     const wrapper = mountModal(buildAccount())
+2144:     const toggle = wrapper.get('[data-testid="responses-lite-downgrade-toggle"]')
+2145:     expect(toggle.attributes('aria-checked')).toBe('false')
+2146: 
+2147:     await toggle.trigger('click')
+2148:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2149: 
+2150:     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+2151:     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+2152:       openai_responses_lite_downgrade: true
+2153:     })
+2154:   })
+2155: 
+2156:   it('关闭开关时删除 extra 键并保留其它键', async () => {
+2157:     const account = buildAccount()
+2158:     account.extra = { openai_responses_lite_downgrade: true, keep_me: 1 } as Record<string, unknown>
+2159:     const wrapper = mountModal(account)
+2160:     const toggle = wrapper.get('[data-testid="responses-lite-downgrade-toggle"]')
+2161:     expect(toggle.attributes('aria-checked')).toBe('true')
+2162: 
+2163:     await toggle.trigger('click')
+2164:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2165: 
+2166:     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra as Record<string, unknown>
+2167:     expect(extra).not.toHaveProperty('openai_responses_lite_downgrade')
+2168:     expect(extra.keep_me).toBe(1)
+2169:   })
+2170: 
+2171:   it('DeepSeek API Key 账号显示开关，OpenAI OAuth 账号不显示', () => {
+2172:     const deepseek = buildAccount()
+2173:     deepseek.platform = 'deepseek'
+2174:     deepseek.credentials = {
+2175:       api_key: 'sk-ds',
+2176:       account_mode: 'payg',
+2177:       api_protocol: 'responses',
+2178:       base_url: 'https://api.deepseek.com'
+2179:     } as typeof deepseek.credentials
+2180:     expect(mountModal(deepseek).find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(true)
+2181: 
+2182:     const oauth = buildAccount()
+2183:     oauth.type = 'oauth'
+2184:     oauth.credentials = { access_token: 'token' } as unknown as typeof oauth.credentials
+2185:     expect(mountModal(oauth).find('[data-testid="responses-lite-downgrade-toggle"]').exists()).toBe(false)
+2186:   })
+2187: })
+2188: 
+2189: describe('EditAccountModal Alpha Search 经上游 Responses 开关', () => {
+2190:   beforeEach(() => {
+2191:     updateAccountMock.mockReset().mockResolvedValue(buildAccount())
+2192:     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+2193:   })
+2194: 
+2195:   it('OpenAI API Key 账号显示开关并把开启状态写入 extra', async () => {
+2196:     const wrapper = mountModal(buildAccount())
+2197:     const toggle = wrapper.get('[data-testid="alpha-search-via-responses-toggle"]')
+2198:     expect(toggle.attributes('aria-checked')).toBe('false')
+2199: 
+2200:     await toggle.trigger('click')
+2201:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2202: 
+2203:     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+2204:     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+2205:       openai_alpha_search_via_responses: true
+2206:     })
+2207:   })
+2208: 
+2209:   it('关闭开关时删除 extra 键并保留其它键', async () => {
+2210:     const account = buildAccount()
+2211:     account.extra = { openai_alpha_search_via_responses: true, keep_me: 1 } as Record<string, unknown>
+2212:     const wrapper = mountModal(account)
+2213:     const toggle = wrapper.get('[data-testid="alpha-search-via-responses-toggle"]')
+2214:     expect(toggle.attributes('aria-checked')).toBe('true')
+2215: 
+2216:     await toggle.trigger('click')
+2217:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2218: 
+2219:     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra as Record<string, unknown>
+2220:     expect(extra).not.toHaveProperty('openai_alpha_search_via_responses')
+2221:     expect(extra.keep_me).toBe(1)
+2222:   })
+2223: 
+2224:   it('DeepSeek API Key 与 OpenAI OAuth 账号都不显示开关', () => {
+2225:     const deepseek = buildAccount()
+2226:     deepseek.platform = 'deepseek'
+2227:     deepseek.credentials = {
+2228:       api_key: 'sk-ds',
+2229:       account_mode: 'payg',
+2230:       api_protocol: 'responses',
+2231:       base_url: 'https://api.deepseek.com'
+2232:     } as typeof deepseek.credentials
+2233:     expect(mountModal(deepseek).find('[data-testid="alpha-search-via-responses-toggle"]').exists()).toBe(false)
+2234: 
+2235:     const oauth = buildAccount()
+2236:     oauth.type = 'oauth'
+2237:     oauth.credentials = { access_token: 'token' } as unknown as typeof oauth.credentials
+2238:     expect(mountModal(oauth).find('[data-testid="alpha-search-via-responses-toggle"]').exists()).toBe(false)
+2239: =======
+2240: describe('EditAccountModal gemini explicit cache upstream switch', () => {
+2241:   function buildGeminiApiKeyAccount(credentials: Record<string, unknown>) {
+2242:     return {
+2243:       id: 21,
+2244:       name: 'Gemini upstream gateway',
+2245:       notes: '',
+2246:       platform: 'gemini',
+2247:       type: 'apikey',
+2248:       credentials: { api_key: 'sk-upstream', ...credentials },
+2249:       credentials_status: { has_api_key: true },
+2250:       extra: {},
+2251:       proxy_id: null,
+2252:       concurrency: 1,
+2253:       priority: 1,
+2254:       rate_multiplier: 1,
+2255:       status: 'active',
+2256:       group_ids: [],
+2257:       expires_at: null,
+2258:       auto_pause_on_expired: false
+2259:     } as any
+2260:   }
+2261: 
+2262:   beforeEach(() => {
+2263:     authIsSimpleMode.value = true
+2264:     updateAccountMock.mockReset()
+2265:     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+2266:   })
+2267: 
+2268:   it('hides the switch for the official AI Studio address', () => {
+2269:     const wrapper = mountModal(buildGeminiApiKeyAccount({ base_url: 'https://generativelanguage.googleapis.com' }))
+2270:     expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(false)
+2271:   })
+2272: 
+2273:   it('loads and saves the switch and ttl limit for a custom upstream', async () => {
+2274:     const account = buildGeminiApiKeyAccount({
+2275:       base_url: 'https://upstream.example.com',
+2276:       explicit_cache_upstream: true,
+2277:       explicit_cache_upstream_max_ttl_seconds: 1800
+2278:     })
+2279:     updateAccountMock.mockResolvedValue(account)
+2280:     const wrapper = mountModal(account)
+2281: 
+2282:     expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(true)
+2283:     expect(wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').attributes('aria-checked')).toBe('true')
+2284:     const ttlInput = wrapper.get('[data-testid="explicit-cache-upstream-max-ttl"]')
+2285:     expect((ttlInput.element as HTMLInputElement).value).toBe('1800')
+2286: 
+2287:     await ttlInput.setValue('3600')
+2288:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2289:     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+2290:       explicit_cache_upstream: true,
+2291:       explicit_cache_upstream_max_ttl_seconds: 3600
+2292:     })
+2293:   })
+2294: 
+2295:   it('removes both fields when the switch is turned off', async () => {
+2296:     const account = buildGeminiApiKeyAccount({
+2297:       base_url: 'https://upstream.example.com',
+2298:       explicit_cache_upstream: true,
+2299:       explicit_cache_upstream_max_ttl_seconds: 1800
+2300:     })
+2301:     updateAccountMock.mockResolvedValue(account)
+2302:     const wrapper = mountModal(account)
+2303: 
+2304:     await wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').trigger('click')
+2305:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2306:     const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+2307:     expect(credentials).not.toHaveProperty('explicit_cache_upstream')
+2308:     expect(credentials).not.toHaveProperty('explicit_cache_upstream_max_ttl_seconds')
+2309:   })
+2310: })
+2311: 
+2312: describe('EditAccountModal temp-unschedulable rule scope', () => {
+2313:   function buildAccountWithTempUnschedRules(rules: Array<Record<string, unknown>>) {
+2314:     const account = buildAccount()
+2315:     return {
+2316:       ...account,
+2317:       credentials: {
+2318:         ...account.credentials,
+2319:         temp_unschedulable_enabled: true,
+2320:         temp_unschedulable_rules: rules
+2321:       }
+2322:     } as any
+2323:   }
+2324: 
+2325:   const checkedScopes = (wrapper: ReturnType<typeof mountModal>) =>
+2326:     wrapper
+2327:       .findAll('[data-testid^="temp-unsched-scope-"][aria-checked="true"]')
+2328:       .map((radio) => radio.attributes('data-testid'))
+2329: 
+2330:   const savedRules = () =>
+2331:     updateAccountMock.mock.calls[0]?.[1]?.credentials?.temp_unschedulable_rules
+2332: 
+2333:   beforeEach(() => {
+2334:     authIsSimpleMode.value = true
+2335:     updateAccountMock.mockReset()
+2336:     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+2337:   })
+2338: 
+2339:   it('shows rules without scope the way the backend treats them and keeps that on save', async () => {
+2340:     const account = buildAccountWithTempUnschedRules([
+2341:       { error_code: 401, keywords: ['unauthorized'], duration_minutes: 10 },
+2342:       { error_code: 503, keywords: ['unavailable'], duration_minutes: 30 }
+2343:     ])
+2344:     updateAccountMock.mockResolvedValue(account)
+2345:     const wrapper = mountModal(account)
+2346: 
+2347:     expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-account', 'temp-unsched-scope-model'])
+2348: 
+2349:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2350: 
+2351:     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+2352:     expect(savedRules().map((rule: { scope: string }) => rule.scope)).toEqual(['account', 'model'])
+2353:     wrapper.unmount()
+2354:   })
+2355: 
+2356:   it('respects an explicit scope and saves the card the operator picks', async () => {
+2357:     const account = buildAccountWithTempUnschedRules([
+2358:       { error_code: 401, keywords: ['unauthorized'], duration_minutes: 10, scope: 'model' },
+2359:       { error_code: 503, keywords: ['unavailable'], duration_minutes: 30, scope: ' Account ' }
+2360:     ])
+2361:     updateAccountMock.mockResolvedValue(account)
+2362:     const wrapper = mountModal(account)
+2363: 
+2364:     expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model', 'temp-unsched-scope-account'])
+2365: 
+2366:     await wrapper.findAll('[data-testid="temp-unsched-scope-model"]')[1].trigger('click')
+2367:     expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model', 'temp-unsched-scope-model'])
+2368: 
+2369:     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+2370: 
+2371:     expect(savedRules().map((rule: { scope: string }) => rule.scope)).toEqual(['model', 'model'])
+2372:     wrapper.unmount()
+2373:   })
+2374: 
+2375:   it('defaults a newly added rule to model scope', async () => {
+2376:     const wrapper = mountModal(buildAccountWithTempUnschedRules([]))
+2377: 
+2378:     const addRule = wrapper
+2379:       .findAll('button')
+2380:       .find((button) => button.text().includes('admin.accounts.tempUnschedulable.addRule'))
+2381:     await addRule!.trigger('click')
+2382: 
+2383:     expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model'])
+2384:     wrapper.unmount()
+2385: >>>>>>> 8f2cbb53d9d1c40e1865b07ac460571f7d4c48de
+2386:   })
+2387: })

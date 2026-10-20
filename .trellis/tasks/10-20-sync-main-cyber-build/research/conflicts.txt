@@ -1,0 +1,13 @@
+backend/internal/handler/endpoint.go
+backend/internal/pkg/apicompat/types.go
+backend/internal/service/account.go
+backend/internal/service/account_websearch_test.go
+backend/internal/service/antigravity_gateway_gemini.go
+backend/internal/service/gateway_forward_as_responses.go
+backend/internal/service/openai_gateway_chat_completions.go
+backend/internal/service/openai_gateway_messages.go
+backend/internal/service/openai_gateway_messages_chat_fallback.go
+backend/internal/service/openai_gateway_responses_chat_fallback_test.go
+backend/internal/service/openai_image_generation_controls_test.go
+frontend/src/components/account/EditAccountModal.vue
+frontend/src/components/account/__tests__/EditAccountModal.spec.ts
