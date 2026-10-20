@@ -15,7 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// TestOpenAIGatewayServiceForward_ResponsesLiteImageBridgePreservesHeaderPolicy 验证禁用 Lite 图片桥接时仍保留模型阻止规则。
+// TestOpenAIGatewayServiceForward_ResponsesLiteImageBridgePreservesHeaderPolicy 验证 Lite 降级和模型阻止规则均不会重新开启图片桥接。
 //
 // @param t 测试上下文。
 // @return 无。
@@ -25,12 +25,15 @@ func TestOpenAIGatewayServiceForward_ResponsesLiteImageBridgePreservesHeaderPoli
 		name          string
 		model         string
 		lite          bool
+		downgrade     bool
 		blockedModels string
 		wantHeader    bool
 		wantHosted    bool
 	}{
 		{name: "普通请求保留桥接", model: "gpt-5.6-sol", wantHosted: true},
+		{name: "普通请求开启降级仍保留桥接", model: "gpt-5.6-sol", downgrade: true, wantHosted: true},
 		{name: "Lite允许模型禁用桥接", model: "gpt-5.6-sol", lite: true, wantHeader: true},
+		{name: "Lite降级后仍禁用桥接", model: "gpt-5.6-sol", lite: true, downgrade: true},
 		{name: "Lite默认阻止模型禁用桥接", model: "gpt-5.4", lite: true},
 		{name: "Lite自定义阻止规则禁用桥接", model: "gpt-5.6-sol", lite: true, blockedModels: `["gpt-5.6*"]`},
 		{name: "Lite空阻止列表禁用桥接", model: "gpt-5.4", lite: true, blockedModels: `[]`, wantHeader: true},
@@ -60,6 +63,9 @@ func TestOpenAIGatewayServiceForward_ResponsesLiteImageBridgePreservesHeaderPoli
 				account := newOpenAIImageGenerationControlTestAccount()
 				account.Type = accountType
 				account.Extra = map[string]any{"use_responses_api": true, "openai_passthrough": false}
+				if tt.downgrade {
+					account.Extra[accountExtraKeyOpenAIResponsesLiteDowngrade] = true
+				}
 				if accountType == AccountTypeOAuth {
 					account.Credentials = map[string]any{"access_token": "test-token"}
 				}
@@ -73,7 +79,9 @@ func TestOpenAIGatewayServiceForward_ResponsesLiteImageBridgePreservesHeaderPoli
 				require.NoError(t, err)
 				require.NotNil(t, result)
 				require.NotNil(t, upstream.lastReq)
-				require.Equal(t, tt.wantHeader, isOpenAIResponsesLiteHeader(upstream.lastReq.Header.Get(responsesLiteHeader)))
+				wantHeader := tt.wantHeader || (tt.lite && tt.downgrade && accountType == AccountTypeOAuth)
+				require.Equal(t, wantHeader, isOpenAIResponsesLiteHeader(upstream.lastReq.Header.Get(responsesLiteHeader)))
+				require.Equal(t, tt.lite && tt.downgrade && accountType == AccountTypeAPIKey, openAIResponsesLiteDowngraded(c))
 				require.Equal(t, tt.wantHosted, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
 				require.Equal(t, tt.wantHosted, strings.Contains(gjson.GetBytes(upstream.lastBody, "instructions").String(), codexImageGenerationBridgeMarker))
 				if tt.lite {

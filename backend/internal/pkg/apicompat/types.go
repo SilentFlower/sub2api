@@ -105,10 +105,14 @@ func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
 			anthropicContentBlock
 		}{Text: b.Text, anthropicContentBlock: anthropicContentBlock(b)})
 	case "thinking":
+		// Anthropic always sends `signature` on thinking blocks (empty on
+		// content_block_start); strict clients such as Grok Build reject the
+		// block with "missing field `signature`" when the key is absent.
 		return json.Marshal(struct {
-			Thinking string `json:"thinking"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
 			anthropicContentBlock
-		}{Thinking: b.Thinking, anthropicContentBlock: anthropicContentBlock(b)})
+		}{Thinking: b.Thinking, Signature: b.Signature, anthropicContentBlock: anthropicContentBlock(b)})
 	default:
 		return json.Marshal(base)
 	}
@@ -339,11 +343,12 @@ func (i *ResponsesInputItem) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponsesContentPart is a typed content part in a Responses message.
+// ResponsesContentPart 表示 Responses 消息中的文本、拒绝、图像或文件内容块。
 type ResponsesContentPart struct {
 	PromptCacheBreakpoint json.RawMessage       `json:"prompt_cache_breakpoint,omitempty"`
-	Type                  string                `json:"type"` // "input_text" | "output_text" | "input_image" | "input_file"
+	Type                  string                `json:"type"` // "input_text" | "output_text" | "refusal" | "input_image" | "input_file"
 	Text                  string                `json:"text,omitempty"`
+	Refusal               string                `json:"refusal,omitempty"`
 	ImageURL              string                `json:"image_url,omitempty"` // data URI for input_image
 	Annotations           []ResponsesAnnotation `json:"annotations,omitempty"`
 	// input_file 文件字段。
@@ -764,6 +769,7 @@ type ChatStreamOptions struct {
 type ChatMessage struct {
 	Role             string          `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
 	Content          json.RawMessage `json:"content,omitempty"`
+	Refusal          string          `json:"refusal,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
 	Reasoning        string          `json:"reasoning,omitempty"`
 	Name             string          `json:"name,omitempty"`
@@ -904,6 +910,7 @@ type ChatChunkChoice struct {
 type ChatDelta struct {
 	Role             string         `json:"role,omitempty"`
 	Content          *string        `json:"content,omitempty"` // pointer: omit when not present, null vs "" matters
+	Refusal          *string        `json:"refusal,omitempty"`
 	ReasoningContent *string        `json:"reasoning_content,omitempty"`
 	Reasoning        *string        `json:"reasoning,omitempty"`
 	ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`
@@ -927,6 +934,9 @@ func (d ChatDelta) reasoningText() *string {
 // Shared constants
 // ---------------------------------------------------------------------------
 
-// minMaxOutputTokens is the floor for max_output_tokens in a Responses request.
-// Very small values may cause upstream API errors, so we enforce a minimum.
-const minMaxOutputTokens = 128
+// DefaultMinMaxOutputTokens is the default floor for max_output_tokens in a
+// Responses request. Very small values may cause upstream API errors, so we
+// enforce a minimum.
+const DefaultMinMaxOutputTokens = 128
+
+const minMaxOutputTokens = DefaultMinMaxOutputTokens

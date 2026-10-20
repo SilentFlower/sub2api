@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,26 @@ func forceChatGrokMessagesFallbackAccount(accountType string) *Account {
 		Extra: map[string]any{
 			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
 		},
+	}
+}
+
+func TestGrokMessagesDefaultRouteIgnoresResponsesProbe(t *testing.T) {
+	for _, mode := range []string{"", "auto", "force_responses"} {
+		t.Run(mode, func(t *testing.T) {
+			body := []byte(`{"model":"grok-4","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`)
+			account := forceChatGrokMessagesFallbackAccount(AccountTypeAPIKey)
+			account.Extra = map[string]any{
+				openai_compat.ExtraKeyResponsesMode: mode, openai_compat.ExtraKeyResponsesSupported: false,
+			}
+			upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			_, err := svc.ForwardAsAnthropic(context.Background(), adaptiveProtocolTestContext("/v1/messages", body), account, body, "", "")
+			require.Error(t, err)
+			require.NotNil(t, upstream.lastReq)
+			require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.lastReq.URL.String())
+			require.Equal(t, "Bearer xai-api-key", upstream.lastReq.Header.Get("Authorization"))
+			require.True(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+		})
 	}
 }
 

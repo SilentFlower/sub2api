@@ -16,6 +16,7 @@ import (
 
 const (
 	EndpointMessages             = "/v1/messages"
+	EndpointSystemOne            = "/v1/systemone"
 	EndpointChatCompletions      = "/v1/chat/completions"
 	EndpointEmbeddings           = "/v1/embeddings"
 	EndpointAlphaSearch          = "/v1/alpha/search"
@@ -31,6 +32,7 @@ const (
 	EndpointVideos               = "/v1/videos"
 	EndpointSeedanceTasks        = "/api/v3/contents/generations/tasks"
 	EndpointGeminiModels         = "/v1beta/models"
+	EndpointGeminiCachedContents = "/v1beta/cachedContents"
 )
 
 const EndpointAntigravityGenerateContent = "/v1internal:streamGenerateContent"
@@ -51,6 +53,7 @@ const (
 //	"/v1/chat/completions"       → "/v1/chat/completions"
 //	"/openai/v1/responses/foo"   → "/v1/responses"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
+//	"/v1beta/cachedContents/abc" → "/v1beta/cachedContents"
 //
 // OpenAI Responses API 还通过若干不带 /v1/ 前缀的裸路径或别名路径暴露。
 // /responses/compact 与 /backend-api/codex/responses/compact 是独立的 compact
@@ -89,6 +92,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
 		return EndpointMessages
+	case strings.Contains(path, EndpointSystemOne):
+		return EndpointSystemOne
 	case strings.Contains(path, EndpointImagesGenerations) || strings.Contains(path, "/images/generations"):
 		return EndpointImagesGenerations
 	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
@@ -109,6 +114,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
+	case strings.Contains(path, EndpointGeminiCachedContents):
+		return EndpointGeminiCachedContents
 	default:
 		return path
 	}
@@ -183,7 +190,7 @@ func isBareOrSubpathOf(path, root string) bool {
 //     embeddings、alpha search、图片和视频等原生端点保留路径。Grok raw Chat 的实际端点
 //     由转发结果或运行时上下文覆盖，避免仅根据入站路径猜测。
 //   - Anthropic 转发到 /v1/messages。
-//   - Gemini 转发到 /v1beta/models。
+//   - Gemini 转发到 /v1beta/models，显式缓存管理接口保留 /v1beta/cachedContents。
 //   - Antigravity 可能指向 Claude 或 Gemini，需要根据入站端点区分。
 //
 // @param inbound 已归一化的入站端点。
@@ -218,7 +225,13 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	case service.PlatformAnthropic:
 		return EndpointMessages
 
+	case service.PlatformTypeSafe:
+		return EndpointSystemOne
+
 	case service.PlatformGemini:
+		if inbound == EndpointGeminiCachedContents {
+			return EndpointGeminiCachedContents
+		}
 		return EndpointGeminiModels
 
 	case service.PlatformAntigravity:

@@ -1,6 +1,22 @@
 package service
 
-import "github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+import (
+	"context"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+)
+
+// resolveAnthropicUpstreamProtocol 在通用协议路由前应用 Grok 的显式路由约定。
+// 探针结果不能覆盖 Grok 默认 Responses，只有管理员显式强制 Chat 时才改走 Chat。
+func (s *OpenAIGatewayService) resolveAnthropicUpstreamProtocol(ctx context.Context, account *Account, model string) string {
+	if account != nil && account.Platform == PlatformGrok {
+		if shouldForwardGrokAnthropicMessagesViaRawChatCompletions(account) {
+			return APIProtocolChatCompletions
+		}
+		return APIProtocolResponses
+	}
+	return s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, model)
+}
 
 // ShouldForwardAnthropicMessagesViaRawChatCompletions 判断 OpenAI 兼容
 // /v1/messages 入站是否应直接走 /v1/chat/completions。

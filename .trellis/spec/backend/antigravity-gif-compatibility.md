@@ -69,6 +69,7 @@ function updateAntigravityGIFCompatibilitySettings(
 - 资源上限固定为：单 GIF 解码后 `20 MiB`、画布单边 `4096`、画布 `16,777,216` 像素、原始帧 `1000`、累计帧矩形 `134,217,728` 像素、最终包装后的 Gemini JSON `20 MiB`。PNG 编码过程中必须同步扣减累计 base64 预算。
 - Claude 路径的初始转换、signature 修复重试和 budget 修复重试必须统一经过 `transformClaudeRequestWithGIFCompatibility`。
 - Gemini 原生路径的每个上游请求体构建点都必须统一经过 `wrapV1InternalRequestWithGIFCompatibility` 或等价 helper：初始请求、模型 fallback 重试、`thoughtSignature` 清理重试都必须在 `wrapV1InternalRequest` 后立刻应用 GIF 兼容转换，禁止重新包装后直接 `NewAPIRequest` 或 `antigravityRetryLoop`。
+- 原生 Gemini 初始请求先调用 `ensureGeminiFunctionCallThoughtSignatures`，再交给 GIF 包装 helper；GIF 转换只替换图片 part，不能丢失同轮 `functionCall` 的思考签名。网关组合回归必须同时断言实际出站 `image/png` 与 `thoughtSignature`。
 - 转换失败时 service helper 必须记录一次结构化日志 `antigravity_gif_transform_failed`，并只输出安全诊断字段：阶段、输入/trim/payload 长度、是否外层 `base64:`、是否 data URI、data URI MIME、是否 base64、是否含 `%` 转义痕迹、是否含 base64url 字符、padding 余数和 base64 解码错误类别。禁止记录原始 base64、完整 data URI 或完整请求体。
 
 ### 4. Validation & Error Matrix

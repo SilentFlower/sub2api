@@ -18,6 +18,14 @@ import (
 
 func TestAntigravityGatewayService_ForwardGemini_ConvertsGIFBeforeUpstream(t *testing.T) {
 	body := serviceGIFRequestBody(t, serviceTestGIFBase64(t))
+	var request map[string]any
+	require.NoError(t, json.Unmarshal(body, &request))
+	request["contents"] = append(request["contents"].([]any), map[string]any{
+		"role":  "model",
+		"parts": []any{map[string]any{"functionCall": map[string]any{"name": "lookup", "args": map[string]any{}}}},
+	})
+	body, err := json.Marshal(request)
+	require.NoError(t, err)
 	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{successfulAntigravityGIFResponse()}}
 	service := newAntigravityGIFGatewayService(&antigravitySettingRepoStub{}, upstream)
 	ginContext := antigravityGIFGinContext(t, "/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent", body)
@@ -38,6 +46,8 @@ func TestAntigravityGatewayService_ForwardGemini_ConvertsGIFBeforeUpstream(t *te
 	require.Len(t, upstream.requestBodies, 1)
 	require.NotContains(t, string(upstream.requestBodies[0]), "image/gif")
 	require.Contains(t, string(upstream.requestBodies[0]), "image/png")
+	require.Contains(t, string(upstream.requestBodies[0]), `"thoughtSignature":"`+geminiDummyThoughtSignature+`"`)
+	require.Contains(t, string(upstream.requestBodies[0]), `"functionCall"`)
 }
 
 func TestAntigravityGatewayService_ForwardGemini_ModelFallbackRetryConvertsGIFBeforeUpstream(t *testing.T) {

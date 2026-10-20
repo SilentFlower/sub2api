@@ -37,7 +37,7 @@ func (s *GatewayService) ForwardAsResponses(
 ) (*ForwardResult, error) {
 	startTime := time.Now()
 
-	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
+	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +453,10 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			}
 		}
 		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
+			// 负索引不是有效上游内容块，先忽略，避免误写已登记的块。
+			if *event.Index < 0 {
+				continue
+			}
 			contentPosition, ok := contentPositionByUpstreamIndex[*event.Index]
 			if !ok && *event.Index >= 0 && *event.Index < len(finalResp.Content) {
 				// 兼容没有 content_block_start 映射的旧连续索引流。

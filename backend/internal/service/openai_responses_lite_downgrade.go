@@ -36,8 +36,9 @@ func (a *Account) IsOpenAIResponsesLiteDowngradeEnabled() bool {
 // 删除 Lite 专属的 reasoning.context，并移除入站 Lite 头。
 //
 // 为什么在这里删入站头而不是出站时再删：Forward 内多处（responsesLite 判定、
-// ingress policy、图片桥接、passthrough enforce）都直接读取入站头，逐处加分支容易
-// 漂移；降级后请求体已不是 Lite 形态，头应一起消失，后续统一按非 Lite 处理。
+// ingress policy、passthrough enforce）都直接读取入站头，逐处加分支容易漂移；
+// 降级后请求体已不是 Lite 形态，头应一起消失。图片桥接继续通过降级标记识别原始
+// Lite 入站，避免重新注入 hosted 工具。
 //
 // @param c gin 上下文，入站头从 c.Request 读取并原地删除。
 // @param account 当前账号。

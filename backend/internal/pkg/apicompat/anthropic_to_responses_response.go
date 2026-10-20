@@ -56,7 +56,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "thinking", "redacted_thinking":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && (block.Signature != "" || block.Data != "") {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && (block.Signature != "" || block.Data != "") {
 				item := ResponsesOutput{Type: "reasoning", ID: generateItemID(), EncryptedContent: encodeAnthropicThinking(block)}
 				if block.Thinking != "" {
 					item.Summary = []ResponsesSummary{{Type: "summary_text", Text: block.Thinking}}
@@ -75,16 +75,18 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 				})
 			}
 		case "text":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && block.Text != "" {
-				outputs = append(outputs, ResponsesOutput{Type: "message", ID: generateItemID(), Role: "assistant", Status: "completed", Content: []ResponsesContentPart{{Type: "output_text", Text: block.Text}}})
+			part := ResponsesContentPart{
+				Type:        "output_text",
+				Text:        block.Text,
+				Annotations: anthropicCitationsToResponses(block.Citations, block.Text),
+			}
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && block.Text != "" {
+				// 5.5 保留独立文本项的顺序，同时携带搜索引用，避免签名分支绕过引用转换。
+				outputs = append(outputs, ResponsesOutput{Type: "message", ID: generateItemID(), Role: "assistant", Status: "completed", Content: []ResponsesContentPart{part}})
 				continue
 			}
 			if block.Text != "" {
-				msgParts = append(msgParts, ResponsesContentPart{
-					Type:        "output_text",
-					Text:        block.Text,
-					Annotations: anthropicCitationsToResponses(block.Citations, block.Text),
-				})
+				msgParts = append(msgParts, part)
 			}
 		case "server_tool_use":
 			if block.Name != "web_search" {
@@ -346,7 +348,7 @@ func ResponsesEventToSSE(evt ResponsesStreamEvent) (string, error) {
 func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if evt.Message != nil {
 		state.ResponseID = evt.Message.ID
-		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model)
+		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model) || claude.IsHaiku55(evt.Message.Model)
 		if state.Model == "" {
 			state.Model = evt.Message.Model
 		}

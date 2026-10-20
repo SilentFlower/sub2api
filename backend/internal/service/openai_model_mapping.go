@@ -2,6 +2,16 @@ package service
 
 import "strings"
 
+// shouldProjectOpenAIAccountModelAliases 判断模型目录是否应展示账号的实际映射。
+// OAuth 透传仍会映射模型，目录必须保留替换目标的元数据；API Key 原生透传忽略残留映射。
+//
+// @param account 目录所属账号。
+// @return 是否按账号映射投影公共模型名。
+func shouldProjectOpenAIAccountModelAliases(account *Account) bool {
+	return account != nil && len(account.GetModelMapping()) > 0 &&
+		(!account.IsOpenAIPassthroughEnabled() || account.IsOpenAIOAuthLike() || shouldForwardOpenAIResponsesViaRawChatCompletions(account))
+}
+
 // resolveOpenAIForwardModel 解析 OpenAI 兼容转发使用的模型。
 // messagesDispatchMappedModel 是调用方已为 /v1/messages 解析的显式调度结果；
 // 普通 OpenAI 请求必须传空，避免将分组配置作为通用模型兜底。

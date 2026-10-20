@@ -19,7 +19,7 @@
 | [Error Handling](./error-handling.md) | 错误类型、传播和 API 响应格式 | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | lint、测试、评审和禁用模式 | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | zap 日志、结构化字段和脱敏要求 | Filled |
-| [Protocol Adapter Guidelines](./protocol-adapter-guidelines.md) | Anthropic/OpenAI 协议桥接、工具调用、缓存与上游超时契约 | Filled |
+| [Protocol Adapter Guidelines](./protocol-adapter-guidelines.md) | Anthropic/OpenAI 协议桥接、路由/模型目录、cyber 会话隔离与上游超时契约 | Filled |
 | [Antigravity GIF Compatibility](./antigravity-gif-compatibility.md) | 反重力 GIF 转 PNG 帧、全局设置、资源限制与薄接入契约 | Filled |
 | [Disaster Recovery Guidelines](./disaster-recovery-guidelines.md) | 双节点主备容灾、切换、回切和资源隔离契约 | Filled |
 
@@ -33,7 +33,7 @@
 2. 涉及 DB、Ent、Redis、migration：读 `database-guidelines.md`
 3. 涉及 handler、service 错误、API 响应：读 `error-handling.md`
 4. 涉及日志或敏感信息输出：读 `logging-guidelines.md`
-5. 涉及 Anthropic、OpenAI、Chat Completions、Responses 协议桥接：读 `protocol-adapter-guidelines.md`
+5. 涉及 Anthropic、OpenAI、Chat Completions、Responses 协议桥接、模型目录或 cyber 会话隔离：读 `protocol-adapter-guidelines.md`
 6. 涉及反重力 GIF 输入、抽帧、全局设置或管理端配置：读 `antigravity-gif-compatibility.md`
 7. 涉及双节点主备容灾、Compose 资源、复制、提升或回切：读 `disaster-recovery-guidelines.md`
 8. 提交前或大改动后：读 `quality-guidelines.md`

@@ -74,27 +74,31 @@ func TestResponsesToAnthropicRequestRejectsUnsupportedWebSearchFields(t *testing
 }
 
 func TestAnthropicToResponsesResponseMapsWebSearchAndCitations(t *testing.T) {
-	resp := &AnthropicResponse{
-		ID:         "msg_1",
-		Model:      "deepseek-v4-pro",
-		StopReason: AnthropicStopReasonPtr("end_turn"),
-		Content: []AnthropicContentBlock{
-			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: json.RawMessage(`{"query":"latest"}`)},
-			{Type: "web_search_tool_result", ToolUseID: "srvtoolu_1", Content: json.RawMessage(`[{"type":"web_search_result","url":"https://example.com"}]`)},
-			{Type: "text", Text: "See Answer now", Citations: []AnthropicCitation{{Type: "web_search_result_location", URL: "https://example.com", Title: "Example", CitedText: "Answer"}}},
-		},
-	}
+	for _, model := range []string{"deepseek-v4-pro", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+		t.Run(model, func(t *testing.T) {
+			resp := &AnthropicResponse{
+				ID:         "msg_1",
+				Model:      model,
+				StopReason: AnthropicStopReasonPtr("end_turn"),
+				Content: []AnthropicContentBlock{
+					{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: json.RawMessage(`{"query":"latest"}`)},
+					{Type: "web_search_tool_result", ToolUseID: "srvtoolu_1", Content: json.RawMessage(`[{"type":"web_search_result","url":"https://example.com"}]`)},
+					{Type: "text", Text: "See Answer now", Citations: []AnthropicCitation{{Type: "web_search_result_location", URL: "https://example.com", Title: "Example", CitedText: "Answer"}}},
+				},
+			}
 
-	out := AnthropicToResponsesResponse(resp)
-	require.Equal(t, "completed", out.Status)
-	require.Len(t, out.Output, 2)
-	require.Equal(t, "web_search_call", out.Output[0].Type)
-	require.Equal(t, "completed", out.Output[0].Status)
-	require.Equal(t, "latest", out.Output[0].Action.Query)
-	require.Equal(t, "message", out.Output[1].Type)
-	require.Len(t, out.Output[1].Content[0].Annotations, 1)
-	require.Equal(t, 4, out.Output[1].Content[0].Annotations[0].StartIndex)
-	require.Equal(t, 10, out.Output[1].Content[0].Annotations[0].EndIndex)
+			out := AnthropicToResponsesResponse(resp)
+			require.Equal(t, "completed", out.Status)
+			require.Len(t, out.Output, 2)
+			require.Equal(t, "web_search_call", out.Output[0].Type)
+			require.Equal(t, "completed", out.Output[0].Status)
+			require.Equal(t, "latest", out.Output[0].Action.Query)
+			require.Equal(t, "message", out.Output[1].Type)
+			require.Len(t, out.Output[1].Content[0].Annotations, 1)
+			require.Equal(t, 4, out.Output[1].Content[0].Annotations[0].StartIndex)
+			require.Equal(t, 10, out.Output[1].Content[0].Annotations[0].EndIndex)
+		})
+	}
 }
 
 func TestAnthropicToResponsesResponseMarksWebSearchFailure(t *testing.T) {

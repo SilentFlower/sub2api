@@ -175,6 +175,7 @@ typed content part array 是该桥接路径的稳定输出形态。
 - Trigger: 修改 Grok 账号在 OpenAI 兼容 `/v1/messages` 入站下的 Responses / Chat Completions 分流、`extra.openai_responses_mode` 保存逻辑、raw Chat fallback 凭据解析或 usage upstream endpoint 记录时，必须按本节检查。
 - 适用后端路径：
   - `backend/internal/service/openai_gateway_messages.go`
+  - `backend/internal/service/openai_gateway_messages_route.go`
   - `backend/internal/service/openai_gateway_cc_pipeline.go`
   - `backend/internal/service/openai_gateway_messages_chat_fallback.go`
   - `backend/internal/handler/openai_chat_completions.go`
@@ -187,6 +188,7 @@ typed content part array 是该桥接路径的稳定输出形态。
 
 - 分流判断：
   ```go
+  func (s *OpenAIGatewayService) resolveAnthropicUpstreamProtocol(ctx context.Context, account *Account, model string) string
   func ShouldForwardAnthropicMessagesViaRawChatCompletions(account *Account) bool
   ```
 - raw Chat fallback 目标解析：
@@ -206,10 +208,12 @@ typed content part array 是该桥接路径的稳定输出形态。
 ### 3. Contracts
 
 - Grok 分流只接受 `platform="grok"` 且 `type` 为 `oauth` 或 `apikey` 的账号；其它 Grok 类型即使带 `force_chat_completions` 也不进入 raw Chat fallback。
+- `ForwardAsAnthropic` 通过独立 owner 的 `resolveAnthropicUpstreamProtocol` 接入 Grok 特例；其余平台委托 `resolveUpstreamProtocolFor`，保留 main 的 provider profile 与模型目录分流，不复制一套旧路由。
 - Grok 只响应显式 `openai_responses_mode="force_chat_completions"`：
   - 字段缺失、非法值、`auto`、`force_responses` -> 继续走 `/responses`。
   - `force_chat_completions` -> `ForwardAsAnthropic` 调用 `forwardAnthropicViaRawChatCompletions`。
-- OpenAI APIKey 原契约不变：仍按 `!openai_compat.ShouldUseResponsesAPI(account.Extra)` 决定是否走 raw Chat fallback。
+- Grok 的 `openai_responses_supported=false` 不能覆盖缺省、`auto` 或 `force_responses`，包括有效 API Key 账号；探针缓存不是管理员的路由选择。
+- OpenAI APIKey 的能力判断 helper 仍使用 `!openai_compat.ShouldUseResponsesAPI(account.Extra)`；实际转发以统一 resolver 为准，保留显式协议、profile 和按模型分流的优先级。
 - Grok raw Chat fallback 凭据必须通过 `GetAccessToken(ctx, account)` 获取：
   - OAuth 使用有效 access token。
   - APIKey 使用 `api_key`。
@@ -234,6 +238,7 @@ typed content part array 是该桥接路径的稳定输出形态。
 - `platform=grok,type=oauth,extra.openai_responses_mode="force_responses"` -> `/v1/messages` 走 `/responses`。
 - `platform=grok,type=oauth,extra.openai_responses_mode="force_chat_completions"` -> `/v1/messages` 走 `/chat/completions`，Authorization 使用 OAuth access token。
 - `platform=grok,type=apikey,extra.openai_responses_mode="force_chat_completions"` -> `/v1/messages` 走 `/chat/completions`，Authorization 使用 API key。
+- `platform=grok,type=apikey,openai_responses_supported=false` 且模式缺省、`auto` 或 `force_responses` -> 仍走 `/responses`，使用有效 API key。
 - Grok `force_chat_completions` 但 token/APIKey 为空 -> 返回缺失凭据错误，不发送上游请求。
 - Grok raw Chat 上游返回 `xai-request-id` 而非 `x-request-id` -> request id 和 ops 事件应使用 `xai-request-id`。
 - 前端选择 `auto` -> payload `extra` 删除 `openai_responses_mode`，其它 `extra` 键保持。
@@ -252,6 +257,7 @@ typed content part array 是该桥接路径的稳定输出形态。
 ### 6. Tests Required
 
 - 后端 service 单测至少覆盖：
+  - `TestGrokMessagesDefaultRouteIgnoresResponsesProbe`：探针为 false 时，缺省/auto/force_responses 的实际 URL、Bearer API Key 和 Responses 请求体保持正确。
   - `ShouldForwardAnthropicMessagesViaRawChatCompletions` 对 OpenAI APIKey、Grok 缺省、Grok `auto`、Grok `force_responses`、Grok OAuth/APIKey `force_chat_completions` 的返回值。
   - Grok OAuth `force_chat_completions`：`ForwardAsAnthropic` 上游 URL 是 xAI `/chat/completions`，Authorization 是 Bearer access token，下游仍是 Anthropic 兼容响应。
   - Grok APIKey `force_chat_completions`：上游 URL 是 xAI `/chat/completions`，Authorization 是 Bearer API key。
@@ -1167,6 +1173,7 @@ pnpm typecheck
 ### 1. Scope / Trigger
 
 - Trigger: 修改 OpenAI Responses 的账号模型映射、API Key/OAuth 透传、compact、Responses -> Chat Completions 回退、频道模型限制、Responses Lite 判定或 reasoning effort 记录时，必须按本节检查。
+- 模型目录投影同样受本节约束，不能只核对实际转发；适用 `openai_models_list.go` 与 `openai_model_mapping_catalog_test.go`。
 - 适用路径：
   - `backend/internal/service/openai_model_mapping.go`
   - `backend/internal/service/openai_gateway_forward.go`
@@ -1185,6 +1192,10 @@ func resolveOpenAIAccountUpstreamModelForRequest(
 	requestedModel string,
 	requireCompact bool,
 ) string
+
+func shouldProjectOpenAIAccountModelAliases(account *Account) bool
+func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error)
+func projectAccountModelAliases(body []byte, account *Account, group *Group, codex bool) ([]byte, error)
 
 func extractOpenAIUpstreamReasoningEffort(
 	body []byte,
@@ -1208,6 +1219,10 @@ func extractOpenAIUpstreamReasoningEffort(
 - `forwardOpenAIPassthrough` 写入 body 的模型必须来自共享解析函数；Responses Lite、频道限制和 compact reasoning 不能另行调用 `GetMappedModel` 拼装近似结果。
 - passthrough reasoning effort 必须将实际 `upstreamModel` 作为候选传给 `extractOpenAIUpstreamReasoningEffort`；记录值不能只根据客户端模型或未生效的账号映射推断。
 - failover 每次 attempt 都必须按当前账号重新解析；频道调度上下文存在模型映射时，共享解析函数接收该频道映射结果，而不是回退到最初客户端别名。
+- 目录有非空账号映射时，managed、OAuth passthrough、Responses -> Chat fallback 需要投影；API Key 原生 Responses passthrough 忽略残留映射。普通列表使用 `data[].id`，Codex 列表使用 `models[].slug`。
+- 投影目标复用 `resolveOpenAIAccountUpstreamModelForRequest(account, publicID, false)`，复制当前账号上游目录中实际目标的元数据，再改公共 ID；目标不存在时不合成虚构模型，不原地改写共享响应。
+- passthrough 的 `model_mapping` 不充当白名单：未配置映射且实际目标可用的原生模型仍保留。先投影为公共名，再做退役与路由资格检查；OAuth 指向可用替换目标的别名可见，不重新开放实际退役目标。
+- Codex 目录被投影或退役过滤后，以最终公共 body 计算 ETag；原生 API Key passthrough 的目录未变时保留既有上游 ETag/NotModified 语义。
 
 ### 4. Validation & Error Matrix
 
@@ -1223,6 +1238,13 @@ func extractOpenAIUpstreamReasoningEffort(
 
 所有分支解析完成后：请求体、频道 restriction、Responses Lite 和 reasoning effort 必须看到同一结果；任一消费者得到不同模型都属于阻塞回归。
 
+| 目录条件 | 可观察结果 |
+|---|---|
+| OAuth passthrough：`sol -> gpt-5.6`，源目录含 `gpt-5.6-sol` | `sol` 复制规范目标元数据，原生 `gpt-5.6-sol` 同时保留 |
+| API Key passthrough + force Chat：`public -> target`，目录另含 `other` | 保留 `target`、`other` 并新增 `public`，公共项复制 target 元数据 |
+| API Key 原生 Responses passthrough 残留映射 | 不按旧映射过滤或替换目录 |
+| 映射目标不在当前账号目录 | 不合成该别名条目 |
+
 ### 5. Good/Base/Bad Cases
 
 - Good: OAuth passthrough 的 `client-alias -> gpt-5.6` 最终写入 `gpt-5.6-sol`，频道限制和 Lite 判定也使用 `gpt-5.6-sol`。
@@ -1231,6 +1253,8 @@ func extractOpenAIUpstreamReasoningEffort(
 - Good: passthrough 账号不支持 Responses 时，raw Chat fallback 使用普通账号映射，并忽略 compact 标记。
 - Base: managed compact 未命中 compact 映射时，保持普通映射和既有归一化结果。
 - Base: 频道没有映射时，按客户端请求模型进入相同分支矩阵。
+- Good: OAuth 透传把 `astra -> gpt-6` 转发为 `gpt-6-astra`，目录中的 `astra` 也复制 `gpt-6-astra` 元数据。
+- Bad: 目录一看到 passthrough 就跳过 OAuth 映射，或反过来只保留命中映射的模型；前者让目录与转发不一致，后者误删仍可使用的原生模型。Correct: 按上述投影条件和最终目标解析，同时保留透传原生模型。
 - Bad: Lite 策略直接调用 `account.GetMappedModel(requestedModel)`，会错误阻止 API Key passthrough 或漏掉 compact/OAuth 最终模型。
 - Bad: passthrough compact 先执行普通映射再查 compact 映射，会让仅按客户端别名配置的 compact 映射失效。
 - Bad: 请求 body 使用最终模型，但频道限制或 reasoning 仍使用客户端模型，会造成调度通过后上游模型被限制，或 usage 记录错误档位。
@@ -1238,6 +1262,7 @@ func extractOpenAIUpstreamReasoningEffort(
 ### 6. Tests Required
 
 - `TestResolveOpenAIAccountUpstreamModelForRequest` 必须覆盖 OAuth passthrough、API Key passthrough、passthrough compact、raw Chat fallback 和 managed compact 五条分支。
+- `TestProjectOAuthPassthroughAliasesUseFinalModelMetadata` 与 `TestProjectAPIKeyPassthroughChatFallbackPreservesNativeAndMappedModels`：断言规范目标元数据、别名和原生模型同时保留、输入 body 不变；`TestGPT55RetirementProjectionUsesPublicNames` 覆盖公共名退役顺序与最终 ETag/NotModified。
 - `TestIsUpstreamModelRestrictedByChannel_OAuthPassthroughUsesAccountMapping` 必须钉死频道限制使用 OAuth passthrough 的最终账号模型。
 - `TestApplyOpenAIResponsesLiteHTTPIngressPolicy_UsesPassthroughFinalModel` 必须覆盖 API Key 保持入站模型、OAuth 普通映射和 passthrough compact 直接映射。
 - `TestNormalizeOpenAICodexCompactReasoningEffortForAccountUsesFinalCompactModel` 必须覆盖“最终 compact 为 GPT-5.6 才降级”和“仅普通映射为 GPT-5.6 不误降级”两个方向。
@@ -1360,13 +1385,14 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool
 - OpenAI 最终模型未命中阻止列表且未触发 main 兼容规则时：HTTP managed/passthrough 保留 Header，WS 直连保留 metadata，WS HTTP bridge 可以重建 Header；OAuth 类账号执行 Lite 工具布局和 `reasoning.context=all_turns` 归一化，API Key 账号仅归一化 `parallel_tool_calls`，保持工具布局和客户端 context。
 - OpenAI 最终模型命中阻止列表或触发 main 兼容规则时：删除 HTTP Header/WS metadata，bridge 不得重建 Header，并跳过 Lite 专属 body normalizer。
 - 命中阻止列表或 main 兼容规则只执行有限兼容降级：客户端已有的 `reasoning.context`、developer message、`input.additional_tools`、`parallel_tool_calls` 和其它 body 字段保持原样，不做完整 Lite -> 标准 Responses 逆转换。
-- 例外：账号显式开启 `openai_responses_lite_downgrade`（仅 API Key 的 openai / 国产供应商账号）时，在本节判定之前先执行 Lite -> 标准 Responses 降级并删除入站 Lite 头，后续按非 Lite 处理；契约见 "Scenario: Responses Lite 降级与 namespace custom 子工具"。
+- 例外：账号显式开启 `openai_responses_lite_downgrade`（仅 API Key 的 openai / 国产供应商账号）时，在本节判定之前先执行 Lite -> 标准 Responses 降级并删除入站 Lite 头；后续协议归一化按非 Lite 处理，图片桥接仍保留原始 Lite 禁用语义。契约见 "Scenario: Responses Lite 降级与 namespace custom 子工具"。
 - 非 OpenAI 平台不得收到该内部标记；Grok 普通 Responses、媒体请求和 WS HTTP bridge 都必须保持 Header 为空。
 - `image_generation` 是 OpenAI Responses hosted 工具，由上游执行；已有该工具时不得重复注入，旧 `format` / `compression` 字段仍按既有兼容契约归一化。
 - `image_gen` 是 Codex 客户端工具。只有 namespace 内含 `type=function,name=imagegen` 时才视为可执行；兼容扁平形态严格匹配 `type=function,name=image_gen.imagegen`。
 - 顶层 `tools` 与 `input` 中的 `additional_tools` 都必须参与客户端工具分类。仅在描述文本中出现 `image_gen.imagegen` 不构成工具声明。
 - 已有客户端 `image_gen` 时不得注入 hosted 工具、不得追加 hosted bridge 提示，也不得把客户端 `tool_choice: "none"` 改为 `"auto"`。
 - 图片桥接与 `main` 保持一致：入站 HTTP Header 或 WS metadata 为 Lite 时，不自动注入 hosted 工具、不追加桥接提示、不改写 `tool_choice`。模型阻止列表只决定 Lite 标记透传；即使剥离标记，也不能重新开启该请求的桥接。WS 必须在应用阻止规则前记录本轮入站 Lite 状态。
+- HTTP 降级先删除入站头，`codexImageGenerationBridgeEnabled` 因而必须同时检查 `!openAIResponsesLiteDowngraded(c)`；同一上下文的后续 attempt 也不能因头已消失而重开图片桥。非 Lite 请求仅开启降级开关不影响正常桥接。
 - 没有原生或客户端图片工具且 bridge 有效时，注入一个 `image_generation`；此时 `tool_choice` 缺失或忽略大小写和空白后等于 `none` 时写为 `auto`。
 - `auto`、`required`、其它字符串、明确工具选择对象和其它非字符串值必须保持。
 - HTTP 只在 `codexImageGenerationBridgeEnabled` 为真时调用；WebSocket 只在 `codexBridgeEnabled` 为真时调用。
@@ -1543,7 +1569,7 @@ func adaptOpenAIResponsesLiteDowngradedClientTools(body []byte) ([]byte, apicomp
 - 降级后原生适配条件：CN 原生（DeepSeek/Kimi/MiniMax）或 OpenAI API-key 托管路径无条件调用 `adaptOpenAIResponsesLiteDowngradedClientTools`（不以 custom/tool_search 出现为前置，只含 function 的 namespace 也要摊平）；OpenAI API-key passthrough 在既有 custom/tool_search 触发之外补同样的降级分支。既有 DeepSeek 原生适配条件保持不变。
 - chat 回退桥接对 Lite 形态的处理不受开关控制；开关开启时 chat 路径先降级再桥接，两种形态结果一致。
 - WebSocket 入站 Lite metadata 不参与降级；BulkEditAccountModal 不提供该开关。
-- 已知未处理（已接受风险，见任务 `09-11-responses-lite-namespace-custom-tools`）：降级删除入站头后，handler 级账号 failover 的后续尝试读不到 Lite 头；图片桥接门禁 `codexImageGenerationBridgeEnabled` 在降级后读不到 Lite 头。后续修法为在领域文件内记录入站 Lite 标记并按需回填，门禁同时判断 `openAIResponsesLiteDowngraded(c)`。
+- 已知未处理（此前任务 `09-11-responses-lite-namespace-custom-tools` 已记录风险接受）：降级删除入站头后，handler 级账号 failover 的后续尝试读不到 Lite 头；该部分仍保留既有行为。图片桥接门禁读不到原始 Lite 头的问题已在 `10-20-sync-main-cyber-build` 修复：`codexImageGenerationBridgeEnabled` 同时判断 `openAIResponsesLiteDowngraded(c)`，实际出站组合测试覆盖开启/关闭降级、API Key/OAuth 和普通请求。
 
 ### 4. Validation & Error Matrix
 
@@ -2057,3 +2083,119 @@ go test -tags=unit ./internal/config ./internal/repository ./internal/service ./
 - 断言配置默认值、环境变量覆盖、负数拒绝和 `0` 的无超时语义。
 - 断言两个图片端点、两种文本入口及 compact 路径的 profile；图片优先，其他平台保留原 profile。
 - 断言三档连接池隔离、复用和配置变化时重建；HTTP/2 响应头超时不触发代理兼容回退，协议错误仍触发回退。
+
+
+---
+
+## Scenario: 统一上游路由与 Responses 形状兼容
+
+### 1. Scope / Trigger
+
+- 修改 provider profile、`/v1/chat/completions` 请求形状识别、统一协议分流或 Responses→Chat 转换时适用。
+- owner：`model_protocol_catalog.go`、`upstream_protocol_routing.go`；build 的搜索拒绝规则由 `openai_responses_shaped_chat_websearch.go` 拥有。Grok 专属链路及 Messages 覆盖沿用本文件的 Grok 场景。
+
+### 2. Signatures
+
+```go
+func (s *OpenAIGatewayService) resolveUpstreamProtocolFor(ctx context.Context, account *Account, inbound, model string) string
+func (s *OpenAIGatewayService) convertResponsesShapedChatBody(body []byte) ([]byte, error)
+func validateResponsesShapedChatWebSearch(body []byte) error
+```
+
+### 3. Contracts
+
+- 通用路由接收已选定账号。Chat URL 入站缺少 `messages` 且存在 `input` 时，按 Responses 形状处理；Schema 降级同样使用该形状，不能把 `text.format` 当成 Chat 的 `response_format`。
+- `resolveUpstreamProtocolFor` 统一消费 profile、显式协议、按模型分流和上游目录；共享入口消费路由结果，不恢复已经移除的 OpenCode 专用旧分流。
+- 通用路由最终选择 Chat 时，所有 Responses 形状都先转换，包括固定 Chat 与 `force_chat_completions`，不能只对 adaptive/按模型分流账号转换。选择原生 Anthropic 时直接走 Responses→Anthropic，保留入站形状语义。
+- Responses→Chat 复用 `ResponsesToChatCompletionsRequestWithOptions`，传入服务的 `ReasoningContentByID`；不得改用丢失推理缓存的旧转换入口。
+- 转换前由独立搜索 owner 判断请求是否要求不可执行的 `web_search`；需要拒绝时返回错误且不请求上游，不能在序列化时静默删除必须执行的搜索。
+
+### 4. Validation & Error Matrix
+
+| 入站/选择结果 | 行为 |
+| --- | --- |
+| Chat URL + `input` + 固定 Chat | 转为 `messages`，不能把 `input` 原样发往 Chat 上游 |
+| Chat URL + `input` + 原生 Anthropic | 走 Responses→Anthropic 转换 |
+| Chat URL + 正常 `messages` | 保持正常 Chat 路径 |
+| Responses 形状含历史 reasoning ID | 从同一服务缓存恢复对应推理内容，工具历史保留 |
+| 搜索 owner 判定必须执行但 Chat 无法执行 | 返回错误，上游调用次数为 0 |
+| Grok Messages + 探针 false + 未显式强制 Chat | 独立覆盖仍选 Responses，不能回到通用探针分支 |
+
+### 5. Scenarios and Examples
+
+- Normal：`{"model":"m","input":"hello"}` 误投 Chat URL，固定 Chat 账号的实际出站 body 含 `messages`，而不是 `input`。
+- Base：正常 `messages` 请求继续沿已有 Chat 链路；Grok 沿其专属入口处理，不复制为第二套共享路由。
+- Incorrect use：仅在 `routesByModel()` 或 adaptive 时转换，会漏掉固定协议账号。Correct：先按请求体识别形状，再按实际上游选择对应转换，搜索拒绝和 reasoning cache 同时保留。
+
+### 6. Tests Required
+
+- `openai_gateway_chat_completions_test.go` 及相邻专项测试：固定 Chat 的 Responses 形状实际出站、工具历史、reasoning 缓存与不可执行搜索零上游调用。
+- `upstream_protocol_routing_matrix_test.go`：保持原 golden，完整比较 URL、鉴权、模型、请求形状、错误和状态。保留 main 已声明的 Zhipu 非 API Key 192 项差异；本轮新增修正仅精确豁免请求形状 1296 项与 Grok 48 项，其余观察继续严格比较，不直接覆盖 golden 来掩盖差异。
+- `TestGrokMessagesDefaultRouteIgnoresResponsesProbe`：缺省/auto/force_responses 都不受 false 探针影响。
+
+---
+
+## Scenario: cyber 明确会话身份与 v2 封禁
+
+### 1. Scope / Trigger
+
+- 修改 cyber 本地会话封禁、HTTP/WS 准入、白名单、Redis 键或上游拒绝后的审计接线时适用。
+- owner：service 的 `openai_cyber_session_block.go`，handler 的 `openai_cyber_allowlist.go` 和 `openai_gateway_handler.go`，repository 的 `gateway_cache.go`；用户说明为 `docs/cyber-session-blocking.md`。
+- 本地身份用于抑制同一命中会话的重复请求，不替代认证或上游内容审核。
+
+### 2. Signatures
+
+```go
+func CyberSessionExplicitBlockKey(apiKeyID int64, c *gin.Context, _ []byte) string
+func (s *OpenAIGatewayService) FindCyberSessionBlockedForRequest(ctx context.Context, apiKeyID int64, c *gin.Context, body []byte, _ string, _ string) string
+func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, scopeKey string, keys []string)
+```
+
+请求体和两个来源字符串参数仅保留调用兼容；封禁身份不得从中推断。
+
+### 3. Contracts
+
+- 只接受认证后的正数 API Key ID。按顺序选取首个 trim 后非空的请求头：`session-id`、`session_id`、`conversation_id`、`X-Session-Id`、`X-OpenCode-Session`、`X-Conversation-ID`。
+- 对字符串 `cyber-explicit-session:v2|api_key=<十进制 ID>|session=<明确 ID>` 求 SHA-256 并编码为十六进制；同一 Key 下各头别名指向同一 ID 时结果相同，不同 Key 必须隔离。
+- HTTP/WS 读写共用该键；写计划只生成明确身份键，并以空 `scopeKey` 写入。禁止恢复 transcript、历史条数、IP/UA、`prompt_cache_key` 或 `X-Session-Affinity` 推断，禁止重新引入 `transcript_lookup_limit_exceeded`。
+- `cyber_session_block_enabled` 仍默认关闭，TTL 使用 `cyber_session_block_ttl_seconds` 的现有规则。无明确 ID 时不查写跨请求封禁；开关关闭、存储不可用或读取失败时放行本地检查，仍由上游审核。
+- 白名单/log-only 用户在 HTTP/WS 准入绕过已有本地封禁；真实上游拒绝仍记录，但不新增封禁。必须用同一个已预封禁明确 ID 验证，不能改用不同 ID 假装绕过成功。
+- 同一 API Key、同一明确 ID 的命中继续拒绝；模型变化、HTTP/WS 重连或网络变化不能改变该身份。无 ID 不影响同一 WS 连接已有的命中后阻断语义。
+- 旧封禁不迁移到 v2、不主动删除，按原 TTL 过期；滚动升级的旧实例仍执行旧逻辑。不得为兼容旧记录查询旧 namespace。
+- 实际上游 `cyber_policy` 继续透传、审计和沿既有路径记录用量；保留每请求记录 guard，不能与正常成功用量重复记录。该修复不删除风控日志或改全局开关。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 本地行为 |
+| --- | --- |
+| 同 Key/同明确 ID 已封禁 | 命中精确键；HTTP 返回既有 permission_error，保留 HTTP/WS 各自错误结构 |
+| 同 Key/不同明确 ID，共用 IP/UA/cache/600 条工具历史 | 不继承另一会话封禁 |
+| 不同 Key/同明确 ID | 不继承另一 Key 的封禁 |
+| 无 ID、无请求或非正数 Key ID | 派生空键，不推断身份 |
+| 仅存在旧缓存/来源推断键 | v2 查询不命中 |
+| 开关关闭或读取存储报错 | 本地不拦截，不伪造上游拒绝 |
+| 白名单携带同一个已封禁 ID | HTTP/WS 可准入，不清除原封禁、不新增封禁 |
+| 上游实际拒绝 | 原拒绝与审计保留，按原用量路径处理 |
+
+### 5. Scenarios and Examples
+
+- Normal：Key 7 的会话 A 命中后写入 A 的 v2 键；同来源的会话 B 携带 600 条普通工具历史也不因 A 被本地封禁。
+- Base：共享 Key 的网关须给不同下游会话传递稳定且互不复用的明确 ID；没有 ID 时交给上游审核，不能拿缓存 key 补位。
+- Incorrect use：先算 IP/UA scope，再因历史条数过多拒绝，或把旧缓存封禁读入 v2。Correct：只派生一个明确身份键，身份缺失返回空字符串。
+
+```go
+key := service.CyberSessionExplicitBlockKey(apiKey.ID, c, body)
+if key != "" {
+	gatewayService.MarkCyberSessionBlocked(ctx, "", []string{key})
+}
+```
+
+该片段仅用于已有实际命中、开关与白名单判断之后的写入点，不能把任意入站请求当作命中。
+
+### 6. Tests Required
+
+- `TestCyberSessionExplicitBlockKeyUsesSessionHeadersOnly`：六种头别名、trim、不同 Key、非法 Key、无请求、缓存/粘性标记不能充当 ID。
+- `TestCyberSessionIsolationAcrossSharedKeyAndLongHistory`：600 条普通历史、同 Key 不同会话、不同 Key 同会话、原会话仍被屏蔽，以及重连/模型/网络变化仍命中。
+- `TestCyberSessionIgnoresLegacyCacheBlocks` 与 `TestCyberSessionLookupFailOpen`：旧键不继承，关闭开关/存储失败不误拦。
+- `TestCyberAllowlistedUserBypassesPreexistingWebSocketSessionBlock`：同一个预封禁 ID 的 WS 首轮建立并继续转发，原封禁保留；同时保留 HTTP 白名单和后续 turn 断言。
+- `openai_gateway_cyber_test.go`、`openai_ws_v2_passthrough_cyber_test.go`、`gateway_cache_cyber_test.go`：真实命中、审计/用量 guard、WS 状态消费和 Redis TTL/读写契约。
