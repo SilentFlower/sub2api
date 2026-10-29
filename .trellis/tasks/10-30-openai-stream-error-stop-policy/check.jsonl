@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"核对错误码过滤、账号状态更新与流式兼容行为"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"验证测试覆盖、格式、版本和必要检查证据"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"核对新增日志和测试不包含真实凭据"}
+{"file":".trellis/tasks/10-30-openai-stream-error-stop-policy/research/stream-error-policy.md","reason":"检查首输出前后、重复终止事件和请求级排除是否漏修"}

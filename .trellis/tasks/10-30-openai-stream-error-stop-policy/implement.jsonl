@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端分层规范与相关指南索引"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"保持网关错误传播和 OpenAI 协议兼容约定"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"有行为断言的回归测试、Go 版本和格式要求"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"错误诊断必须脱敏，不暴露上游凭据"}
+{"file":".trellis/tasks/10-30-openai-stream-error-stop-policy/research/stream-error-policy.md","reason":"已确认的流式调用缺口、规则语义和测试入口"}

@@ -1,0 +1,79 @@
+{
+  "id": "openai-stream-error-stop-policy",
+  "name": "openai-stream-error-stop-policy",
+  "title": "修复 OpenAI 流式错误未执行账号停止状态码规则",
+  "description": "修复 OpenAI Responses 流式余额耗尽等终止错误绕过账号自定义停止状态码的问题，复用已有停用机制并补充回归验证。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-10-30",
+  "completedAt": "2026-10-29",
+  "closeout": {
+    "status": "closed",
+    "closedAt": "2026-10-29T17:26:57Z",
+    "blockers": []
+  },
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "backend/internal/service/openai_gateway_passthrough.go",
+    "backend/internal/service/openai_gateway_response_handling.go",
+    "backend/internal/service/openai_stream_error_policy_test.go"
+  ],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-10-29T16:05:39Z",
+      "contextKey": "codex_01a1885f-15cd-7020-8b30-5c9570a42948",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "db8ff80c68ec0d10c9cf13e29178441ad73d957c",
+        "status": [],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "db8ff80c68ec0d10c9cf13e29178441ad73d957c",
+            "status": [],
+            "worktreeDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "5a969c090b287074b802ce3ab1e3690f776ad876d5b5c886208edeede1685928"
+          }
+        ],
+        "fingerprint": "d4b727b40ee4171fb7dc3b92504466b6670545a0c54a8516dd5571ef60faa3b4"
+      }
+    }
+  },
+  "progress": {
+    "completedSteps": [
+      "规划确认与任务启动",
+      "inline 实现及回归测试完成",
+      "原始源码 overlay 复现漏停",
+      "新增 59 个定向场景通过",
+      "完整服务层 15664 个场景通过，4 项既有条件跳过",
+      "golangci-lint v2.14.0 增量复查通过，0 issues",
+      "Go 格式与 diff 检查通过",
+      "full Check-All 三个维度通过，任务验收状态与验证记录已同步",
+      "Responses 流式账号停调契约已写入后端规范并验证",
+      "仓库 Flower 从 0.6.11 升级至 0.6.12，配套 Trellis 0.6.14，插件校验通过",
+      "修复、规范与升级已提交并推送；已保留远端空提交完成合并同步"
+    ],
+    "partialStep": null,
+    "nextStep": "无",
+    "notes": "Responses 原生与透传 SSE 现在会按账号既有自定义停止状态码处理结构化余额耗尽；[502] 配置可生效。已完成 59 个定向场景、完整服务层验证（4 项既有条件跳过）、增量 lint 与 full Check-All，剩余 CHK/FBK 为 0。规范、仓库 Flower 升级及业务推送已完成。生产部署另行执行。",
+    "updatedAt": "2026-10-29T17:26:57Z"
+  }
+}
