@@ -35,6 +35,8 @@ Use this skill during Phase 1 planning to turn the user's request into clear req
 Use this skill after the user explicitly requests task planning, or after clear complex implementation intent authorizes creating a planning workspace. This authorization covers planning only; it never authorizes `task.py start` or implementation.
 
 Before choosing an approach for non-trivial project work, follow the workflow `Request Triage` Project Knowledge Discovery contract and return here with the matched project-local SOPs and specs.
+
+Before creating or changing a parent/child task tree, load Phase 1.1 via `python3 ./.trellis/scripts/get_context.py --mode phase --step 1.1` and follow its task-tree guidance.
 <!-- END skill-garden patch brainstorm-planning-authorization v0.6 -->
 
 <!-- BEGIN skill-garden patch brainstorm-auto-task-create v0.6 -->
@@ -73,7 +75,7 @@ Use a concise title from the user's request and a slug without a date prefix. Bo
 7. Run the requirement convergence gate, then the PRD convergence pass.
 <!-- BEGIN skill-garden patch brainstorm-planning-readiness v0.6 -->
 8. Load `trellis-task-brief`, refresh `brief.md` from the converged artifacts, and display the full Brief. Follow its review gate and explicit preauthorization exception.
-9. Run `task.py start` and begin implementation only after that review gate is satisfied. If the artifacts change materially after approval, refresh and repeat the Brief review.
+9. Run `task.py start` and begin implementation only after that review gate is satisfied. After initial approval, follow `trellis-task-brief` for incremental plan changes: synchronize affected artifacts and obtain only unresolved change decisions, rather than repeating whole-Brief approval for every refresh.
 <!-- END skill-garden patch brainstorm-planning-readiness v0.6 -->
 
 Do not invent a project-specific product/spec hierarchy. If the repository already has product, domain, or spec docs, use them. If it does not, proceed with the evidence that exists.
@@ -224,6 +226,8 @@ Do not start implementation merely because the user originally asked for impleme
 Once the Quality Bar is satisfied, load `trellis-task-brief`, refresh `brief.md` from the final planning artifacts, and display the full Brief in chat. By default, end the current turn and wait for the user's planning review confirmation. Only valid explicit preauthorization for the current final Brief, as defined by `trellis-task-brief`, permits same-turn start within unchanged scope.
 
 Ordinary implementation intent expressed before the final artifacts and full Brief are shown authorizes planning only; it cannot be reused as the final review confirmation.
+
+Once initial Brief approval exists, plan updates use `trellis-task-brief`'s incremental change rules. Artifact refresh alone does not require another whole-Brief review; unresolved new decisions still pause the affected work.
 
 For `## Open Questions`, use Markdown checkbox state rather than placeholder prose: unresolved items are `- [ ]`; resolved items move into requirements/decisions or are removed; when no open questions remain, remove the section or leave it empty. Do not write bare placeholders such as `- None`, `- TBD`, or `- 已确认` because historical bare list items require an explicit auto-loop semantic review.
 <!-- END skill-garden patch brainstorm-planning-handoff v0.6 -->

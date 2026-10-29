@@ -558,22 +558,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						return
 					}
 				}
-				if outputStarted && !cyberHit {
-					if codexFailureTerminal && eventType == "error" {
-						// OpenAI commonly follows a bare error with response.failed.
-						// Defer account health updates so the pair is applied once.
-						bareErrorAccountSideEffectsPending = true
-					} else {
-						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
-						bareErrorAccountSideEffectsPending = false
-					}
-					if eventType == "response.failed" {
-						// Once semantic output is committed, failover replay is unsafe. Keep
-						// the terminal event on the existing stream, but retain the upstream
-						// request ID and payload for operations diagnostics.
-						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
-					}
-				}
 				if !outputStarted {
 					shouldFailover := false
 					if !cyberHit {
@@ -588,23 +572,36 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						streamEarlyErr = s.newOpenAIStreamFailoverErrorWithModel(c, account, false, upstreamRequestID, dataBytes, failedMessage, mappedModel, resp.Header)
 						return
 					}
-					if !cyberHit && !sawBareError {
-						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
-							sawFailedEvent = true
-							// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
-							// antigravity 先例），否则透传命中的 failed 在监控中不可见。
-							s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
-							MarkResponseCommitted(c)
-							c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-							c.JSON(status, gin.H{
-								"error": gin.H{
-									"type":    errType,
-									"message": errMsg,
-								},
-							})
-							streamEarlyErr = fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
-							return
-						}
+				}
+				if !cyberHit {
+					if codexFailureTerminal && eventType == "error" {
+						// 首输出前同样需要账号策略，但裸错误应等权威终止事件，避免重复停用或覆盖后续成功。
+						bareErrorAccountSideEffectsPending = true
+					} else {
+						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
+						bareErrorAccountSideEffectsPending = false
+					}
+				}
+				if outputStarted && !cyberHit && eventType == "response.failed" {
+					// 已输出内容时不能换号重放，保留原流并记录失败诊断。
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
+				}
+				if !outputStarted && !cyberHit && !sawBareError {
+					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
+						sawFailedEvent = true
+						// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
+						// antigravity 先例），否则透传命中的 failed 在监控中不可见。
+						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
+						MarkResponseCommitted(c)
+						c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+						c.JSON(status, gin.H{
+							"error": gin.H{
+								"type":    errType,
+								"message": errMsg,
+							},
+						})
+						streamEarlyErr = fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
+						return
 					}
 				}
 				forceFlushFailedEvent = true

@@ -16,7 +16,7 @@
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | 模块组织和文件布局 | Filled |
 | [Database Guidelines](./database-guidelines.md) | Ent、SQL、迁移、事务约定 | Filled |
-| [Error Handling](./error-handling.md) | 错误类型、传播和 API 响应格式 | Filled |
+| [Error Handling](./error-handling.md) | 错误类型、传播、API 响应与 Responses 流式停调契约 | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | lint、测试、评审和禁用模式 | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | zap 日志、结构化字段和脱敏要求 | Filled |
 | [Protocol Adapter Guidelines](./protocol-adapter-guidelines.md) | Anthropic/OpenAI 协议桥接、路由/模型目录、cyber 会话隔离与上游超时契约 | Filled |

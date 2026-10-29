@@ -181,6 +181,86 @@ writeCodexClientRestrictionForbidden(c, restrictionResult)
 
 ---
 
+## Scenario: Responses 流式错误执行账号停止状态码规则
+
+### 1. Scope / Trigger
+
+- 修改 HTTP `/v1/responses` 原生或透传 SSE 的 `error`、`response.failed` 分类、终止处理或账号副作用时，必须同时检查两个入口。
+- 共用分类器还服务于非流式请求接收上游 SSE 的路径，必须保持其错误 JSON 转换行为。
+- 本契约不扩展 Chat Completions、WebSocket 或全局账号错误策略。
+
+### 2. Signatures
+
+```go
+func isOpenAIStreamCreditBalanceExhausted(payload []byte) bool
+func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
+	c *gin.Context,
+	account *Account,
+	payload []byte,
+	message string,
+	headers http.Header,
+	canonicalModel ...string,
+) (int, bool)
+```
+
+实现入口位于 `backend/internal/service/openai_gateway_passthrough.go`；原生流式消费者位于 `backend/internal/service/openai_gateway_response_handling.go`。
+
+### 3. Contracts
+
+- 余额耗尽识别要求合法 JSON：依次读取 `response.error.code`、`error.code`，缺失时再读顶层 `code`；匹配 `credit_balance_exhausted` 或 `insufficient_quota`，或嵌套错误 `type=insufficient_quota`。不得仅凭自由文本中出现余额、配额关键词识别。
+- 保持既有 `openAIStreamFailureStatus` 状态推断。示例这种没有显式 HTTP 状态的余额错误仍归为 `502`，不得为了识别余额错误改成 `429` 或 `402`，导致已配置的 `[502]` 无法命中。
+- 保留既有 `401`、账号级 `403`、`429`、`529` 分支。其它状态只有在 API Key 账号开启自定义错误码、命中列表且合法载荷通过上游失败分类时，才进入账号错误入口；空列表沿用“不过滤状态码”的既有语义。
+- 沿用参数、策略、上下文、容量降载等请求级错误排除。无效 JSON、普通断流的空载荷或本地合成 `502` 不能据此永久停用正常账号。
+- 复用 `handleOpenAIAccountUpstreamError` 和既有停调流程。自定义状态码分支的 `response.error` 必须归一化为账号错误入口可读取的形态，保留错误原因；持久化由 repository `SetError` 设置 `status=error`、`schedulable=false`，并通知、同步调度快照，不直接另写数据库。
+- 首次输出前的裸 `error` 也必须经过账号策略；仍可安全切号时沿用既有 failover。已经输出后只处理终止错误和账号副作用，不能重放请求。需要等待权威终止事件的路径挂起裸错误，随后失败或 EOF 才执行一次；成功 `response.completed` / `response.done` 必须清除挂起错误。
+- 若账号错误入口已决定停用，则同账号池内重试资格必须为 false，即使池模式显式允许重试 `502`。不能在停用后继续消耗同一账号。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 预期 |
+| --- | --- |
+| 结构化余额错误、开关开启、列表 `[502]` | 按 `502` 执行既有停调流程 |
+| 同一错误，开关关闭或列表未命中 | 不因自定义停止规则停用 |
+| 开关开启、空列表、可归因的上游失败 | 沿用既有不过滤语义 |
+| 首次输出前裸 `error`，或最终 `response.failed` | 两个流式入口均执行适用的账号策略 |
+| 已输出后失败 | 执行适用的停调副作用，保留已收到的 usage，不重放 |
+| 等待权威终止的裸错误后成功完成 | 取消挂起的停调副作用 |
+| 普通断流、无效 JSON、文本回显或请求级错误 | 不误停正常账号 |
+| 池模式显式允许重试 `502`，同时命中停用 | 禁止同账号重试 |
+
+### 5. Scenarios and Examples
+
+API Key 账号开启停止状态码并配置 `[502]`，上游通过 SSE 返回：
+
+```json
+{
+  "type": "error",
+  "error": {
+    "code": "credit_balance_exhausted",
+    "type": "insufficient_quota",
+    "message": "You have no credits remaining."
+  }
+}
+```
+
+正确行为：按既有 `502` 推断进入账号错误入口，持久化错误状态与停止调度，并保留余额耗尽原因。
+
+错误做法：只让监控显示 `502`，或只扩充账号 helper 的状态码分支，却让首次输出前的裸 `error` 提前返回。两者都会留下配置存在但未实际执行的路径。
+
+### 6. Tests Required
+
+```bash
+cd backend
+go test -tags=unit ./internal/service -run '^TestOpenAIStreamErrorPolicy' -count=1
+```
+
+- 覆盖原生与透传、裸 `error` 与 `response.failed`、输出前后、开关与列表过滤，以及非流式 SSE 转 JSON。
+- 断言持久化错误状态、后续读取账号的调度资格、错误原因与另一健康账号资格；不能仅断言日志或运行时通知次数。
+- 断言停用优先于显式配置的池内重试，并保留输出后的 usage。
+- 覆盖结构化嵌套字段、顶层 `code`、无效 JSON、文本回显、请求级错误、普通断流和权威成功终止的负例。
+
+---
+
 ## Common Mistakes
 
 - 不要直接 `c.JSON(status, gin.H{...})` 绕过统一 envelope，除非兼容外部协议必须如此。

@@ -1328,6 +1328,27 @@ func openAIStreamFailedEventErrorCode(payload []byte) string {
 	return code
 }
 
+// isOpenAIStreamCreditBalanceExhausted 只依据结构化错误识别余额或配额耗尽。
+// 保留既有 502 归类，让账号已配置的停止状态码继续生效。
+func isOpenAIStreamCreditBalanceExhausted(payload []byte) bool {
+	if !gjson.ValidBytes(payload) {
+		return false
+	}
+	code := openAIStreamFailedEventErrorCode(payload)
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "code").String()))
+	}
+	if code == "credit_balance_exhausted" || code == "insufficient_quota" {
+		return true
+	}
+	for _, path := range []string{"response.error.type", "error.type"} {
+		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(payload, path).String()), "insufficient_quota") {
+			return true
+		}
+	}
+	return false
+}
+
 // isOpenAIUpstreamCapacityShedEvent 判断流内 failed 事件是否为上游容量降载信号。
 // 上游在容量紧张时会把请求丢进降载路径：HTTP 200 之后立刻推 event: error
 // （code=server_is_overloaded / slow_down）并以 response.failed 收尾。
@@ -1580,7 +1601,7 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
-	if isOpenAIUpstreamAccessStateError(message, payload) {
+	if isOpenAIUpstreamAccessStateError(message, payload) || isOpenAIStreamCreditBalanceExhausted(payload) {
 		return true
 	}
 	semanticStatus := openAIStreamFailureStatus(payload, message)
@@ -1632,7 +1653,7 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
-	if isOpenAIUpstreamAccessStateError(message, payload) {
+	if isOpenAIUpstreamAccessStateError(message, payload) || isOpenAIStreamCreditBalanceExhausted(payload) {
 		return true
 	}
 	switch openAIStreamFailedEventSemanticStatus(payload, message) {
@@ -1661,6 +1682,7 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	canonicalModel ...string,
 ) (int, bool) {
 	statusCode := openAIStreamFailureStatus(payload, message)
+	responseBody := payload
 	switch statusCode {
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
@@ -1668,24 +1690,33 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 		}
 		fallthrough
 	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-		ctx := context.Background()
-		if c != nil && c.Request != nil {
-			ctx = c.Request.Context()
-		}
-		model := firstNonEmpty(canonicalModel...)
-		if model == "" {
-			model = firstNonEmpty(gjson.GetBytes(payload, "model").String(), gjson.GetBytes(payload, "response.model").String())
-		}
-		accountHeaders := headers
-		if statusCode == http.StatusTooManyRequests {
-			// 普通模型的流式 429 不能继承外层 HTTP 200 的全局 quota 快照；
-			// 只有 OAuth/SetupToken 的 Spark 配额 429 才需要保留 headers 读取明确的 5h/7d reset。
-			accountHeaders = openAIWSSemantic429Headers(account, model, headers)
-		}
-		return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, accountHeaders, payload, model)
 	default:
-		return statusCode, false
+		// 监控会把请求级错误也兜底记为 502；仅让可归因于上游失败且命中显式规则的事件进入停调。
+		// 空载荷来自断流等本地合成错误，不能据此把正常账号永久停用。
+		if account == nil || !account.IsCustomErrorCodesEnabled() || !account.ShouldHandleErrorCode(statusCode) ||
+			!gjson.ValidBytes(payload) || !openAIStreamFailedEventShouldFailover(payload, message) {
+			return statusCode, false
+		}
+		// 账号错误入口读取 error.message；把嵌套终止错误归一化，保留停用原因和关键词规则。
+		if gjson.GetBytes(payload, "response.error").Exists() {
+			responseBody = openAIStreamFailedEventPassthroughBody(payload, message)
+		}
 	}
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	model := firstNonEmpty(canonicalModel...)
+	if model == "" {
+		model = firstNonEmpty(gjson.GetBytes(payload, "model").String(), gjson.GetBytes(payload, "response.model").String())
+	}
+	accountHeaders := headers
+	if statusCode == http.StatusTooManyRequests {
+		// 普通模型的流式 429 不能继承外层 HTTP 200 的全局 quota 快照；
+		// 只有 OAuth/SetupToken 的 Spark 配额 429 才需要保留 headers 读取明确的 5h/7d reset。
+		accountHeaders = openAIWSSemantic429Headers(account, model, headers)
+	}
+	return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, accountHeaders, responseBody, model)
 }
 
 func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []byte, message string) bool {
@@ -1796,7 +1827,8 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 			"message": message,
 		},
 	})
-	retryableOnSameAccount := openAIStreamFailedEventRetryableOnSameAccount(account, payload, message)
+	// 显式规则已停止账号调度时，池模式不能继续在本次请求中重试该账号。
+	retryableOnSameAccount := !shouldDisable && openAIStreamFailedEventRetryableOnSameAccount(account, payload, message)
 	// 流终止事件承载在 HTTP 200 内，外层响应头描述的是成功流状态，而不是语义上的
 	// 429 事件。仅在配额分类时忽略这些头；故障转移错误仍保留它们，使 Retry-After
 	// 和请求 ID 能继续传递给后续处理。
@@ -2079,6 +2111,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
 			createdAtTracker.Observe(dataBytes, eventType)
+			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
+				(eventType == "response.completed" || eventType == "response.done") {
+				// 成功终止事件优先于尚未收口的裸错误，不能在 EOF 时再据旧错误停用账号。
+				sawBareError = false
+				sawFailedEvent = false
+				responseFailedPending = false
+				suppressCurrentEvent = false
+				bareErrorPayload = nil
+				bareErrorAccountSideEffectsPending = false
+				failedMessage = ""
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
@@ -2124,21 +2167,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						return resultWithUsage(), compactErr
 					}
 				}
-				if outputStarted && !cyberHit {
-					if codexFailureTerminal && eventType == "error" {
-						// Wait for the authoritative response.failed before mutating
-						// account health; EOF synthesis applies the pending effect.
-						bareErrorAccountSideEffectsPending = true
-					} else {
-						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
-						bareErrorAccountSideEffectsPending = false
-					}
-					if eventType == "response.failed" {
-						// The stream cannot be replayed after semantic output. Preserve the
-						// terminal event, while making the upstream failure queryable.
-						s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
-					}
-				}
 				if !outputStarted {
 					shouldFailover := false
 					if !cyberHit {
@@ -2152,21 +2180,34 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						return resultWithUsage(),
 							s.newOpenAIStreamFailoverErrorWithModel(c, account, true, upstreamRequestID, dataBytes, failedMessage, mappedModel, resp.Header)
 					}
-					if !cyberHit && !sawBareError {
-						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
-							// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
-							// antigravity 先例），否则透传命中的 failed 在监控中不可见。
-							s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)
-							MarkResponseCommitted(c)
-							c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-							c.JSON(status, gin.H{
-								"error": gin.H{
-									"type":    errType,
-									"message": errMsg,
-								},
-							})
-							return resultWithUsage(), fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
-						}
+				}
+				if !cyberHit {
+					if codexFailureTerminal && eventType == "error" {
+						// 首输出前同样需要账号策略，但裸错误应等权威终止事件，避免重复停用或覆盖后续成功。
+						bareErrorAccountSideEffectsPending = true
+					} else {
+						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
+						bareErrorAccountSideEffectsPending = false
+					}
+				}
+				if outputStarted && !cyberHit && eventType == "response.failed" {
+					// 已输出内容时不能换号重放，保留原流并记录失败诊断。
+					s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
+				}
+				if !outputStarted && !cyberHit && !sawBareError {
+					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
+						// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
+						// antigravity 先例），否则透传命中的 failed 在监控中不可见。
+						s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)
+						MarkResponseCommitted(c)
+						c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+						c.JSON(status, gin.H{
+							"error": gin.H{
+								"type":    errType,
+								"message": errMsg,
+							},
+						})
+						return resultWithUsage(), fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
 					}
 				}
 				forceFlushFailedEvent = true
