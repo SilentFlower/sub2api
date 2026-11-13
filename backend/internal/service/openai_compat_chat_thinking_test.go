@@ -68,7 +68,7 @@ func TestForwardMessagesChatDisabledThinkingUsesFinalProvider(t *testing.T) {
 }
 
 func TestCompatModelNormalizationDisabledThinkingDoesNotDeriveEffort(t *testing.T) {
-	for _, model := range []string{"gpt-5.4-xhigh", "gpt-5.6-luna-max", "openai/gpt-6.1-sol-max"} {
+	for _, model := range []string{"gpt-5.4-xhigh", "gpt-5.6-luna-max", "openai/gpt-6.1-sol-max", "openai/gpt-6.1-terra-max"} {
 		t.Run(model, func(t *testing.T) {
 			req := &apicompat.AnthropicRequest{Model: model, Thinking: &apicompat.AnthropicThinking{Type: "disabled"}}
 			require.Empty(t, applyOpenAICompatModelNormalization(req))

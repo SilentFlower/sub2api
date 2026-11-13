@@ -16,7 +16,7 @@ export interface ChannelWebSearchFeatureSection {
  * @return 平台支持渠道级 Web Search 时返回 true。
  */
 export function supportsChannelWebSearchEmulation(platform: GroupPlatform): boolean {
-  return platform === 'anthropic' || platform === 'openai'
+  return ['anthropic', 'openai', 'command_code', 'opencode_go', 'minimax', 'zhipu'].includes(platform)
 }
 
 /**
@@ -32,8 +32,9 @@ export function applyChannelWebSearchFeatureConfig(
 ): void {
   const values: Record<string, boolean> = {}
   for (const section of sections) {
-    if (!section.enabled || !supportsChannelWebSearchEmulation(section.platform)) continue
-    values[section.platform] = section.web_search_emulation === true
+    if (!supportsChannelWebSearchEmulation(section.platform)) continue
+    // 显式写入关闭值，避免服务端合并配置时保留平台旧的启用状态。
+    values[section.platform] = section.enabled && section.web_search_emulation === true
   }
 
   if (Object.keys(values).length > 0) {

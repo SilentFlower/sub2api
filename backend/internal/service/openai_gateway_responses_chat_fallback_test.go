@@ -1411,7 +1411,7 @@ func TestForwardResponses_TypedWebSearchStructuredOutputDoesNotAppendSources(t *
 	require.Equal(t, 1, result.WebSearchCalls)
 	require.Equal(t, "web_search_call", gjson.Get(rec.Body.String(), "output.0.type").String())
 	require.Equal(t, `{"answer":"ok"}`, gjson.Get(rec.Body.String(), "output.1.content.0.text").String())
-	require.False(t, gjson.Get(rec.Body.String(), "output.1.content.0.annotations").Exists())
+	require.Equal(t, "[]", gjson.Get(rec.Body.String(), "output.1.content.0.annotations").Raw)
 	require.NotContains(t, rec.Body.String(), "Sources:")
 }
 

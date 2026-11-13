@@ -6,7 +6,7 @@ import {
 } from '../channelFeatures'
 
 describe('渠道 Web Search features_config', () => {
-  it('只序列化启用的 OpenAI 和 Anthropic 平台并保留其它字段', () => {
+  it('为支持的平台写入显式状态并保留其它字段', () => {
     const featuresConfig: Record<string, unknown> = {
       existing_feature: { enabled: true },
       web_search_emulation: { anthropic: true }
@@ -15,12 +15,23 @@ describe('渠道 Web Search features_config', () => {
     applyChannelWebSearchFeatureConfig(featuresConfig, [
       { platform: 'openai', enabled: true, web_search_emulation: false },
       { platform: 'anthropic', enabled: false, web_search_emulation: true },
+      { platform: 'command_code', enabled: true, web_search_emulation: true },
+      { platform: 'opencode_go', enabled: false, web_search_emulation: true },
+      { platform: 'minimax', enabled: true, web_search_emulation: true },
+      { platform: 'zhipu', enabled: true, web_search_emulation: false },
       { platform: 'grok', enabled: true, web_search_emulation: true }
     ])
 
     expect(featuresConfig).toEqual({
       existing_feature: { enabled: true },
-      web_search_emulation: { openai: false }
+      web_search_emulation: {
+        openai: false,
+        anthropic: false,
+        command_code: true,
+        opencode_go: false,
+        minimax: true,
+        zhipu: false
+      }
     })
   })
 
@@ -40,6 +51,10 @@ describe('渠道 Web Search features_config', () => {
     expect(readChannelWebSearchFeatureConfig({ web_search_emulation: { openai: 'true' } }, 'openai')).toBe(false)
     expect(supportsChannelWebSearchEmulation('anthropic')).toBe(true)
     expect(supportsChannelWebSearchEmulation('openai')).toBe(true)
+    expect(supportsChannelWebSearchEmulation('command_code')).toBe(true)
+    expect(supportsChannelWebSearchEmulation('opencode_go')).toBe(true)
+    expect(supportsChannelWebSearchEmulation('minimax')).toBe(true)
+    expect(supportsChannelWebSearchEmulation('zhipu')).toBe(true)
     expect(supportsChannelWebSearchEmulation('grok')).toBe(false)
   })
 })

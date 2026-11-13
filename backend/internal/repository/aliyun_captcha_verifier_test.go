@@ -16,6 +16,11 @@ import (
 // newAliyunCaptchaTestTarget 起一个假的阿里云端点，让真实 SDK 走完整的签名/序列化链路。
 func newAliyunCaptchaTestTarget(t *testing.T, handler http.HandlerFunc) (*aliyunCaptchaVerifier, service.AliyunCaptchaCredentials) {
 	t.Helper()
+	// SDK 独立读取代理环境变量；本地假端点应直接连接，避免代理把断流包装成 HTTP 502。
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("https_proxy", "")
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -74,20 +79,13 @@ func TestAliyunCaptchaVerifier_APIErrorNormalized(t *testing.T) {
 }
 
 func TestAliyunCaptchaVerifier_TransportError(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
-	endpoint := strings.TrimPrefix(server.URL, "http://")
-	server.Close() // 立即关闭，制造连接失败
-
-	verifier := &aliyunCaptchaVerifier{protocol: "HTTP", timeoutMillis: 2_000}
-	cred := service.AliyunCaptchaCredentials{
-		AccessKeyID:     "test-ak-id",
-		AccessKeySecret: "test-ak-secret",
-		SceneID:         "scene-1",
-		Endpoint:        endpoint,
-	}
+	verifier, cred := newAliyunCaptchaTestTarget(t, func(http.ResponseWriter, *http.Request) {
+		// 保持监听端口归本测试所有，主动断流制造传输错误，避免关闭端口被其它测试复用。
+		panic(http.ErrAbortHandler)
+	})
 
 	_, err := verifier.VerifyCaptcha(context.Background(), cred, "param")
 	require.Error(t, err)
 	var apiErr *service.AliyunCaptchaAPIError
-	require.False(t, errors.As(err, &apiErr), "transport errors must not be normalized to API errors")
+	require.False(t, errors.As(err, &apiErr), "传输错误应保留原始类型，实际为 %T: %v", err, err)
 }

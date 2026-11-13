@@ -161,7 +161,9 @@ func outputTextPartWire(part *ResponsesContentPart) map[string]any {
 	annotations := []ResponsesAnnotation{}
 	if part != nil {
 		text = part.Text
-		annotations = part.Annotations
+		if part.Annotations != nil {
+			annotations = part.Annotations
+		}
 	}
 	return map[string]any{
 		"type":        "output_text",
@@ -254,11 +256,14 @@ func messageContentWire(parts []ResponsesContentPart) []map[string]any {
 		if typ == "" {
 			typ = "output_text"
 		}
-		part := map[string]any{"type": typ, "text": p.Text}
-		if len(p.Annotations) > 0 {
-			part["annotations"] = p.Annotations
+		switch typ {
+		case "output_text":
+			out = append(out, outputTextPartWire(&p))
+		case "refusal":
+			out = append(out, map[string]any{"type": typ, "refusal": p.Refusal})
+		default:
+			out = append(out, map[string]any{"type": typ, "text": p.Text})
 		}
-		out = append(out, part)
 	}
 	return out
 }

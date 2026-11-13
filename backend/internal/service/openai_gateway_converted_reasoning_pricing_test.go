@@ -82,28 +82,46 @@ func TestOpenAIMessagesGLMReasoningPricingUsesForwardedEffort(t *testing.T) {
 			{"medium", "", "high", 2},
 			{"xhigh", "", "max", 3},
 			{"xhigh", "medium", "medium", 1.5},
+			{"low", "medium", "medium", 1.5},
 		} {
 			t.Run(fmt.Sprintf("stream=%t/effort=%s/policy=%s", stream, tc.effort, tc.maxPolicy), func(t *testing.T) {
-				body := []byte(fmt.Sprintf(`{"model":"glm-5.2","stream":%t,"max_tokens":32,"output_config":{"effort":%q},"messages":[{"role":"user","content":"hello"}]}`, stream, tc.effort))
-				// Messages→Chat 回退始终向上游请求 SSE，非流式客户端由网关本地折叠，mock 统一返回 SSE。
-				responseBody := "data: " + `{"id":"chatcmpl_glm","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":2,"total_tokens":1000002}}` + "\n\ndata: [DONE]\n\n"
-				upstream := &httpUpstreamRecorder{resp: &http.Response{
-					StatusCode: http.StatusOK,
-					Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-					Body:       io.NopCloser(strings.NewReader(responseBody)),
-				}}
-				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-				ctx := context.Background()
-				if tc.maxPolicy != "" {
-					ctx = WithOpenAIReasoningEffortPolicy(ctx, tc.maxPolicy, nil, "")
+				for _, overLimit := range []string{"", ReasoningEffortOverLimitDowngrade, ReasoningEffortOverLimitDeny} {
+					t.Run("overLimit="+overLimit, func(t *testing.T) {
+						body := []byte(fmt.Sprintf(`{"model":"glm-5.2","stream":%t,"max_tokens":32,"output_config":{"effort":%q},"messages":[{"role":"user","content":"hello"}]}`, stream, tc.effort))
+						// 网关始终请求 SSE，并在本地为非流式客户端折叠响应。
+						contentType := "text/event-stream"
+						responseBody := "data: " + `{"id":"chatcmpl_glm","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":2,"total_tokens":1000002}}` + "\n\ndata: [DONE]\n\n"
+						upstream := &httpUpstreamRecorder{resp: &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{contentType}},
+							Body:       io.NopCloser(strings.NewReader(responseBody)),
+						}}
+						svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+						ctx := context.Background()
+						if tc.maxPolicy != "" {
+							ctx = WithOpenAIReasoningEffortPolicyForMessages(ctx, body, tc.maxPolicy, nil, overLimit)
+						}
+						requestContext := adaptiveProtocolTestContext("/v1/messages", body)
+						account := forceChatMessagesFallbackAccount()
+						require.Equal(t, PlatformOpenAI, account.Platform)
+						result, err := svc.ForwardAsAnthropic(ctx, requestContext, account, body, "", "")
+						if tc.maxPolicy != "" && overLimit == ReasoningEffortOverLimitDeny {
+							require.True(t, IsReasoningEffortPolicyDenied(err), "expected policy denial, got %v", err)
+							require.Equal(t, http.StatusForbidden, requestContext.Writer.Status())
+							require.Empty(t, upstream.requests)
+							require.Nil(t, result)
+							return
+						}
+						require.NoError(t, err)
+						require.Equal(t, http.StatusOK, requestContext.Writer.Status())
+						require.Len(t, upstream.requests, 1)
+						require.Equal(t, "/v1/chat/completions", upstream.lastReq.URL.Path)
+						require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+						require.Equal(t, tc.wantEffort, gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+						require.Equal(t, tc.wantEffort, optionalStringValue(result.ReasoningEffort))
+						assertConvertedReasoningPrice(t, result, tc.wantCost)
+					})
 				}
-				result, err := svc.ForwardAsAnthropic(ctx, adaptiveProtocolTestContext("/v1/messages", body), forceChatMessagesFallbackAccount(), body, "", "")
-				require.NoError(t, err)
-				require.Equal(t, "/v1/chat/completions", upstream.lastReq.URL.Path)
-				require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
-				require.Equal(t, tc.wantEffort, gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
-				require.Equal(t, tc.wantEffort, optionalStringValue(result.ReasoningEffort))
-				assertConvertedReasoningPrice(t, result, tc.wantCost)
 			})
 		}
 	}

@@ -591,9 +591,9 @@ type ChatCompletionsToAnthropicStreamState struct {
 	toolBlockIndex    map[int]int
 	toolAnnounced     map[int]bool
 	toolName          map[int]string
-	toolArgs          map[int]string
+	toolArgs          map[int]*strings.Builder
 	pendingToolCallID map[int]string
-	pendingToolArgs   map[int]string
+	pendingToolArgs   map[int]*strings.Builder
 
 	// DeepSeek 风格 reasoning_content 会先于正文流式到达。block 串行输出，
 	// 因此 thinking 与其它 block 共用 ContentBlockIndex 计数器。
@@ -623,9 +623,9 @@ func NewChatCompletionsToAnthropicStreamState(model string) *ChatCompletionsToAn
 		toolBlockIndex:    make(map[int]int),
 		toolAnnounced:     make(map[int]bool),
 		toolName:          make(map[int]string),
-		toolArgs:          make(map[int]string),
+		toolArgs:          make(map[int]*strings.Builder),
 		pendingToolCallID: make(map[int]string),
-		pendingToolArgs:   make(map[int]string),
+		pendingToolArgs:   make(map[int]*strings.Builder),
 	}
 }
 
@@ -727,7 +727,11 @@ func FinalizeChatCompletionsAnthropicStream(state *ChatCompletionsToAnthropicStr
 		for _, idx := range idxs {
 			callID := state.pendingToolCallID[idx]
 			if callID == "" {
-				callID = deterministicToolUseID(idx, state.toolName[idx], state.pendingToolArgs[idx])
+				arguments := ""
+				if buffer := state.pendingToolArgs[idx]; buffer != nil {
+					arguments = buffer.String()
+				}
+				callID = deterministicToolUseID(idx, state.toolName[idx], arguments)
 			}
 			events = append(events, closeCCAnthropicBlock(state)...)
 			events = append(events, announceCCAnthropicToolBlock(state, idx, callID, state.toolName[idx])...)
@@ -848,9 +852,19 @@ func handleCCAnthropicToolCall(state *ChatCompletionsToAnthropicStreamState, too
 		state.toolName[idx] = toolCall.Function.Name
 	}
 	if toolCall.Function.Arguments != "" {
-		state.toolArgs[idx] += toolCall.Function.Arguments
+		buffer := state.toolArgs[idx]
+		if buffer == nil {
+			buffer = &strings.Builder{}
+			state.toolArgs[idx] = buffer
+		}
+		_, _ = buffer.WriteString(toolCall.Function.Arguments)
 		if !state.toolAnnounced[idx] {
-			state.pendingToolArgs[idx] += toolCall.Function.Arguments
+			buffer := state.pendingToolArgs[idx]
+			if buffer == nil {
+				buffer = &strings.Builder{}
+				state.pendingToolArgs[idx] = buffer
+			}
+			_, _ = buffer.WriteString(toolCall.Function.Arguments)
 		}
 	}
 
@@ -909,7 +923,8 @@ func announceCCAnthropicToolBlock(state *ChatCompletionsToAnthropicStreamState, 
 			Input: json.RawMessage("{}"),
 		},
 	}}
-	if pending := state.pendingToolArgs[idx]; pending != "" && name != "Read" {
+	if buffer := state.pendingToolArgs[idx]; buffer != nil && buffer.Len() > 0 && name != "Read" {
+		pending := buffer.String()
 		delete(state.pendingToolArgs, idx)
 		state.CurrentToolHadDelta = true
 		events = append(events, AnthropicStreamEvent{
@@ -954,7 +969,10 @@ func closeCCAnthropicBlock(state *ChatCompletionsToAnthropicStreamState) []Anthr
 	idx := state.ContentBlockIndex
 	var events []AnthropicStreamEvent
 	if state.CurrentBlockType == "tool_use" && (!state.CurrentToolHadDelta || state.CurrentToolName == "Read") {
-		arguments := state.toolArgs[state.CurrentToolIndex]
+		arguments := ""
+		if buffer := state.toolArgs[state.CurrentToolIndex]; buffer != nil {
+			arguments = buffer.String()
+		}
 		if strings.TrimSpace(arguments) == "" {
 			arguments = "{}"
 		}

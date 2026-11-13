@@ -21,7 +21,7 @@
 - 流式响应转换：`ChatCompletionsChunkToAnthropicEvents(chunk *ChatCompletionsChunk, s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 流式收尾：`FinalizeChatCompletionsAnthropicStream(s *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent`
 - 非流式折叠：`ChatCompletionsStreamToAnthropicResponse(chunks []*ChatCompletionsChunk, model string) *AnthropicResponse`
-- build 关闭推理策略：`applyOpenAICompatChatThinking(req *apicompat.AnthropicRequest, chatReq *apicompat.ChatCompletionsRequest, account *Account)`
+- build 关闭推理策略：`applyOpenAICompatChatThinking(req *apicompat.AnthropicRequest, chatReq *apicompat.ChatCompletionsRequest, account *Account)`。最终 body 接线：`applyOpenAICompatChatThinkingBody(req *apicompat.AnthropicRequest, account *Account, body []byte) ([]byte, error)`。
 - Chat 出站 token 上限：`clampOllamaCloudUpstreamMaxTokens(account *Account, body []byte) []byte`
 - 网关结果：`OpenAIForwardResult.UpstreamHeaders`（`http.Header`），由 `openai_gateway_messages_chat_fallback.go` 接续。
 
@@ -37,8 +37,8 @@
 - Anthropic `tool_result` 没有独立 id，只有 `tool_use_id`。转 Chat 时输出 `role:"tool"`，并把 `tool_use_id` 写入 `tool_call_id`。同一 Anthropic user 轮次中的其它 text/image 必须放在后续 user message，以保持 Chat tool adjacency。
 - 多个并行工具的 `tool_result` 可能因实际执行耗时以不同顺序到达。转换到 Chat 后，紧跟上一条 assistant `tool_calls` 的连续 `role:"tool"` messages 必须按该 assistant `tool_calls` 的 id 顺序规范化；未知 id 保持相对顺序并排在已知 id 后面。不要跨过普通 user/text message 重排。
 - 历史 assistant `thinking` 不能当普通 text 注入 Chat prompt；带工具调用的 assistant 消息将明文 thinking 回传为 `reasoning_content`，无工具调用的轮次仍省略。
-- 公共转换器将请求级 `thinking:{"type":"disabled"}` 转为 `reasoning_effort:"none"`，省略 Chat `thinking`。build 的 Messages → Chat 出站策略在模型映射后调用 `applyOpenAICompatChatThinking`：最终模型属于 GPT / o1 / o3 / o4，或实际端点主机为 `api.openai.com` 时沿用公共字段；其它兼容上游恢复 `thinking.type=disabled` 并清空 effort，防止 GLM 将 `none` 映射为 `high`。不得按映射前的公开模型别名分类。
-- 显式关闭推理优先于模型的 `-xhigh` / `-max` 等后缀与 `output_config.effort`；不能从后缀重新开启推理。GPT-6.1 Sol 仍以原始请求体和最终模型执行校验，禁止的 `none` / `minimal` 或关闭推理返回 400 `invalid_request_error`。
+- 公共转换器将请求级 `thinking:{"type":"disabled"}` 转为 `reasoning_effort:"none"`，省略 Chat `thinking`。build 的 Messages → Chat 先完成模型映射、provider 归一化及分组 effort 策略，再调用 `applyOpenAICompatChatThinkingBody`。管理员把 `none` 映射为非空有效档位时保留该决定；其余显式关闭请求由内部 `applyOpenAICompatChatThinking` 按最终模型/端点投影：最终模型属于 GPT / o1 / o3 / o4，或实际端点主机为 `api.openai.com` 时沿用公共字段；其它兼容上游恢复 `thinking.type=disabled` 并清空 effort，防止 GLM 将 `none` 映射为 `high`。不得按映射前的公开模型别名分类。
+- 显式关闭推理优先于模型的 `-xhigh` / `-max` 等后缀与 `output_config.effort`；不能从后缀重新开启推理。GPT-6.1 Sol 的原始非法 `none` / `minimal`、Terra 的原始非法 `minimal` 在分组策略前返回 400 `invalid_request_error`。Terra 接受 `none`。显式 disabled 可经分组 `none` 映射为有效档位；最终仍不受支持的关闭档位在策略后校验并返回 400。
 - Messages → Chat 在 provider / effort / fast 策略之后，对最终出站 body 调用 Ollama token 上限 helper，再提取 usage。实际 Chat 上游为 `ollama.com` 且映射后模型为 DeepSeek 时，任意平台均按账号 `extra.ollama_max_tokens_cap` 裁剪 `max_tokens` / `max_completion_tokens`；缺省上限为 65535，数值配置为 0 或负数时禁用。非 DeepSeek 仅沿用既有 OpenAI 平台 Ollama raw Chat 账号规则；非 Ollama 地址不裁剪，不修改原始入站 body。
 - Chat 上游返回非空 `tool_call.id` 时，Anthropic `tool_use.id` 必须原样使用。
 - Chat 上游缺失 `tool_call.id` 时，不能使用随机 id。必须在 index/name/完整 arguments 可确定后生成 fallback：
@@ -70,7 +70,7 @@
   最终 `stop_reason` 也使用 `end_turn`。
 - 上游 SSE 只返回 `data: [DONE]` 且没有 chunk -> 输出 `message_start`、`message_delta(stop_reason=end_turn)`、`message_stop`。
 - Chat usage cached tokens 大于 prompt tokens -> Anthropic `input_tokens` 归零，不产生负数。
-- `thinking.type == "disabled"` -> 公共转换器输出 `reasoning_effort=none`；build 的最终模型/端点判定决定保留该结果，或恢复 `thinking.type=disabled` 且省略 effort。兼容关闭分支的 usage 不从模型后缀补 effort。
+- `thinking.type == "disabled"` -> 公共转换器输出 `reasoning_effort=none`；分组映射到有效档位则保留档位并据此计费，映射到 deny 则返回 403 且上游调用为 0。其余请求按最终模型/端点保留 `none`，或恢复 `thinking.type=disabled` 且省略 effort。兼容关闭分支的 usage 不从模型后缀补 effort。
 - 公开 GPT 别名映射到 DeepSeek / GLM / 未知兼容模型 -> 按最终兼容模型保留关闭开关，不发送 `none`；兼容别名映射到 GPT 或实际官方端点 -> 使用 `none`。
 - Ollama 出站 token 超过默认/自定义上限 -> 单向裁剪；上限以内、显式禁用、非 Ollama 地址 -> 保持原值。
 - Anthropic body 含 `metadata.user_id` 且无显式 session 信号 -> 账号 sticky key 来自 `reqModel + "-" + metadata.user_id`，不被 model/tools/首条 user content fallback 覆盖。
@@ -85,11 +85,12 @@
 - Good: 上游只给出 tool call ID/arguments、始终不给 function name 时，不输出
   `name:""` 的非法 `tool_use`，并以 `end_turn` 完成。
 - Good: Claude Code 同一 `metadata.user_id` 即使首条用户内容或工具定义不同，账号 sticky key 仍稳定命中同一个账号绑定。
+- Good: GLM 显式关闭推理且分组 `none -> low` 时，出站和用量均为 `low`；分组缺省时出站为 `thinking.type=disabled` 且 usage effort 为 `nil`。
 - Good: `gpt-5.4-xhigh` 映射到 DeepSeek 且显式关闭推理，最终 Chat body 只有 `thinking.type=disabled`，usage effort 为 `nil`；Ollama 地址上的 256000 token 按缺省上限裁为 65535。
 - Base: 上游稳定返回 `tool_call.id`，桥接直接复用该 id，客户端下一轮 `tool_result.tool_use_id` 可稳定引用。
 - Base: 上游不返回 `tool_call.id`，相同 index/name/arguments 多次请求生成相同 `toolu_` fallback。
 - Base: 映射到支持关闭推理的 GPT 模型时发送 `reasoning_effort=none`；GPT-6.1 Sol 的禁用档位按上游校验契约拒绝，不绕过校验。
-- Bad: 按入站 GPT 别名给 GLM 发送 `none`，导致 provider 归一化恢复为 `high`。正确做法是在模型映射之后应用 build 出站策略，并从最终 body 提取 usage。
+- Bad: 按入站 GPT 别名给 GLM 发送 `none`，导致 provider 归一化恢复为 `high`。正确做法是让分组策略先处理 `none`，随后按最终模型投影关闭字段，并从最终 body 提取 usage。
 - Bad: 为缺 id 的 tool call 调用 `crypto/rand` 或拼接请求 id、时间戳、message id。
 - Bad: 先发送 fallback id，后续 chunk 又收到上游 id，导致同一次工具调用在客户端侧 id 漂移。
 - Bad: 把 `tool_result` 后面的用户文本排在 `role:"tool"` 之前，破坏 Chat Completions 的 tool adjacency。
@@ -118,6 +119,7 @@
   - 后续 chunk 才提供 `tool_call.id` 时，最终使用上游 id。
   - 上游只返回 `[DONE]` 时，streaming 路径仍输出 `message_start`、`message_delta`、`message_stop`。
   - 公共转换器的 disabled → `none` 契约；`TestForwardMessagesChatDisabledThinkingUsesFinalProvider` 的原生模型、公开 GPT 别名映射到 DeepSeek、GLM、兼容别名映射到 GPT、官方端点、未知兼容模型六种实际出站断言。
+  - `TestMessagesEffortPolicyHTTP` 与 `TestMessagesGLMMappedEffortPolicyHTTP`：覆盖 none 映射、降档、deny、流式/非流式折叠、出站字段及实际计费档位；测试上游统一使用 SSE。
   - `TestCompatModelNormalizationDisabledThinkingDoesNotDeriveEffort`：显式关闭不从模型后缀派生 effort；兼容分支省略 effort 且 usage 为 `nil`。
   - `TestMessagesChatFallbackClampsActualOllamaOutboundTokens`：实际出站模型与地址、默认/自定义上限、显式禁用、上限以内、非 Ollama 地址，以及入站 body 不被修改。
   - cached/cache creation token 分别映射，且
@@ -2199,3 +2201,43 @@ if key != "" {
 - `TestCyberSessionIgnoresLegacyCacheBlocks` 与 `TestCyberSessionLookupFailOpen`：旧键不继承，关闭开关/存储失败不误拦。
 - `TestCyberAllowlistedUserBypassesPreexistingWebSocketSessionBlock`：同一个预封禁 ID 的 WS 首轮建立并继续转发，原封禁保留；同时保留 HTTP 白名单和后续 turn 断言。
 - `openai_gateway_cyber_test.go`、`openai_ws_v2_passthrough_cyber_test.go`、`gateway_cache_cyber_test.go`：真实命中、审计/用量 guard、WS 状态消费和 Redis TTL/读写契约。
+
+---
+
+## Scenario: Responses 文本项引用数组与 refusal 序列化
+
+### 1. Scope / Trigger
+
+- 合并或修改 Anthropic/Chat → Responses 响应和 SSE wire 序列化时适用，引用与结构化输出必须同时保持协议形状。
+
+### 2. Signatures
+
+- `outputTextPartWire(part *ResponsesContentPart) map[string]any`
+- `messageContentWire(parts []ResponsesContentPart) []map[string]any`
+
+### 3. Contracts
+
+- `output_text` 的 `annotations` 始终为数组。nil/空引用输出 `[]`；引用存在时保留全部条目。
+- `refusal` 使用 `refusal` 字段。其它内容类型沿用现有 text 投影。
+- 结构化 JSON 正文保持原始 JSON，不追加 Sources 文本。引用通过 annotations 表达。
+
+### 4. Validation & Error Matrix
+
+| 输入 | 输出 |
+| --- | --- |
+| nil 文本项或 nil annotations | `annotations: []` |
+| 有引用文本项 | `annotations` 为引用数组，保持索引与内容 |
+| refusal 项 | `type: refusal` 与 `refusal` 文本 |
+| 结构化 JSON 正文 | 保持合法 JSON，不追加来源段落 |
+
+### 5. Scenarios and Examples
+
+- Normal：引用文本输出 `{"type":"output_text","text":"正文","annotations":[...]}`。
+- Base：无引用文本输出 `{"type":"output_text","text":"正文","annotations":[]}`。
+- Incorrect use：用 nil 覆盖预置空 slice 会输出 null。Correct：仅在输入 annotations 非 nil 时覆盖预置空数组。
+
+### 6. Tests Required
+
+- `responses_stream_event_wire_test.go` 与 `responses_message_serialization_test.go`：SSE 与完成响应的 output_text/refusal 字段及数组形状。
+- `TestForwardResponses_TypedWebSearchStructuredOutputDoesNotAppendSources`：正文可解析为 JSON、无来源文本追加、annotations 为数组。
+- `anthropic_websearch_responses_test.go`：引用索引、流式累积和 Fable/Mythos 新模型保持一致。

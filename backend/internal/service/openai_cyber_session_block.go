@@ -16,9 +16,18 @@ import (
 // repository 层 gatewayCache 附带实现（类型断言探测接入，不改 GatewayCache
 // 共享接口）；测试 stub 不实现时屏蔽能力自动降级关闭。
 type CyberSessionBlockStore interface {
-	SetCyberSessionBlocked(ctx context.Context, scopeKey string, keys []string, ttl time.Duration) error
-	IsCyberSessionScopeActive(ctx context.Context, scopeKey string) (bool, error)
+	SetCyberSessionBlocked(ctx context.Context, block CyberSessionBlock, ttl time.Duration) error
+	CyberSessionTranscriptLengths(ctx context.Context, apiKeyID int64, scopeKey string) ([]int, error)
 	FindCyberSessionBlocked(ctx context.Context, keys []string) (string, error)
+}
+
+// CyberSessionBlock 承接上游存储接口；build 的请求写入只提供明确身份键。
+// 历史索引字段仅保留存储兼容，准入路径不会据此推断会话身份。
+type CyberSessionBlock struct {
+	APIKeyID          int64
+	ScopeKey          string
+	Keys              []string
+	TranscriptLengths []int
 }
 
 // CyberSessionExplicitBlockKey 仅按认证 API Key 与明确会话请求头生成屏蔽键。
@@ -85,7 +94,7 @@ func (s *OpenAIGatewayService) MarkCyberSessionBlocked(ctx context.Context, scop
 	if store == nil {
 		return
 	}
-	if err := store.SetCyberSessionBlocked(ctx, scopeKey, keys, ttl); err != nil {
+	if err := store.SetCyberSessionBlocked(ctx, CyberSessionBlock{ScopeKey: scopeKey, Keys: keys}, ttl); err != nil {
 		logger.LegacyPrintf("service.openai_gateway", "cyber session block write failed: err=%v", err)
 	}
 }

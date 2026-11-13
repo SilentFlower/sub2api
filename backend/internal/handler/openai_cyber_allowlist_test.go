@@ -51,7 +51,7 @@ func TestCyberAllowlistedUserBypassesExistingBlocksAndContinuesWebSocket(t *test
 	require.NotEmpty(t, explicitKey)
 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
 	require.True(t, ok)
-	require.NoError(t, store.SetCyberSessionBlocked(context.Background(), "", []string{explicitKey}, time.Minute))
+	require.NoError(t, store.SetCyberSessionBlocked(context.Background(), service.CyberSessionBlock{Keys: []string{explicitKey}}, time.Minute))
 	for _, format := range []cyberSessionBlockFormat{cyberBlockFormatResponses, cyberBlockFormatChat, cyberBlockFormatAnthropic} {
 		require.False(t, harness.handler.rejectIfCyberSessionBlocked(c, harness.apiKey, payload, "gpt-5.1", format))
 	}
@@ -110,7 +110,7 @@ func TestCyberAllowlistedUserBypassesPreexistingWebSocketSessionBlock(t *testing
 	require.NotEmpty(t, key)
 	store, ok := harness.gatewayCache.(service.CyberSessionBlockStore)
 	require.True(t, ok)
-	require.NoError(t, store.SetCyberSessionBlocked(context.Background(), "", []string{key}, time.Minute))
+	require.NoError(t, store.SetCyberSessionBlocked(context.Background(), service.CyberSessionBlock{Keys: []string{key}}, time.Minute))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, harness.clientConn.Write(ctx, coderws.MessageText, body))

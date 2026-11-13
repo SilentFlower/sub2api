@@ -74,7 +74,7 @@ func TestResponsesToAnthropicRequestRejectsUnsupportedWebSearchFields(t *testing
 }
 
 func TestAnthropicToResponsesResponseMapsWebSearchAndCitations(t *testing.T) {
-	for _, model := range []string{"deepseek-v4-pro", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+	for _, model := range []string{"deepseek-v4-pro", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2", "claude-mythos-5-2"} {
 		t.Run(model, func(t *testing.T) {
 			resp := &AnthropicResponse{
 				ID:         "msg_1",

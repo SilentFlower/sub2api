@@ -39,7 +39,8 @@ type fakeCyberBlockStore struct {
 
 var _ CyberSessionBlockStore = (*fakeCyberBlockStore)(nil)
 
-func (f *fakeCyberBlockStore) SetCyberSessionBlocked(_ context.Context, scopeKey string, keys []string, _ time.Duration) error {
+func (f *fakeCyberBlockStore) SetCyberSessionBlocked(_ context.Context, block CyberSessionBlock, _ time.Duration) error {
+	scopeKey, keys := block.ScopeKey, block.Keys
 	if f.blocked == nil {
 		f.blocked = map[string]bool{}
 	}
@@ -55,9 +56,9 @@ func (f *fakeCyberBlockStore) SetCyberSessionBlocked(_ context.Context, scopeKey
 	return nil
 }
 
-func (f *fakeCyberBlockStore) IsCyberSessionScopeActive(_ context.Context, scopeKey string) (bool, error) {
+func (f *fakeCyberBlockStore) CyberSessionTranscriptLengths(_ context.Context, _ int64, _ string) ([]int, error) {
 	f.scopeCalls++
-	return f.scopes[scopeKey], nil
+	return nil, nil
 }
 
 func (f *fakeCyberBlockStore) FindCyberSessionBlocked(_ context.Context, keys []string) (string, error) {
@@ -152,11 +153,11 @@ func (c *comboCacheAndStore) GetReasoningContent(_ context.Context, _ string) (s
 	return "", ErrReasoningContentNotFound
 }
 
-func (c *comboCacheAndStore) SetCyberSessionBlocked(ctx context.Context, scopeKey string, keys []string, ttl time.Duration) error {
-	return c.store.SetCyberSessionBlocked(ctx, scopeKey, keys, ttl)
+func (c *comboCacheAndStore) SetCyberSessionBlocked(ctx context.Context, block CyberSessionBlock, ttl time.Duration) error {
+	return c.store.SetCyberSessionBlocked(ctx, block, ttl)
 }
-func (c *comboCacheAndStore) IsCyberSessionScopeActive(ctx context.Context, scopeKey string) (bool, error) {
-	return c.store.IsCyberSessionScopeActive(ctx, scopeKey)
+func (c *comboCacheAndStore) CyberSessionTranscriptLengths(ctx context.Context, apiKeyID int64, scopeKey string) ([]int, error) {
+	return c.store.CyberSessionTranscriptLengths(ctx, apiKeyID, scopeKey)
 }
 func (c *comboCacheAndStore) FindCyberSessionBlocked(ctx context.Context, keys []string) (string, error) {
 	return c.store.FindCyberSessionBlocked(ctx, keys)

@@ -8,6 +8,9 @@ import (
 )
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
+	if openai.IsGPT61TerraModelSpelling(model) {
+		return "gpt-6.1-terra"
+	}
 	if openai.IsGPT61SolModelSpelling(model) {
 		return "gpt-6.1-sol"
 	}
@@ -27,10 +30,11 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) string
 	if req == nil {
 		return ""
 	}
-	if openai.IsGPT61SolModelSpelling(req.Model) {
+	if openai.IsGPT61SolModelSpelling(req.Model) || openai.IsGPT61TerraModelSpelling(req.Model) {
 		canonical := openai.CanonicalizeOpenAIModelAliasSpelling(req.Model)
-		if effort, ok := strings.CutPrefix(canonical, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
-			req.Model = "gpt-6.1-sol"
+		baseModel := NormalizeOpenAICompatRequestedModel(req.Model)
+		if effort, ok := strings.CutPrefix(canonical, baseModel+"-"); ok && effort != "openai-compact" {
+			req.Model = baseModel
 			// 显式关闭推理优先于后缀，防止调用方回填派生 effort 后重新开启。
 			if req.Thinking != nil && req.Thinking.Type == "disabled" {
 				return ""
