@@ -1,0 +1,223 @@
+{
+  "id": "merge-main-build-integrity",
+  "name": "merge-main-build-integrity",
+  "title": "合并远程 main 到 build 并验证双方功能完整性",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "silentflower",
+  "assignee": "silentflower",
+  "createdAt": "2026-11-13",
+  "completedAt": "2026-11-13",
+  "closeout": {
+    "status": "closed",
+    "closedAt": "2026-11-13T15:57:07Z",
+    "blockers": []
+  },
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "intentRouting": {
+      "autoCreated": true,
+      "createdAt": "2026-11-13T15:15:25Z",
+      "contextKey": "codex_01a1d577-d605-7161-9980-44b28d8580ef",
+      "implementationStarted": false,
+      "baseline": {
+        "head": "e63f900efd14c8429fba0011bdeb69a43abe22e1",
+        "status": [
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-brainstorm/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-check-all/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-check-all/references/findings-and-reporting.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-check-all/references/repair-and-recheck.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-check-all/references/reporting-and-disposition.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-extract-prd/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-meta/references/customize-local/change-skills-or-commands.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-meta/references/customize-local/overview.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-meta/references/local-architecture/bundled-skills.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-meta/references/local-architecture/generated-files.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-meta/references/local-architecture/overview.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-plan-version/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-push/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-push/references/output-templates.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-task-brief/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".agents/skills/trellis-verify-task/SKILL.md"
+          },
+          {
+            "status": " M",
+            "path": ".flower/plugin-lock.json"
+          },
+          {
+            "status": " M",
+            "path": ".flower/plugins.json"
+          },
+          {
+            "status": " M",
+            "path": ".trellis/workflow.md"
+          }
+        ],
+        "repositories": [
+          {
+            "root": ".",
+            "head": "e63f900efd14c8429fba0011bdeb69a43abe22e1",
+            "status": [
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-brainstorm/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-check-all/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-check-all/references/findings-and-reporting.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-check-all/references/repair-and-recheck.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-check-all/references/reporting-and-disposition.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-extract-prd/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-meta/references/customize-local/change-skills-or-commands.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-meta/references/customize-local/overview.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-meta/references/local-architecture/bundled-skills.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-meta/references/local-architecture/generated-files.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-meta/references/local-architecture/overview.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-plan-version/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-push/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-push/references/output-templates.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-task-brief/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".agents/skills/trellis-verify-task/SKILL.md"
+              },
+              {
+                "status": " M",
+                "path": ".flower/plugin-lock.json"
+              },
+              {
+                "status": " M",
+                "path": ".flower/plugins.json"
+              },
+              {
+                "status": " M",
+                "path": ".trellis/workflow.md"
+              }
+            ],
+            "worktreeDiffSha256": "3fc47195e746ade7381817ff74e897f21066a8ee0391c35fd811749910743619",
+            "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "untracked": [],
+            "conflicts": [],
+            "integration": [],
+            "fingerprint": "627182189462d735e410d1a6de7d7f6be6093f4baf3ea7adc928885371d4596e"
+          }
+        ],
+        "fingerprint": "b54e6678f396212cf0304b6d2ec05c0a7e5388149523ff9a0441acf8b13b6c4f"
+      }
+    }
+  },
+  "progress": {
+    "completedSteps": [
+      "固定 main 目标合入 build 并保留双父历史",
+      "处理 32 个文本冲突并复核 68 个自动合并交集",
+      "完成双方功能回归、前后端验证及隔离数据库集成测试",
+      "Check-All 全面验收通过并更新协议规范",
+      "业务合并提交与远程 build 同步完成"
+    ],
+    "partialStep": null,
+    "nextStep": "任务完成，发布时执行真实上游与部署环境验收",
+    "notes": "迁移 SQL 保留 main 原始 blob；19 个 Flower 升级文件独立保留。",
+    "updatedAt": "2026-11-13T15:57:07Z"
+  }
+}

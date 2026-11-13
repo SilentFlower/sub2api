@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/build-private-feature-isolation-guide.md", "reason": "合并双方功能与验证契约"}
+{"file": ".trellis/spec/backend/protocol-adapter-guidelines.md", "reason": "合并双方功能与验证契约"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "合并双方功能与验证契约"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "合并双方功能与验证契约"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "合并双方功能与验证契约"}
